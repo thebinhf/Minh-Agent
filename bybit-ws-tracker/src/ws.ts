@@ -51,6 +51,8 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
         subscribedTopics: topics.length,
       });
       socket.send(JSON.stringify({ op: "subscribe", args: topics }));
+      socket.send(JSON.stringify({ op: "ping", req_id: `ping-${Date.now()}` }));
+      store.setHealth({ lastPingTs: Date.now() });
       startPing(socket);
       console.log(`[bybit-ws] subscribed ${topics.length} topics`);
     });
