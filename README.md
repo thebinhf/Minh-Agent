@@ -39,3 +39,14 @@ Then open http://localhost:3000 and add, complete, and delete tasks.
 | `DELETE` | `/api/tasks/:id`  | Delete a task.            |
 
 Tasks are stored in memory and reset when the server restarts.
+
+## Bybit market tracker
+
+Local public WebSocket → SQLite market cache lives in [`bybit-ws-tracker/`](bybit-ws-tracker/). Minh can read prices from localhost SQLite/HTTP instead of Bybit MCP (avoids Usage quota). The WS feed works in regions where Bybit REST is geo-blocked. No API keys, no trading.
+
+```bash
+cd bybit-ws-tracker
+bun install
+bun test
+bun run start   # HTTP 127.0.0.1:43180, public linear WS
+```

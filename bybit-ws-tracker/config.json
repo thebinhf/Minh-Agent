@@ -1,0 +1,37 @@
+{
+  "endpoint": "wss://stream.bybit.com/v5/public/linear",
+  "httpHost": "127.0.0.1",
+  "httpPort": 43180,
+  "dbPath": "./data/bybit-market.sqlite",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "ENAUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT",
+    "LINKUSDT"
+  ],
+  "klineIntervals": ["5", "15", "60", "240"],
+  "orderbook": {
+    "depth": 50,
+    "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+  },
+  "pingIntervalMs": 20000,
+  "reconnect": {
+    "initialDelayMs": 1000,
+    "maxDelayMs": 30000
+  },
+  "retention": {
+    "tickerSnapshotsHours": 24,
+    "orderbookSnapshotsHours": 6,
+    "klinesDays": 14,
+    "pruneIntervalMs": 300000
+  },
+  "snapshot": {
+    "tickerEveryMs": 60000,
+    "orderbookEveryMs": 5000
+  }
+}
