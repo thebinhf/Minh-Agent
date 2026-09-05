@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { TrackerConfig } from "./types";
 
-const DEFAULT_CONFIG_PATH = resolve(import.meta.dir, "../config.json");
+const DEFAULT_CONFIG_PATH = resolve(import.meta.dir, "config.json");
 
 function csv(value: string | undefined): string[] | undefined {
   if (!value) return undefined;

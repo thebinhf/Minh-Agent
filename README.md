@@ -1,40 +1,31 @@
-# Minh-Agent
+# Minh (明)
 
-Monorepo for local development tools used by Minh.
+Bun trading agent. Architecture follows the [greenfield Minh Agent](https://github.com/comtammatu/minh-agent) layout: one process, features under `src/`, Bybit as `src/feed/bb/`.
 
-## Projects
-
-| App | Path | Stack | Docs |
-| --- | --- | --- | --- |
-| Task board | [`apps/task-board/`](apps/task-board/) | Node.js, Express 5, Vitest | [Task board](docs/task-board.md) |
-| Bybit market tracker | [`apps/bybit-ws-tracker/`](apps/bybit-ws-tracker/) | Bun, SQLite | [Bybit tracker](apps/bybit-ws-tracker/README.md) |
-
-See [`docs/README.md`](docs/README.md) for the documentation index and [`docs/architecture.md`](docs/architecture.md) for layout and history.
+**First live feature:** Bybit public linear WebSocket → local SQLite market cache. No API keys, no trading.
 
 ## Quick start
 
-From the repository root:
-
 ```bash
-npm run install:all   # task-board (npm) + bybit tracker (bun)
-npm test              # all test suites
+bun install
+bun test
+bun run start          # HTTP 127.0.0.1:43180
 ```
 
-### Task board
+## Docs
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/FEATURES.md](docs/FEATURES.md)
+- [docs/exchanges/BB.md](docs/exchanges/BB.md)
+
+## Checks
 
 ```bash
-npm run dev           # http://localhost:3000
-```
-
-### Bybit market tracker
-
-Local public WebSocket → SQLite cache. No API keys, no trading.
-
-```bash
-npm run dev:bybit     # HTTP 127.0.0.1:43180
+bun test
+bun run typecheck
 ```
 
 ## Requirements
 
-- **Monorepo scripts:** Node.js >= 20, npm
-- **Bybit tracker:** Bun >= 1.4
+- Bun >= 1.4
+- TypeScript 7.x

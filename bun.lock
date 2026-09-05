@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "bybit-ws-tracker",
+      "name": "minh-agent",
       "devDependencies": {
         "@types/bun": "^1.4.1",
         "typescript": "^7.0.2",

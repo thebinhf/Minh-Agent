@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { applyOrderbook, mergeTicker, serializeBook } from "../src/merge";
-import type { BybitOrderbookData, TickerState } from "../src/types";
+import { applyOrderbook, mergeTicker, serializeBook } from "../../../src/feed/bb/merge";
+import type { BybitOrderbookData, TickerState } from "../../../src/feed/bb/types";
 
 describe("mergeTicker", () => {
   test("snapshot replaces the full ticker", () => {

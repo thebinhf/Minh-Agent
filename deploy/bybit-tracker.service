@@ -1,5 +1,5 @@
 [Unit]
-Description=Bybit public WebSocket market tracker (read-only, no keys)
+Description=Minh Agent — Bybit public WebSocket market tracker (read-only, no keys)
 Documentation=https://bybit-exchange.github.io/docs/v5/ws/connect
 After=network-online.target
 Wants=network-online.target
@@ -9,7 +9,7 @@ Type=simple
 # Override User / WorkingDirectory / Environment via:
 #   sudo systemctl edit bybit-tracker
 User=ubuntu
-WorkingDirectory=/opt/minh-agent/apps/bybit-ws-tracker
+WorkingDirectory=/opt/minh-agent
 ExecStart=/home/ubuntu/.bun/bin/bun run start
 Restart=always
 RestartSec=3

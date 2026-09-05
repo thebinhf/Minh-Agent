@@ -2,21 +2,20 @@
   "name": "minh-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Minh-Agent monorepo: task board (Node) and Bybit market tracker (Bun).",
+  "description": "Minh (明) — Bun trading agent. First live feature: Bybit public WS market cache.",
+  "type": "module",
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4"
   },
   "scripts": {
-    "install:all": "npm ci --prefix apps/task-board && cd apps/bybit-ws-tracker && bun install",
-    "dev": "npm run dev --prefix apps/task-board",
-    "dev:task-board": "npm run dev --prefix apps/task-board",
-    "dev:bybit": "cd apps/bybit-ws-tracker && bun run start",
-    "build": "npm run build --prefix apps/task-board",
-    "start": "npm run start --prefix apps/task-board",
-    "typecheck": "npm run typecheck --prefix apps/task-board",
-    "lint": "npm run lint --prefix apps/task-board",
-    "test": "npm run test --prefix apps/task-board && cd apps/bybit-ws-tracker && bun test",
-    "test:task-board": "npm run test --prefix apps/task-board",
-    "test:bybit": "cd apps/bybit-ws-tracker && bun test"
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "query": "bun run src/feed/bb/query.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.1",
+    "typescript": "^7.0.2"
   }
 }

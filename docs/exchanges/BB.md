@@ -1,8 +1,10 @@
-# Bybit public WebSocket market tracker
+# Bybit (BB) — public market cache
 
-Local SQLite cache of Bybit **public linear** market data. Minh (and the Grok Bot host) can read prices from localhost instead of calling Bybit MCP (avoids Usage quota). The WebSocket feed also works in regions where Bybit REST is geo-blocked.
+Local SQLite cache of Bybit **public linear** market data. Minh can read prices from localhost instead of Bybit MCP (avoids Usage quota). The WebSocket feed also works where Bybit REST is geo-blocked.
 
-This is the source of truth, ported from the production Origin sandbox (`thebinhf/tmp-eff640edd8363a46`). It is **not a trading bot**: no API keys, no private topics, no order placement.
+**Not a trading bot:** no API keys, no private topics, no order placement.
+
+Adapter path: `src/feed/bb/`.
 
 ## Design
 
@@ -21,22 +23,9 @@ Topic names match Bybit V5 public docs: [connect](https://bybit-exchange.github.
 
 Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50 is snapshot-then-delta; size `0` deletes a level; `u=1` means the book service restarted and the payload replaces the local book. Heartbeat is a client `ping` about every 20s.
 
-**Path:** `apps/bybit-ws-tracker/` in the [Minh-Agent monorepo](../../docs/architecture.md).
-
 ## Quick start
 
-From the repository root:
-
 ```bash
-npm run install:all
-npm run test:bybit
-npm run dev:bybit
-```
-
-Or from this directory:
-
-```bash
-cd apps/bybit-ws-tracker
 bun install
 bun test
 bun run start
@@ -62,7 +51,7 @@ bun run query meta
 
 ## Config and env overrides
 
-Defaults live in `config.json`. Environment variables win when set:
+Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 
 | Env | Maps to |
 | --- | --- |
@@ -82,7 +71,7 @@ Retention prune drops old snapshot rows and confirmed klines on a timer (`retent
 
 ## Deploy
 
-Unit file: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service). Copy it to `/etc/systemd/system/`, set `WorkingDirectory` to `/opt/minh-agent/apps/bybit-ws-tracker` (or your checkout path), set `BYBIT_DB_PATH`, then:
+Unit file: [`deploy/bybit-tracker.service`](../../deploy/bybit-tracker.service). Copy it to `/etc/systemd/system/`, set `WorkingDirectory` to the Minh Agent checkout (`/opt/minh-agent`), set `BYBIT_DB_PATH`, then:
 
 ```bash
 sudo systemctl daemon-reload
