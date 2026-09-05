@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Bybit public linear WebSocket market tracker (Bun + SQLite). No API keys, no trading.",
+  "engines": {
+    "bun": ">=1.2"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "query": "bun run src/query.ts",
     "test": "bun test"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.7.2"
+    "@types/bun": "^1.4.1",
+    "typescript": "^5.9.3"
   }
 }

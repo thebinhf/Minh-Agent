@@ -5,8 +5,8 @@
     "": {
       "name": "bybit-ws-tracker",
       "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.7.2",
+        "@types/bun": "^1.4.1",
+        "typescript": "^5.9.3",
       },
     },
   },
