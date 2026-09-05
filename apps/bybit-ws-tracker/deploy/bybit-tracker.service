@@ -9,7 +9,7 @@ Type=simple
 # Override User / WorkingDirectory / Environment via:
 #   sudo systemctl edit bybit-tracker
 User=ubuntu
-WorkingDirectory=/opt/minh-agent/bybit-ws-tracker
+WorkingDirectory=/opt/minh-agent/apps/bybit-ws-tracker
 ExecStart=/home/ubuntu/.bun/bin/bun run start
 Restart=always
 RestartSec=3

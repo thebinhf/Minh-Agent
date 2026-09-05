@@ -1,5 +1,5 @@
 {
-  "name": "bybit-ws-tracker",
+  "name": "@minh-agent/bybit-ws-tracker",
   "version": "1.0.0",
   "private": true,
   "type": "module",

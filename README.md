@@ -1,35 +1,40 @@
 # Minh-Agent
 
-Monorepo for local development tools: a TypeScript task board (Express + static UI) and a Bybit public WebSocket market tracker (Bun + SQLite).
+Monorepo for local development tools used by Minh.
 
 ## Projects
 
-| Path | Stack | Docs |
-| --- | --- | --- |
-| `./` (root) | Node.js, Express 5, Vitest | [Task board](docs/task-board.md) |
-| [`bybit-ws-tracker/`](bybit-ws-tracker/) | Bun, SQLite | [Bybit tracker](bybit-ws-tracker/README.md) |
+| App | Path | Stack | Docs |
+| --- | --- | --- | --- |
+| Task board | [`apps/task-board/`](apps/task-board/) | Node.js, Express 5, Vitest | [Task board](docs/task-board.md) |
+| Bybit market tracker | [`apps/bybit-ws-tracker/`](apps/bybit-ws-tracker/) | Bun, SQLite | [Bybit tracker](apps/bybit-ws-tracker/README.md) |
 
-See [`docs/README.md`](docs/README.md) for the full documentation index.
+See [`docs/README.md`](docs/README.md) for the documentation index and [`docs/architecture.md`](docs/architecture.md) for layout and history.
 
-## Quick start — task board
+## Quick start
+
+From the repository root:
 
 ```bash
-npm ci
-npm run dev   # http://localhost:3000
+npm run install:all   # task-board (npm) + bybit tracker (bun)
+npm test              # all test suites
 ```
 
-## Quick start — Bybit market tracker
-
-Local public WebSocket → SQLite cache. No API keys, no trading. Works where Bybit REST is geo-blocked; Minh can read prices from localhost instead of Bybit MCP.
+### Task board
 
 ```bash
-cd bybit-ws-tracker
-bun install
-bun test
-bun run start   # HTTP 127.0.0.1:43180
+npm run dev           # http://localhost:3000
+```
+
+### Bybit market tracker
+
+Local public WebSocket → SQLite cache. No API keys, no trading.
+
+```bash
+npm run dev:bybit     # HTTP 127.0.0.1:43180
 ```
 
 ## Requirements
 
-- **Task board:** Node.js >= 20, npm
+- **Monorepo scripts:** Node.js >= 20, npm
 - **Bybit tracker:** Bun >= 1.4

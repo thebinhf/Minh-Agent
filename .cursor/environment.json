@@ -1,16 +1,24 @@
 {
   "name": "Minh-Agent",
-  "install": "npm ci",
+  "install": "npm ci --prefix apps/task-board && cd apps/bybit-ws-tracker && bun install",
   "terminals": [
     {
-      "name": "dev-server",
-      "command": "npm run dev"
+      "name": "task-board",
+      "command": "npm run dev --prefix apps/task-board"
+    },
+    {
+      "name": "bybit-tracker",
+      "command": "cd apps/bybit-ws-tracker && bun run start"
     }
   ],
   "ports": [
     {
-      "name": "web",
+      "name": "task-board",
       "port": 3000
+    },
+    {
+      "name": "bybit-tracker",
+      "port": 43180
     }
   ]
 }

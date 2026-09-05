@@ -2,6 +2,8 @@
 
 Minimal full-stack TypeScript task board: an Express JSON API plus a static UI. Used to exercise a complete Node.js development environment end to end.
 
+**Path:** [`apps/task-board/`](../apps/task-board/)
+
 ## Requirements
 
 - Node.js >= 20 (developed against Node 22)
@@ -9,14 +11,26 @@ Minimal full-stack TypeScript task board: an Express JSON API plus a static UI. 
 
 ## Getting started
 
+From the repository root:
+
 ```bash
-npm ci        # install dependencies
-npm run dev   # start the dev server at http://localhost:3000 (watch mode)
+npm ci --prefix apps/task-board
+npm run dev           # http://localhost:3000
+```
+
+Or from the app directory:
+
+```bash
+cd apps/task-board
+npm ci
+npm run dev
 ```
 
 Then open http://localhost:3000 and add, complete, and delete tasks.
 
 ## Scripts
+
+Run from `apps/task-board/` or via root (`npm run <script> --prefix apps/task-board`).
 
 | Command | Description |
 | --- | --- |

@@ -21,10 +21,22 @@ Topic names match Bybit V5 public docs: [connect](https://bybit-exchange.github.
 
 Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50 is snapshot-then-delta; size `0` deletes a level; `u=1` means the book service restarted and the payload replaces the local book. Heartbeat is a client `ping` about every 20s.
 
+**Path:** `apps/bybit-ws-tracker/` in the [Minh-Agent monorepo](../../docs/architecture.md).
+
 ## Quick start
 
+From the repository root:
+
 ```bash
-cd bybit-ws-tracker
+npm run install:all
+npm run test:bybit
+npm run dev:bybit
+```
+
+Or from this directory:
+
+```bash
+cd apps/bybit-ws-tracker
 bun install
 bun test
 bun run start
@@ -70,7 +82,7 @@ Retention prune drops old snapshot rows and confirmed klines on a timer (`retent
 
 ## Deploy
 
-Unit file: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service). Copy it to `/etc/systemd/system/`, point `WorkingDirectory` at this folder, set `BYBIT_DB_PATH`, then:
+Unit file: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service). Copy it to `/etc/systemd/system/`, set `WorkingDirectory` to `/opt/minh-agent/apps/bybit-ws-tracker` (or your checkout path), set `BYBIT_DB_PATH`, then:
 
 ```bash
 sudo systemctl daemon-reload
