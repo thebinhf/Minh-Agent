@@ -24,7 +24,7 @@ Then open http://localhost:3000 and add, complete, and delete tasks.
 | `npm run build` | Compile TypeScript to `dist/`. |
 | `npm start` | Run the compiled server from `dist/`. |
 | `npm run typecheck` | Type-check without emitting output. |
-| `npm run lint` | Lint with ESLint. |
+| `npm run lint` | Lint static browser JS in `public/` (ESLint). |
 | `npm test` | Run the API test suite (Vitest + Supertest). |
 
 ## API
@@ -42,6 +42,6 @@ Tasks are stored in memory and reset when the server restarts.
 ## Stack
 
 - **Express 5** — HTTP API and static file serving
-- **TypeScript 5.9** — strict type-checking
+- **TypeScript 7** — strict type-checking via `tsc`
 - **Vitest 5** + **Supertest** — API tests
-- **ESLint 10** + **typescript-eslint** — linting
+- **ESLint 10** — linting for static browser JS in `public/`

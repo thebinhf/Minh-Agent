@@ -9,8 +9,9 @@
 
 | Package | Task board (root) | Bybit tracker |
 | --- | --- | --- |
-| Runtime | Node.js >= 20 | Bun >= 1.2 |
+| Runtime | Node.js >= 20 | Bun >= 1.4 |
 | Package manager | npm | Bun |
-| TypeScript | 5.9.x (latest supported by ESLint tooling) | 5.9.x |
+| TypeScript | 7.x (`tsc` for type-checking) | 7.x |
+| Lint | ESLint on `public/**/*.js` only | — |
 
-TypeScript 7 is available on npm but is not yet supported by `typescript-eslint`; both packages stay on the latest 5.x line until that ecosystem catches up.
+TypeScript sources are checked with `npm run typecheck` / `tsc`. ESLint does not lint `.ts` files because `typescript-eslint` does not yet support TypeScript 7.

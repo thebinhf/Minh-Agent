@@ -32,4 +32,4 @@ bun run start   # HTTP 127.0.0.1:43180
 ## Requirements
 
 - **Task board:** Node.js >= 20, npm
-- **Bybit tracker:** Bun >= 1.2
+- **Bybit tracker:** Bun >= 1.4
