@@ -1,21 +1,22 @@
 import js from "@eslint/js";
-import tseslint from "typescript-eslint";
 
-export default tseslint.config(
+/** ESLint covers static browser JS only; TypeScript is checked via `tsc`. */
+export default [
   {
-    ignores: ["dist", "node_modules", "public/vendor"],
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "src/**",
+      "test/**",
+      "bybit-ws-tracker/**",
+    ],
   },
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
   {
+    ...js.configs.recommended,
+    files: ["public/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
-    },
-  },
-  {
-    files: ["public/**/*.js"],
-    languageOptions: {
       globals: {
         document: "readonly",
         fetch: "readonly",
@@ -24,4 +25,4 @@ export default tseslint.config(
       },
     },
   },
-);
+];

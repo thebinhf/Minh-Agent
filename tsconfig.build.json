@@ -2,8 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
-    "moduleResolution": "Node",
-    "module": "ESNext",
+    "rootDir": "src",
+    "moduleResolution": "NodeNext",
+    "module": "NodeNext",
     "declaration": false,
     "sourceMap": true
   },
