@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minh-Agent · Task Board</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>"
+    />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <h1>Minh-Agent</h1>
+        <p class="subtitle">A tiny task board proving the dev environment runs end to end.</p>
+        <span id="status" class="status" aria-live="polite">connecting…</span>
+      </header>
+
+      <form id="new-task" class="new-task" autocomplete="off">
+        <input
+          id="title"
+          name="title"
+          type="text"
+          placeholder="Add a task…"
+          aria-label="Task title"
+          required
+        />
+        <button type="submit">Add</button>
+      </form>
+
+      <ul id="tasks" class="tasks" aria-live="polite"></ul>
+      <p id="empty" class="empty">No tasks yet — add one above.</p>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
