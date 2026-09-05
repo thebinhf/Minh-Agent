@@ -1,5 +1,7 @@
 import type { TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
+import { chunkTopics, isPongStale, withRetries } from "./recovery";
+import { fillKlineGaps } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
   BybitKline,
@@ -15,18 +17,30 @@ export type TrackerRuntime = {
   stop: () => void;
 };
 
+type PendingSubscribe = {
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
 export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRuntime {
   const topics = buildTopics(config);
+  const recovery = config.recovery;
   const tickers = new Map<string, TickerState>();
   const books = new Map<string, OrderBookState>();
   const lastTickerSnap = new Map<string, number>();
   const lastBookSnap = new Map<string, number>();
+  const pendingSubscribe = new Map<string, PendingSubscribe>();
 
   let stopped = false;
   let ws: WebSocket | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let delay = config.reconnect.initialDelayMs;
+  let connectTs = 0;
+  let lastPongTs = 0;
+  let fillAbort: AbortController | null = null;
+  let subscribeSeq = 0;
 
   store.setMeta("endpoint", config.endpoint);
   store.setMeta("symbols", JSON.stringify(config.symbols));
@@ -35,6 +49,11 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
   store.setMeta("started_at", String(Date.now()));
   store.setHealth({ endpoint: config.endpoint, subscribedTopics: topics.length, connected: 0 });
 
+  const rejectPending = (error: Error) => {
+    for (const pending of pendingSubscribe.values()) pending.reject(error);
+    pendingSubscribe.clear();
+  };
+
   const connect = () => {
     if (stopped) return;
     console.log(`[bybit-ws] connecting ${config.endpoint} (${topics.length} topics)`);
@@ -42,19 +61,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
     ws = socket;
 
     socket.addEventListener("open", () => {
-      delay = config.reconnect.initialDelayMs;
-      store.setHealth({
-        connected: 1,
-        connectTs: Date.now(),
-        lastError: "",
-        endpoint: config.endpoint,
-        subscribedTopics: topics.length,
-      });
-      socket.send(JSON.stringify({ op: "subscribe", args: topics }));
-      socket.send(JSON.stringify({ op: "ping", req_id: `ping-${Date.now()}` }));
-      store.setHealth({ lastPingTs: Date.now() });
-      startPing(socket);
-      console.log(`[bybit-ws] subscribed ${topics.length} topics`);
+      void onOpen(socket);
     });
 
     socket.addEventListener("message", (event) => {
@@ -69,6 +76,10 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
 
     socket.addEventListener("close", () => {
       stopPing();
+      stopWatchdog();
+      fillAbort?.abort();
+      fillAbort = null;
+      rejectPending(new Error("websocket closed"));
       store.setHealth({ connected: 0, disconnectTs: Date.now() });
       if (stopped) return;
       store.bumpReconnect();
@@ -78,6 +89,90 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       reconnectTimer = setTimeout(connect, wait);
     });
   };
+
+  const onOpen = async (socket: WebSocket) => {
+    delay = config.reconnect.initialDelayMs;
+    connectTs = Date.now();
+    lastPongTs = 0;
+    books.clear();
+    store.setHealth({
+      connected: 1,
+      connectTs,
+      lastError: "",
+      endpoint: config.endpoint,
+      subscribedTopics: topics.length,
+    });
+    socket.send(JSON.stringify({ op: "ping", req_id: `ping-${Date.now()}` }));
+    store.setHealth({ lastPingTs: Date.now() });
+    startPing(socket);
+    startWatchdog(socket);
+
+    try {
+      await subscribeAll(socket);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[bybit-ws] subscribe failed: ${message}`);
+      store.setHealth({ lastError: message });
+      if (socket.readyState === WebSocket.OPEN) socket.close();
+      return;
+    }
+
+    console.log(`[bybit-ws] subscribed ${topics.length} topics`);
+    fillAbort?.abort();
+    fillAbort = new AbortController();
+    const signal = fillAbort.signal;
+    void fillKlineGaps(config, store, { signal })
+      .then((result) => {
+        if (signal.aborted) return;
+        store.setMeta("last_gap_fill", JSON.stringify({ ...result, ts: Date.now() }));
+        console.log(
+          `[minh:bb] gap-fill series=${result.series} candles=${result.candles} errors=${result.errors}`,
+        );
+      })
+      .catch((error) => {
+        if (signal.aborted) return;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[minh:bb] gap-fill failed: ${message}`);
+      });
+  };
+
+  const subscribeAll = async (socket: WebSocket) => {
+    const chunks = chunkTopics(topics, recovery.subscribeChunkSize);
+    for (const chunk of chunks) {
+      await withRetries(
+        async () => {
+          if (socket.readyState !== WebSocket.OPEN) {
+            throw new Error("websocket closed");
+          }
+          await subscribeChunk(socket, chunk);
+        },
+        {
+          retries: recovery.subscribeRetries,
+          delayMs: recovery.subscribeRetryDelayMs,
+        },
+      );
+    }
+  };
+
+  const subscribeChunk = (socket: WebSocket, args: string[]) =>
+    new Promise<void>((resolve, reject) => {
+      const reqId = `sub-${++subscribeSeq}`;
+      const timer = setTimeout(() => {
+        pendingSubscribe.delete(reqId);
+        reject(new Error(`subscribe ack timeout (${args.length} topics)`));
+      }, recovery.subscribeAckTimeoutMs);
+      pendingSubscribe.set(reqId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      socket.send(JSON.stringify({ op: "subscribe", args, req_id: reqId }));
+    });
 
   const startPing = (socket: WebSocket) => {
     stopPing();
@@ -95,6 +190,59 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
     }
   };
 
+  const startWatchdog = (socket: WebSocket) => {
+    stopWatchdog();
+    watchdogTimer = setInterval(() => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (
+        !isPongStale({
+          now: Date.now(),
+          connectTs,
+          lastPongTs,
+          graceMs: recovery.watchdogGraceMs,
+          staleMs: recovery.pongStaleMs,
+        })
+      ) {
+        return;
+      }
+      console.error("[bybit-ws] pong stale; forcing reconnect");
+      store.setHealth({ lastError: "pong stale" });
+      socket.close();
+    }, recovery.watchdogIntervalMs);
+  };
+
+  const stopWatchdog = () => {
+    if (watchdogTimer) {
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    }
+  };
+
+  const handleSubscribeAck = (msg: BybitPushMessage) => {
+    const reqId = msg.req_id;
+    const pending = reqId ? pendingSubscribe.get(reqId) : undefined;
+    if (msg.success === false) {
+      const err = msg.ret_msg ?? "subscribe failed";
+      console.error(`[bybit-ws] subscribe failed: ${err}`);
+      store.setHealth({ lastError: err });
+      if (pending) {
+        pendingSubscribe.delete(reqId!);
+        pending.reject(new Error(err));
+      }
+      return;
+    }
+    if (pending && reqId) {
+      pendingSubscribe.delete(reqId);
+      pending.resolve();
+      return;
+    }
+    if (msg.success === true && pendingSubscribe.size === 1) {
+      const [[id, only]] = pendingSubscribe.entries();
+      pendingSubscribe.delete(id);
+      only.resolve();
+    }
+  };
+
   const handleMessage = (raw: string, socket: WebSocket) => {
     let msg: BybitPushMessage;
     try {
@@ -106,8 +254,8 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
     const now = Date.now();
     store.setHealth({ lastMessageTs: now });
 
-    // Public linear heartbeat reply is { op: "ping", ret_msg: "pong", success: true }.
     if (msg.ret_msg === "pong" || msg.op === "pong" || (msg.op === "ping" && msg.success === true)) {
+      lastPongTs = now;
       store.setHealth({ lastPongTs: now });
       return;
     }
@@ -118,11 +266,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
     }
 
     if (msg.op === "subscribe") {
-      if (msg.success === false) {
-        const err = msg.ret_msg ?? "subscribe failed";
-        console.error(`[bybit-ws] subscribe failed: ${err}`);
-        store.setHealth({ lastError: err });
-      }
+      handleSubscribeAck(msg);
       return;
     }
 
@@ -147,6 +291,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       if (!data || typeof data !== "object") return;
       const type = msg.type === "delta" ? "delta" : "snapshot";
       const next = applyOrderbook(books.get(parsed.symbol) ?? null, type, data);
+      if (!next?.ready) return;
       books.set(parsed.symbol, next);
       const due = now - (lastBookSnap.get(parsed.symbol) ?? 0) >= config.snapshot.orderbookEveryMs;
       const snap = type === "snapshot" || data.u === 1 || due;
@@ -169,7 +314,10 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
     stop() {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      fillAbort?.abort();
       stopPing();
+      stopWatchdog();
+      rejectPending(new Error("tracker stopped"));
       ws?.close();
       store.setHealth({ connected: 0, disconnectTs: Date.now() });
     },

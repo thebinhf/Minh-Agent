@@ -13,7 +13,9 @@ Layout matches the greenfield Minh Agent convention: one Bun process, I/O at the
 
 ```text
 src/index.ts
-  → src/feed/bb          Bybit public linear WS
+  → src/feed/bb
+       → public linear WS (+ stale-pong watchdog, subscribe retry)
+       → REST kline gap-fill after connect (best-effort)
        → SQLite cache
        → read-only HTTP 127.0.0.1:43180
 ```

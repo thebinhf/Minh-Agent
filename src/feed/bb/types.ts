@@ -5,8 +5,23 @@ export type OrderbookConfig = {
   symbols: string[];
 };
 
+export type RecoveryConfig = {
+  pongStaleMs: number;
+  watchdogIntervalMs: number;
+  watchdogGraceMs: number;
+  subscribeChunkSize: number;
+  subscribeRetries: number;
+  subscribeRetryDelayMs: number;
+  subscribeAckTimeoutMs: number;
+  restRetries: number;
+  restRetryDelayMs: number;
+  restTimeoutMs: number;
+  gapFill: boolean;
+};
+
 export type TrackerConfig = {
   endpoint: string;
+  restEndpoint: string;
   httpHost: string;
   httpPort: number;
   dbPath: string;
@@ -28,6 +43,7 @@ export type TrackerConfig = {
     tickerEveryMs: number;
     orderbookEveryMs: number;
   };
+  recovery: RecoveryConfig;
 };
 
 export type BookLevel = [price: string, size: string];

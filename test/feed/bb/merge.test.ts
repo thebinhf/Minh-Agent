@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { applyOrderbook, mergeTicker, serializeBook } from "../../../src/feed/bb/merge";
-import type { BybitOrderbookData, TickerState } from "../../../src/feed/bb/types";
+import type { BybitOrderbookData, OrderBookState, TickerState } from "../../../src/feed/bb/types";
+
+function readyBook(state: OrderBookState | null): OrderBookState {
+  expect(state).not.toBeNull();
+  if (!state) throw new Error("expected orderbook");
+  return state;
+}
 
 describe("mergeTicker", () => {
   test("snapshot replaces the full ticker", () => {
@@ -106,18 +112,19 @@ describe("applyOrderbook", () => {
       "snapshot",
       book("BTCUSDT", [["100", "1"], ["99", "2"]], [["101", "3"], ["102", "4"]], 10),
     );
-    expect(first.ready).toBe(true);
-    expect(first.updateId).toBe(10);
-    expect(serializeBook(first)).toEqual({
+    const opened = readyBook(first);
+    expect(opened.ready).toBe(true);
+    expect(opened.updateId).toBe(10);
+    expect(serializeBook(opened)).toEqual({
       bids: [["100", "1"], ["99", "2"]],
       asks: [["101", "3"], ["102", "4"]],
     });
 
-    const replaced = applyOrderbook(
-      first,
+    const replaced = readyBook(applyOrderbook(
+      opened,
       "snapshot",
       book("BTCUSDT", [["98", "5"]], [["103", "6"]], 20, 2),
-    );
+    ));
     expect(serializeBook(replaced)).toEqual({
       bids: [["98", "5"]],
       asks: [["103", "6"]],
@@ -147,10 +154,11 @@ describe("applyOrderbook", () => {
       ),
     );
 
-    expect(next.ready).toBe(true);
-    expect(next.updateId).toBe(2);
-    expect(next.seq).toBe(9);
-    expect(serializeBook(next)).toEqual({
+    const updated = readyBook(next);
+    expect(updated.ready).toBe(true);
+    expect(updated.updateId).toBe(2);
+    expect(updated.seq).toBe(9);
+    expect(serializeBook(updated)).toEqual({
       bids: [["2000", "1.5"], ["1998", "4"]],
       asks: [["2002", "8"]],
     });
@@ -169,11 +177,47 @@ describe("applyOrderbook", () => {
       book("SOLUSDT", [["139", "1"]], [["142", "2"]], 1, 100),
     );
 
-    expect(restarted.ready).toBe(true);
-    expect(restarted.updateId).toBe(1);
-    expect(serializeBook(restarted)).toEqual({
+    const restartedBook = readyBook(restarted);
+    expect(restartedBook.ready).toBe(true);
+    expect(restartedBook.updateId).toBe(1);
+    expect(serializeBook(restartedBook)).toEqual({
       bids: [["139", "1"]],
       asks: [["142", "2"]],
+    });
+  });
+
+  test("ignores a delta when no snapshot has arrived yet", () => {
+    const skipped = applyOrderbook(
+      null,
+      "delta",
+      book("BTCUSDT", [["100", "1"]], [["101", "1"]], 8),
+    );
+    expect(skipped).toBeNull();
+  });
+
+  test("ignores a delta after RAM reset until snapshot or u=1", () => {
+    const live = applyOrderbook(
+      null,
+      "snapshot",
+      book("ETHUSDT", [["2000", "1"]], [["2001", "1"]], 4),
+    );
+    const afterReset = applyOrderbook(
+      null,
+      "delta",
+      book("ETHUSDT", [["1999", "1"]], [["2002", "1"]], 5),
+    );
+    expect(live?.ready).toBe(true);
+    expect(afterReset).toBeNull();
+
+    const restarted = applyOrderbook(
+      null,
+      "delta",
+      book("ETHUSDT", [["1998", "2"]], [["2003", "2"]], 1),
+    );
+    expect(restarted?.ready).toBe(true);
+    expect(serializeBook(readyBook(restarted))).toEqual({
+      bids: [["1998", "2"]],
+      asks: [["2003", "2"]],
     });
   });
 
@@ -189,7 +233,8 @@ describe("applyOrderbook", () => {
       ),
     );
 
-    expect(serializeBook(state).bids.map((level) => level[0])).toEqual(["100.0", "99.5", "99.0"]);
-    expect(serializeBook(state).asks.map((level) => level[0])).toEqual(["100.5", "101.5", "102.0"]);
+    const sorted = readyBook(state);
+    expect(serializeBook(sorted).bids.map((level) => level[0])).toEqual(["100.0", "99.5", "99.0"]);
+    expect(serializeBook(sorted).asks.map((level) => level[0])).toEqual(["100.5", "101.5", "102.0"]);
   });
 });

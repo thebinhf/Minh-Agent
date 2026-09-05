@@ -62,35 +62,37 @@ export function applyLevels(map: Map<string, string>, levels: BookLevel[] | unde
  * Bybit V5 orderbook.50:
  * - snapshot (or u=1 service restart) replaces the local book
  * - delta size 0 deletes a level; otherwise insert/update
+ * - deltas before a snapshot are ignored so a reconnect cannot merge onto a stale book
  */
 export function applyOrderbook(
   prev: OrderBookState | null,
   type: "snapshot" | "delta",
   data: BybitOrderbookData,
-): OrderBookState {
-  const replace = type === "snapshot" || data.u === 1 || !prev;
-  if (replace) {
+): OrderBookState | null {
+  const replace = type === "snapshot" || data.u === 1;
+  if (!replace) {
+    if (!prev?.ready) return prev;
+    const bids = new Map(prev.bids);
+    const asks = new Map(prev.asks);
+    applyLevels(bids, data.b);
+    applyLevels(asks, data.a);
     return {
       symbol: data.s,
-      bids: levelsToMap(data.b),
-      asks: levelsToMap(data.a),
+      bids,
+      asks,
       updateId: data.u,
       seq: data.seq,
-      ready: type === "snapshot" || data.u === 1,
+      ready: true,
     };
   }
 
-  const bids = new Map(prev.bids);
-  const asks = new Map(prev.asks);
-  applyLevels(bids, data.b);
-  applyLevels(asks, data.a);
   return {
     symbol: data.s,
-    bids,
-    asks,
+    bids: levelsToMap(data.b),
+    asks: levelsToMap(data.a),
     updateId: data.u,
     seq: data.seq,
-    ready: prev.ready,
+    ready: true,
   };
 }
 
