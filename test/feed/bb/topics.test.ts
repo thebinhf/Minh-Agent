@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildTopics, klineTopic, orderbookTopic, parseTopic, tickerTopic } from "../src/topics";
-import type { TrackerConfig } from "../src/types";
+import { buildTopics, klineTopic, orderbookTopic, parseTopic, tickerTopic } from "../../../src/feed/bb/topics";
+import type { TrackerConfig } from "../../../src/feed/bb/types";
 
 const config = {
   symbols: ["BTCUSDT", "ETHUSDT", "ENAUSDT"],

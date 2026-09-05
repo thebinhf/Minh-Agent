@@ -1,18 +1,13 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ESNext",
     "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "moduleResolution": "bundler",
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
+    "types": ["bun-types"],
+    "noEmit": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "verbatimModuleSyntax": true
   },
-  "include": ["src", "test"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -1,16 +1,16 @@
 {
   "name": "Minh-Agent",
-  "install": "npm ci",
+  "install": "bun install",
   "terminals": [
     {
-      "name": "dev-server",
-      "command": "npm run dev"
+      "name": "minh-agent",
+      "command": "bun run start"
     }
   ],
   "ports": [
     {
-      "name": "web",
-      "port": 3000
+      "name": "bybit-tracker",
+      "port": 43180
     }
   ]
 }

@@ -1,5 +1,6 @@
 {
   "endpoint": "wss://stream.bybit.com/v5/public/linear",
+  "restEndpoint": "https://api.bybit.com",
   "httpHost": "127.0.0.1",
   "httpPort": 43180,
   "dbPath": "./data/bybit-market.sqlite",
@@ -33,5 +34,18 @@
   "snapshot": {
     "tickerEveryMs": 60000,
     "orderbookEveryMs": 5000
+  },
+  "recovery": {
+    "pongStaleMs": 60000,
+    "watchdogIntervalMs": 10000,
+    "watchdogGraceMs": 30000,
+    "subscribeChunkSize": 10,
+    "subscribeRetries": 3,
+    "subscribeRetryDelayMs": 1000,
+    "subscribeAckTimeoutMs": 5000,
+    "restRetries": 3,
+    "restRetryDelayMs": 400,
+    "restTimeoutMs": 10000,
+    "gapFill": true
   }
 }

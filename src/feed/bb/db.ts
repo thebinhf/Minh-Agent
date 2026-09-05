@@ -360,6 +360,12 @@ function wrap(db: Database) {
     getHealth() {
       return db.prepare("SELECT * FROM connection_health WHERE id = 1").get() as Record<string, unknown> | null;
     },
+    getLastKlineStart(symbol: string, interval: string): number | null {
+      const row = db
+        .prepare("SELECT MAX(start_ts) AS start_ts FROM klines WHERE symbol = ? AND interval = ?")
+        .get(symbol, interval) as { start_ts: number | null } | null;
+      return row?.start_ts ?? null;
+    },
     listTickers(symbol?: string) {
       const sql = symbol
         ? "SELECT * FROM ticker_latest WHERE symbol = ? ORDER BY symbol"

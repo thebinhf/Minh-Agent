@@ -1,7 +1,21 @@
 import { resolve } from "node:path";
-import type { TrackerConfig } from "./types";
+import type { RecoveryConfig, TrackerConfig } from "./types";
 
-const DEFAULT_CONFIG_PATH = resolve(import.meta.dir, "../config.json");
+export const DEFAULT_RECOVERY: RecoveryConfig = {
+  pongStaleMs: 60_000,
+  watchdogIntervalMs: 10_000,
+  watchdogGraceMs: 30_000,
+  subscribeChunkSize: 10,
+  subscribeRetries: 3,
+  subscribeRetryDelayMs: 1_000,
+  subscribeAckTimeoutMs: 5_000,
+  restRetries: 3,
+  restRetryDelayMs: 400,
+  restTimeoutMs: 10_000,
+  gapFill: true,
+};
+
+const DEFAULT_CONFIG_PATH = resolve(import.meta.dir, "config.json");
 
 function csv(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
@@ -41,6 +55,7 @@ export async function loadConfig(
   return {
     ...base,
     endpoint: strEnv("BYBIT_WS_ENDPOINT") ?? base.endpoint,
+    restEndpoint: strEnv("BYBIT_REST_ENDPOINT") ?? base.restEndpoint ?? "https://api.bybit.com",
     httpHost: strEnv("BYBIT_HTTP_HOST") ?? base.httpHost,
     httpPort: intEnv("BYBIT_HTTP_PORT") ?? base.httpPort,
     dbPath: resolve(process.cwd(), dbPath),
@@ -51,5 +66,11 @@ export async function loadConfig(
       symbols: csv(process.env.BYBIT_ORDERBOOK_SYMBOLS) ?? base.orderbook.symbols,
     },
     pingIntervalMs: intEnv("BYBIT_PING_INTERVAL_MS") ?? base.pingIntervalMs,
+    recovery: {
+      ...DEFAULT_RECOVERY,
+      ...base.recovery,
+      pongStaleMs: intEnv("BYBIT_PONG_STALE_MS") ?? base.recovery?.pongStaleMs ?? DEFAULT_RECOVERY.pongStaleMs,
+      gapFill: process.env.BYBIT_GAP_FILL === "0" ? false : (base.recovery?.gapFill ?? DEFAULT_RECOVERY.gapFill),
+    },
   };
 }

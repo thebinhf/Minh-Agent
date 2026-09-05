@@ -1,8 +1,10 @@
-# Bybit public WebSocket market tracker
+# Bybit (BB) — public market cache
 
-Local SQLite cache of Bybit **public linear** market data. Minh (and the Grok Bot host) can read prices from localhost instead of calling Bybit MCP (avoids Usage quota). The WebSocket feed also works in regions where Bybit REST is geo-blocked.
+Local SQLite cache of Bybit **public linear** market data. Minh can read prices from localhost instead of Bybit MCP (avoids Usage quota). The WebSocket feed also works where Bybit REST is geo-blocked.
 
-This is the source of truth, ported from the production Origin sandbox (`thebinhf/tmp-eff640edd8363a46`). It is **not a trading bot**: no API keys, no private topics, no order placement.
+**Not a trading bot:** no API keys, no private topics, no order placement.
+
+Adapter path: `src/feed/bb/`.
 
 ## Design
 
@@ -21,10 +23,20 @@ Topic names match Bybit V5 public docs: [connect](https://bybit-exchange.github.
 
 Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50 is snapshot-then-delta; size `0` deletes a level; `u=1` means the book service restarted and the payload replaces the local book. Heartbeat is a client `ping` about every 20s.
 
+## Recovery
+
+| Step | Behavior |
+| --- | --- |
+| Stale pong | After `watchdogGraceMs` (30s), if no pong for `pongStaleMs` (60s), close the socket so reconnect/backoff runs. |
+| Gap-fill | After subscribe succeeds, REST `GET /v5/market/kline` backfills each symbol×interval from `MAX(start_ts)` (or `klinesDays` lookback). Failures are logged; WS stays up. Disable with `BYBIT_GAP_FILL=0`. |
+| Orderbook | `books.clear()` on every connect. Deltas are ignored until a snapshot or `u=1`. |
+| Retry | Subscribe in chunks of 10 with ack timeout + 3 retries. REST kline uses the same retry helper. |
+
+REST is **best-effort**. In regions where Bybit REST is blocked, the WS cache still runs; kline holes from an outage stay until REST works again.
+
 ## Quick start
 
 ```bash
-cd bybit-ws-tracker
 bun install
 bun test
 bun run start
@@ -50,7 +62,7 @@ bun run query meta
 
 ## Config and env overrides
 
-Defaults live in `config.json`. Environment variables win when set:
+Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 
 | Env | Maps to |
 | --- | --- |
@@ -63,6 +75,9 @@ Defaults live in `config.json`. Environment variables win when set:
 | `BYBIT_ORDERBOOK_SYMBOLS` | comma-separated L50 symbols |
 | `BYBIT_ORDERBOOK_DEPTH` | book depth |
 | `BYBIT_PING_INTERVAL_MS` | heartbeat interval |
+| `BYBIT_REST_ENDPOINT` | REST base (`https://api.bybit.com`) |
+| `BYBIT_PONG_STALE_MS` | watchdog stale-pong threshold |
+| `BYBIT_GAP_FILL` | `0` disables REST kline gap-fill |
 
 SQLite tables: `ticker_latest`, `ticker_snapshots`, `orderbook_latest`, `orderbook_snapshots`, `klines`, `connection_health`, `meta`.
 
@@ -70,7 +85,7 @@ Retention prune drops old snapshot rows and confirmed klines on a timer (`retent
 
 ## Deploy
 
-Unit file: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service). Copy it to `/etc/systemd/system/`, point `WorkingDirectory` at this folder, set `BYBIT_DB_PATH`, then:
+Unit file: [`deploy/bybit-tracker.service`](../../deploy/bybit-tracker.service). Copy it to `/etc/systemd/system/`, set `WorkingDirectory` to the Minh Agent checkout (`/opt/minh-agent`), set `BYBIT_DB_PATH`, then:
 
 ```bash
 sudo systemctl daemon-reload

@@ -1,32 +1,21 @@
 {
   "name": "minh-agent",
   "version": "0.1.0",
-  "description": "Minh-Agent: a minimal full-stack TypeScript task board (Express API + static UI).",
+  "private": true,
+  "description": "Minh (明) — Bun trading agent. First live feature: Bybit public WS market cache.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "express": "^4.21.2"
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "query": "bun run src/feed/bb/query.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@eslint/js": "^9.17.0",
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.10.2",
-    "@types/supertest": "^6.0.2",
-    "eslint": "^9.17.0",
-    "supertest": "^7.0.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.1",
-    "vitest": "^2.1.8"
+    "@types/bun": "^1.4.1",
+    "typescript": "^7.0.2"
   }
 }
