@@ -1,8 +1,8 @@
 # Paper trading — MVP spec
 
-**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **2–5%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Không API key, không lệnh thật. Spec only — chưa implement.
+**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **2–5%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Không API key, không lệnh thật. Phase **M** — implemented under `src/paper/`.
 
-Simulated equity account for Minh. Fills and marks come from the **local** Bybit public cache (`src/feed/bb`), never from Bybit private API. This document is the locked product spec (An + Minh). A later implementation PR must follow it; this PR does not add runtime code, SQLite tables, or scripts.
+Simulated equity account for Minh. Fills and marks come from the **local** Bybit public cache (`src/feed/bb`), never from Bybit private API. This document is the locked product spec (An + Minh). Implementation lives under `src/paper/` (phase **M**). Do not add live orders in this module.
 
 **Not a trading bot.** No API keys, no private WebSocket topics, no real orders, no auto-live bridge.
 
@@ -39,14 +39,14 @@ Phase 2 items (funding, multi-TP, daily 1–2tr VND paper reports, multi-symbol 
 Paper is a **future** feature module. It reads prices from the existing feed. It does not live inside `src/feed/bb/`.
 
 ```text
-src/index.ts                    # composition root (today: feed only)
+src/index.ts                    # composition root (feed + paper)
   → src/feed/bb                 # UNCHANGED
        → public linear WS
        → SQLite market cache    # ticker_latest, klines, …
        → read-only HTTP 127.0.0.1:43180
          GET /brief  GET /tickers  GET /health  …
 
-  → src/paper/                  # FUTURE impl — not in this PR
+  → src/paper/                  # phase M impl
        → paper SQLite ledger    # paper_* tables only
        → risk engine (2–5% band, R:R from SL/TP, MTF tags)
        → CLI  bun run paper …
@@ -56,8 +56,8 @@ src/index.ts                    # composition root (today: feed only)
 | Piece | Role | Rule |
 | --- | --- | --- |
 | `src/feed/bb` | Public market data | Read-only cache. Paper may **GET** `:43180` or open the feed DB **readonly**. Paper must not `INSERT`/`UPDATE` feed tables or add routes to `src/feed/bb/http.ts`. |
-| `src/paper/` (future) | Simulated broker | Own DB file, own CLI, own HTTP. English identifiers; `paper` in every public name. |
-| Composition root | Wire only | A future impl may start paper next to the tracker. It must not fold paper handlers into the feed fetch loop. |
+| `src/paper/` | Simulated broker | Own DB file, own CLI, own HTTP. English identifiers; `paper` in every public name. |
+| Composition root | Wire only | Starts paper next to the tracker. Must not fold paper handlers into the feed fetch loop. |
 
 Price I/O for paper:
 
@@ -70,7 +70,7 @@ If the feed is down or the ticker is stale, **reject** the open/close/mark. Do n
 
 ## 3. Data model
 
-Spec only. Do not create these tables in this PR. Use a **separate** SQLite file (suggested `PAPER_DB_PATH`, default `data/paper.sqlite`). WAL, `busy_timeout`, same style as the feed DB — different file so a paper bug cannot corrupt market cache.
+Use a **separate** SQLite file (`PAPER_DB_PATH`, default `data/paper.sqlite`). WAL, `busy_timeout`, same style as the feed DB — different file so a paper bug cannot corrupt market cache.
 
 Money and prices are stored as **TEXT** decimal strings (same as `ticker_latest.last_price`), not IEEE floats.
 
@@ -266,9 +266,9 @@ Changing feed brief windows or adding intervals is **out of scope** for paper. U
 
 ## 6. CLI commands + HTTP routes
 
-Future impl only. **Do not** add these scripts or routes in this PR. **Do not** attach `/paper` onto `src/feed/bb/http.ts`.
+Implemented under `src/paper/`. **Do not** attach `/paper` onto `src/feed/bb/http.ts`.
 
-Suggested script (later): `"paper": "bun run src/paper/cli.ts"` — not added now.
+Script: `"paper": "bun run src/paper/cli.ts"`.
 
 Bind paper HTTP on **`127.0.0.1:43181`** (env `PAPER_HTTP_HOST` / `PAPER_HTTP_PORT`). Feed stays `127.0.0.1:43180`. Auth: none (localhost). JSON `content-type: application/json`.
 
@@ -470,43 +470,43 @@ Do not paraphrase, weaken, or implement around these. They override any later co
 | No mid-watch spam | No interval bot that posts marks to chat. `paper mark` is pull-only. |
 | No auto-live bridge | No command or route that places a Bybit order from a paper id. Live bridge is a **separate ticket** (locked item 3). |
 
-Startup banner (future impl): `paper simulation only — no API keys, no real orders`.
+Startup banner: `paper simulation only — no API keys, no real orders`.
 
-**Phase S→M (locked item 5):** this document is **S** (spec). A future paper impl PR is **M** (mô phỏng / paper MVP). **L** (live orders) is not a phase of this work and must not ship inside an S or M PR.
+**Phase S→M (locked item 5):** this document began as **S** (spec). The paper impl is **M** (mô phỏng / paper MVP). **L** (live orders) is not a phase of this work and must not ship inside an S or M PR.
 
 ## 8. Acceptance criteria (Duyệt checklist)
 
-Use this list on the **implementation** PR. All items are “not done” until that PR exists.
+Use this list on the implementation PR (phase **M**).
 
 **Duyệt locked (verbatim — same five as [§7](#duyệt-locked-verbatim)):**
 
-- [ ] Spec tách hẳn paper vs live; không import/call private/trading API.
-- [ ] Fill chỉ từ `:43180` (mark/last local); cấm endpoint order thật.
-- [ ] Env/API key Bybit **không** nằm path paper; bridge live = ticket riêng.
-- [ ] CLI/`GET /paper` chỉ đụng SQLite ảo; không ghi sổ thật.
-- [ ] Phase S→M ghi rõ; không lén ship L.
+- [x] Spec tách hẳn paper vs live; không import/call private/trading API.
+- [x] Fill chỉ từ `:43180` (mark/last local); cấm endpoint order thật.
+- [x] Env/API key Bybit **không** nằm path paper; bridge live = ticket riêng.
+- [x] CLI/`GET /paper` chỉ đụng SQLite ảo; không ghi sổ thật.
+- [x] Phase S→M ghi rõ; không lén ship L.
 
 Impl PR must fail review if any of the five is missing or only “almost” true. Additional checks:
 
-- [ ] Docs-only files in *this* PR unchanged in spirit; impl lives under `src/paper/` (or equivalent), not `src/feed/bb/`.
-- [ ] Feed brief / `:43180` GET routes / WS behavior **unchanged** (PR #5 stays as-is).
-- [ ] Separate `paper_*.sqlite` (or `PAPER_DB_PATH`) with the tables in [§3](#3-data-model). No paper tables in the feed file.
-- [ ] Open computes qty from the **requested** `riskPct` (or account default); client cannot pass `qty`.
-- [ ] `riskPct` outside **2–5%** (account `risk_pct_min`/`max`) is rejected; a **3%** open succeeds. No `const` `0.02` / `2` in the risk engine.
-- [ ] R:R is derived and stored; with `min_rr` unset, `rr < 2` still opens. `rr_below_min` only when `min_rr` is configured.
-- [ ] Open requires ≥ 2 `timeframes`; missing local klines → `mtf_incomplete`. Does not fetch Bybit REST from paper.
-- [ ] Open without SL or TP is rejected.
-- [ ] SL/TP on the wrong side of entry is rejected.
-- [ ] Fill price is local `lastPrice` from `:43180` (or readonly `ticker_latest`); tests stub that cache, not Bybit private API.
-- [ ] Stale ticker (`recvTs` older than 15s) rejects open/close/mark.
-- [ ] `paper mark` updates unrealized PnL from `markPrice` (fallback `lastPrice`) and closes on SL/TP (SL wins on a gap).
-- [ ] Manual close realizes PnL into `cash` / `equity`.
-- [ ] CLI + HTTP shapes match [§6](#6-cli-commands--http-routes); every success payload includes `"mode": "paper"` (HTTP).
-- [ ] No Bybit key usage; process refuses to start if key env vars are present.
-- [ ] No private WS, no `/v5/order`, no “promote to live”.
-- [ ] No new mid-watch notifier.
-- [ ] `bun test` / `bun run typecheck` green; feed tests still pass without paper fixtures leaking into `test/feed/bb/`.
-- [ ] README/script names say **paper**, never “live trade”.
+- [x] Docs-only files in *this* PR unchanged in spirit; impl lives under `src/paper/` (or equivalent), not `src/feed/bb/`.
+- [x] Feed brief / `:43180` GET routes / WS behavior **unchanged** (PR #5 stays as-is).
+- [x] Separate `paper_*.sqlite` (or `PAPER_DB_PATH`) with the tables in [§3](#3-data-model). No paper tables in the feed file.
+- [x] Open computes qty from the **requested** `riskPct` (or account default); client cannot pass `qty`.
+- [x] `riskPct` outside **2–5%** (account `risk_pct_min`/`max`) is rejected; a **3%** open succeeds. No `const` `0.02` / `2` in the risk engine.
+- [x] R:R is derived and stored; with `min_rr` unset, `rr < 2` still opens. `rr_below_min` only when `min_rr` is configured.
+- [x] Open requires ≥ 2 `timeframes`; missing local klines → `mtf_incomplete`. Does not fetch Bybit REST from paper.
+- [x] Open without SL or TP is rejected.
+- [x] SL/TP on the wrong side of entry is rejected.
+- [x] Fill price is local `lastPrice` from `:43180` (or readonly `ticker_latest`); tests stub that cache, not Bybit private API.
+- [x] Stale ticker (`recvTs` older than 15s) rejects open/close/mark.
+- [x] `paper mark` updates unrealized PnL from `markPrice` (fallback `lastPrice`) and closes on SL/TP (SL wins on a gap).
+- [x] Manual close realizes PnL into `cash` / `equity`.
+- [x] CLI + HTTP shapes match [§6](#6-cli-commands--http-routes); every success payload includes `"mode": "paper"` (HTTP).
+- [x] No Bybit key usage; process refuses to start if key env vars are present.
+- [x] No private WS, no `/v5/order`, no “promote to live”.
+- [x] No new mid-watch notifier.
+- [x] `bun test` / `bun run typecheck` green; feed tests still pass without paper fixtures leaking into `test/feed/bb/`.
+- [x] README/script names say **paper**, never “live trade”.
 
 ## 9. Out of scope / phase 2
 
@@ -528,4 +528,4 @@ Do not implement these in the MVP impl PR. Mentioned so they are not silently in
 
 ---
 
-**This repository PR is documentation.** Success is the spec file + docs pointers. No Bun runtime change, no schema migration, no `package.json` script.
+**Phase M.** Success is `src/paper/` + `bun run paper` + `127.0.0.1:43181/paper/*` matching this spec. Live orders are still forbidden.
