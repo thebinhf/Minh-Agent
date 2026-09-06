@@ -409,6 +409,16 @@ CLI JSON matches these objects (wrapper keys may be omitted when printing a sing
 
 ## 7. Safety
 
+### Duyệt locked (verbatim)
+
+Do not paraphrase, weaken, or implement around these. They override any later convenience in an impl PR.
+
+1. Spec tách hẳn paper vs live; không import/call private/trading API.
+2. Fill chỉ từ `:43180` (mark/last local); cấm endpoint order thật.
+3. Env/API key Bybit **không** nằm path paper; bridge live = ticket riêng.
+4. CLI/`GET /paper` chỉ đụng SQLite ảo; không ghi sổ thật.
+5. Phase S→M ghi rõ; không lén ship L.
+
 | Rule | Detail |
 | --- | --- |
 | Paper-only naming | Modules `src/paper/`, tables `paper_*`, env `PAPER_*`, HTTP `/paper/*`, JSON `"mode": "paper"`. Logs `[minh:paper]`. |
@@ -418,13 +428,25 @@ CLI JSON matches these objects (wrapper keys may be omitted when printing a sing
 | Separate DB | `PAPER_DB_PATH` ≠ `BYBIT_DB_PATH`. Paper opens the feed DB readonly or uses HTTP. |
 | Separate HTTP | Paper does not add methods to the feed server (today GET-only on `:43180`). |
 | No mid-watch spam | No interval bot that posts marks to chat. `paper mark` is pull-only. |
-| No auto-live bridge | No command or route that places a Bybit order from a paper id. |
+| No auto-live bridge | No command or route that places a Bybit order from a paper id. Live bridge is a **separate ticket** (locked item 3). |
 
 Startup banner (future impl): `paper simulation only — no API keys, no real orders`.
+
+**Phase S→M (locked item 5):** this document is **S** (spec). A future paper impl PR is **M** (mô phỏng / paper MVP). **L** (live orders) is not a phase of this work and must not ship inside an S or M PR.
 
 ## 8. Acceptance criteria (Duyệt checklist)
 
 Use this list on the **implementation** PR. All items are “not done” until that PR exists.
+
+**Duyệt locked (verbatim — same five as [§7](#duyệt-locked-verbatim)):**
+
+- [ ] Spec tách hẳn paper vs live; không import/call private/trading API.
+- [ ] Fill chỉ từ `:43180` (mark/last local); cấm endpoint order thật.
+- [ ] Env/API key Bybit **không** nằm path paper; bridge live = ticket riêng.
+- [ ] CLI/`GET /paper` chỉ đụng SQLite ảo; không ghi sổ thật.
+- [ ] Phase S→M ghi rõ; không lén ship L.
+
+Impl PR must fail review if any of the five is missing or only “almost” true. Additional checks:
 
 - [ ] Docs-only files in *this* PR unchanged in spirit; impl lives under `src/paper/` (or equivalent), not `src/feed/bb/`.
 - [ ] Feed brief / `:43180` GET routes / WS behavior **unchanged** (PR #5 stays as-is).
