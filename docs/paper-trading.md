@@ -1,6 +1,6 @@
 # Paper trading — MVP spec
 
-**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **2–5%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Không API key, không lệnh thật. Phase **M** — implemented under `src/paper/`.
+**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **2–5%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Phase 2 thêm **fee / funding / multi-TP / leverage** từ account config (không hardcode `0.00055` / `10` trong engine). Không API key, không lệnh thật. Phase **M + 2** — implemented under `src/paper/`.
 
 Simulated equity account for Minh. Fills and marks come from the **local** Bybit public cache (`src/feed/bb`), never from Bybit private API. This document is the locked product spec (An + Minh). Implementation lives under `src/paper/` (phase **M**). Do not add live orders in this module.
 
@@ -32,7 +32,7 @@ Simulated equity account for Minh. Fills and marks come from the **local** Bybit
 | Mid-watch spam | No periodic chat/notify while Minh is watching a paper trade |
 | Changing `src/feed/bb` HTTP, brief, or WS behavior | PR #5 brief is live; leave it |
 
-Phase 2 items (funding, multi-TP, daily 1–2tr VND paper reports, multi-symbol niceties) are **mention-only** — see [§9](#9-out-of-scope--phase-2).
+Phase 2 (funding, fees, multi-TP, leverage) is locked in [§10](#10-phase-2). Daily 1–2tr VND reports and live orders stay out of scope — see [§9](#9-out-of-scope--later).
 
 ## 2. Architecture
 
@@ -90,10 +90,13 @@ One row for MVP (`id = 1`, name `minh-paper`).
 | `risk_pct_max` | TEXT NOT NULL | Band cap — default `0.05`. Config, not a source constant. |
 | `default_risk_pct` | TEXT NOT NULL | Used when an open omits `riskPct`; must sit inside `[min, max]`. |
 | `min_rr` | TEXT | Optional floor (reward / risk). **NULL = no RR gate.** Do not default this to `2` in code. |
+| `fee_rate` | TEXT NOT NULL | Taker fee on notional. Product default `0.00055`. Tests may seed `0`. |
+| `leverage_min` / `leverage_max` / `default_leverage` | TEXT NOT NULL | Band + default. Product `1` / `25` / `1`. |
+| `mm_rate` | TEXT NOT NULL | Maintenance-margin rate for isolated liq. Product default `0.005`. |
 | `created_ts` | INTEGER NOT NULL | Unix ms |
 | `updated_ts` | INTEGER NOT NULL | Unix ms |
 
-MVP does not deduct cash on open (linear paper, no margin wallet). `equity` is the risk base: `cash + unrealized`. After a close, `cash` moves by realized PnL and `equity` is rewritten.
+Do **not** subtract initial margin from `cash` (no margin wallet). `available = cash − sum(open margins)`. Open fee leaves `cash` on fill; close credits `pnl − close_fee`. `equity` is still `cash + unrealized`.
 
 ### `paper_positions`
 
@@ -107,7 +110,7 @@ MVP does not deduct cash on open (linear paper, no margin wallet). `equity` is t
 | `risk_pct` | TEXT NOT NULL | This trade’s fraction of equity; must be in account `[risk_pct_min, risk_pct_max]` |
 | `entry_price` | TEXT NOT NULL | Fill price at open |
 | `stop_loss` | TEXT NOT NULL | Required |
-| `take_profit` | TEXT NOT NULL | Required; single TP in MVP |
+| `take_profit` | TEXT NOT NULL | Furthest TP price (informational; plans live in `take_profits_json`) |
 | `risk_quote` | TEXT NOT NULL | `|entry − SL| * qty` (USDT) |
 | `reward_quote` | TEXT NOT NULL | `|TP − entry| * qty` (USDT) |
 | `rr` | TEXT NOT NULL | Derived `reward_quote / risk_quote` (informational unless `min_rr` is set) |
@@ -117,7 +120,14 @@ MVP does not deduct cash on open (linear paper, no margin wallet). `equity` is t
 | `opened_ts` | INTEGER NOT NULL | |
 | `closed_ts` | INTEGER | |
 | `close_price` | TEXT | |
-| `close_reason` | TEXT | `sl` \| `tp` \| `manual` |
+| `close_reason` | TEXT | `sl` \| `tp` \| `manual` \| `liq` |
+| `leverage` | TEXT NOT NULL | This trade’s leverage |
+| `qty_initial` | TEXT NOT NULL | Size at open (multi-TP slices from this) |
+| `margin` | TEXT NOT NULL | `qty * entry / leverage` (display + availability) |
+| `liq_price` | TEXT NOT NULL | Isolated linear liq from entry, leverage, `mm_rate` |
+| `take_profits_json` | TEXT NOT NULL | `[{ price, qtyPct, filled }]` |
+| `last_funding_ts` | INTEGER | Last applied `nextFundingTime` |
+| `open_fee` / `close_fee` | TEXT NOT NULL | Accumulated fees |
 | `realized_pnl` | TEXT | Set on close |
 | `unrealized_pnl` | TEXT | Last mark; `0` when closed |
 | `mark_price` | TEXT | Last mark used |
@@ -143,7 +153,7 @@ Append-only fill log (open and close). One row per execution.
 | `side` | TEXT NOT NULL | Position side |
 | `qty` | TEXT NOT NULL | |
 | `price` | TEXT NOT NULL | Executed price |
-| `source` | TEXT NOT NULL | `last` \| `sl` \| `tp` |
+| `source` | TEXT NOT NULL | `last` \| `sl` \| `tp` \| `liq` |
 | `recv_ts` | INTEGER | Feed ticker `recvTs` |
 | `ts` | INTEGER NOT NULL | Local time |
 
@@ -161,6 +171,17 @@ Optional history of mark-to-market snapshots. MVP may keep only the latest value
 | `unrealized_pnl` | TEXT NOT NULL | Sum across open positions |
 | `payload_json` | TEXT | Per-position marks |
 
+### `paper_funding`
+
+Append-only funding settlements (Phase 2). One row per applied `nextFundingTime` per position.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `position_id` / `account_id` | INTEGER NOT NULL | |
+| `qty` / `mark_price` / `rate` / `amount` | TEXT NOT NULL | `amount` is signed cash credit |
+| `funding_time` | INTEGER NOT NULL | Feed `nextFundingTime` that settled |
+| `ts` | INTEGER NOT NULL | Local apply time |
+
 Do **not** reuse feed table names (`ticker_latest`, `klines`, …). Do **not** put `paper_*` tables in the feed database file.
 
 ## 4. Fill model
@@ -174,7 +195,7 @@ Do **not** reuse feed table names (`ticker_latest`, `klines`, …). Do **not** p
 
 **Mid** `(bid1Price + ask1Price) / 2` is **not** used in MVP. Do not blend last/mark/mid.
 
-**Slippage = 0** unless a later spec says otherwise. No spread, no latency model, no partial fills. Qty is all-or-nothing.
+**Slippage = 0.** No spread, no latency model. Multi-TP is the only partial fill: each slice is `qty_initial * qtyPct` (last unfilled TP takes the remainder).
 
 **Stale / missing data**
 
@@ -190,7 +211,7 @@ long:  pnl = (exit − entry) * qty
 short: pnl = (entry − exit) * qty
 ```
 
-No funding, fees, or leverage in MVP. `risk_quote` at open must be `≤ equity * risk_pct` for **that** trade’s `risk_pct` (tolerance: 1e-8 relative, TEXT math via decimal or integer micros — pick one in the impl PR and test it). `risk_pct` itself must be inside the account 2–5% band (values from config, not literals in the engine).
+`risk_quote` at open must be `≤ equity * risk_pct` for **that** trade’s `risk_pct` (tolerance: 1e-8 relative, TEXT math via `src/paper/decimal.ts`). `risk_pct` itself must be inside the account 2–5% band (values from config, not literals in the engine). Fees, funding, and leverage are Phase 2 — see [§10](#10-phase-2). They read rates from the account row; do not invent `0.00055` / `10` in the engine.
 
 **SL / TP evaluation** (on `paper mark` or immediately after a price read):
 
@@ -201,6 +222,8 @@ No funding, fees, or leverage in MVP. `risk_quote` at open must be `≤ equity *
 
 If both could hit in one print (gap), **SL wins**. Close the row, write `paper_fills.kind = close`, update cash/equity.
 
+Mark order (Phase 2): **funding → SL → liq (only if leverage > 1) → unfilled TPs nearest-first → MTM**.
+
 Mark and SL/TP checks are **on demand** (CLI/HTTP). No background notifier, no mid-watch messages.
 
 ## 5. Risk engine
@@ -209,7 +232,7 @@ Locks: risk **varies 2–5% per trade**; **do not hardcode** `0.02` or R:R `2` i
 
 ### Inputs
 
-Client sends `symbol`, `side`, `stop_loss`, `take_profit`, `timeframes` (≥ 2 intervals). Optional `riskPct` (else `default_risk_pct`), optional `note`. **Do not take `qty` from the client** in MVP — size is computed.
+Client sends `symbol`, `side`, `stop_loss`, `take_profit` **or** `takeProfits`, `timeframes` (≥ 2 intervals). Optional `riskPct` (else `default_risk_pct`), optional `leverage` (else `default_leverage`), optional `note`. **Do not take `qty` from the client** — size is computed from risk.
 
 `entry` = current fill price (`lastPrice`). `equity` = `paper_accounts.equity` after a mark of existing opens (or cash if no opens).
 
@@ -278,12 +301,14 @@ Bind paper HTTP on **`127.0.0.1:43181`** (env `PAPER_HTTP_HOST` / `PAPER_HTTP_PO
 bun run paper account
 bun run paper positions [--status open|closed|all]
 bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE \
-  --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
+  --tf 240,60,15 [--risk-pct 0.03] [--note TEXT] [--leverage 10]
+bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT \
+  --tf 240,60,15 [--leverage 10]
 bun run paper close ID
 bun run paper mark
 ```
 
-`--tf` is required (comma-separated, ≥ 2). `--risk-pct` is optional (account default); must land in the 2–5% band.
+`--tf` is required (comma-separated, ≥ 2). `--tp` or `--tps` is required (`--tps` pairs must sum to 1). `--risk-pct` / `--leverage` are optional (account defaults).
 
 `--help` / `-h` prints usage and the paper-only warning. Exit `2` on usage errors; exit `1` on reject/stale; exit `0` and print JSON on success (same pretty-print habit as `bun run brief`).
 
@@ -329,6 +354,13 @@ bun run paper mark
   "riskPctMax": "0.05",
   "defaultRiskPct": "0.02",
   "minRr": null,
+  "feeRate": "0.00055",
+  "leverageMin": "1",
+  "leverageMax": "25",
+  "defaultLeverage": "1",
+  "mmRate": "0.005",
+  "marginUsed": "0",
+  "availableCash": "10000",
   "openPositions": 0,
   "updatedTs": 0
 }
@@ -345,12 +377,17 @@ Request:
   "stopLoss": "60000",
   "takeProfit": "66000",
   "riskPct": "0.03",
+  "leverage": "10",
+  "takeProfits": [
+    { "price": "64500", "qtyPct": "0.5" },
+    { "price": "66000", "qtyPct": "0.5" }
+  ],
   "timeframes": ["240", "60", "15"],
   "note": "optional"
 }
 ```
 
-`riskPct` omitted → `defaultRiskPct`. `timeframes` required.
+`riskPct` omitted → `defaultRiskPct`. `leverage` omitted → `defaultLeverage`. `takeProfits` omitted → single `takeProfit` at 100%. `timeframes` required.
 
 Success `201`:
 
@@ -394,7 +431,7 @@ Reject `400`:
 }
 ```
 
-Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set).
+Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set), `leverage_out_of_band`, `insufficient_margin`, `tp_qty_pct_sum`.
 
 #### `POST /paper/positions/:id/close`
 
@@ -420,7 +457,7 @@ Already closed → `409` `{ "mode": "paper", "error": "already_closed" }`.
 ```json
 {
   "mode": "paper",
-  "account": { "cash": "10000", "equity": "10010", "unrealizedPnl": "10" },
+  "account": { "cash": "10000", "equity": "10010", "unrealizedPnl": "10", "marginUsed": "630" },
   "positions": [
     {
       "id": 1,
@@ -430,7 +467,8 @@ Already closed → `409` `{ "mode": "paper", "error": "already_closed" }`.
       "status": "open"
     }
   ],
-  "closed": []
+  "closed": [],
+  "funding": []
 }
 ```
 
@@ -508,24 +546,78 @@ Impl PR must fail review if any of the five is missing or only “almost” true
 - [x] `bun test` / `bun run typecheck` green; feed tests still pass without paper fixtures leaking into `test/feed/bb/`.
 - [x] README/script names say **paper**, never “live trade”.
 
-## 9. Out of scope / phase 2
+Phase 2 (this PR):
 
-Do not implement these in the MVP impl PR. Mentioned so they are not silently invented mid-MVP.
+- [x] `fee_rate` / leverage band / `mm_rate` live on the account; no engine magic `0.00055` or `10`.
+- [x] Open/close charge `qty * price * fee_rate`; IM is not subtracted from cash.
+- [x] `leverage` in band; `insufficient_margin` when `cash < existingIM + newIM + openFee`.
+- [x] Isolated liq only when leverage > 1; SL still wins a gap.
+- [x] `takeProfits` percents sum to 1; nearest-first scale-out; last slice takes remainder.
+- [x] Funding from ticker `fundingRate` / `nextFundingTime`; once per settlement; long pays when rate > 0.
+- [x] Live orders still forbidden.
+
+## 9. Out of scope / later
+
+Do not silently invent these. Funding / fees / multi-TP / leverage shipped in [§10](#10-phase-2).
 
 | Item | Notes |
 | --- | --- |
-| Funding payments | Ticker already has `fundingRate` / `nextFundingTime` on the feed; paper ignores them until phase 2. |
-| Fees / slippage > 0 | MVP is zero-fee, zero-slippage. |
-| Multi-TP / scale-out | One `take_profit` per position. |
-| Partial close / add-to | One shot open, one shot close. |
-| Margin / leverage / liq | 1× linear PnL only. |
+| Slippage > 0 | Still zero-slippage. Fees are not slippage. |
+| Add-to / scale-in | Multi-TP is scale-**out** only. No add-to an open row. |
 | Multi-account | Single `minh-paper` row. |
-| Rich reports vs daily target | Phase 2: paper PnL vs **1–2 triệu VND / day** target (reports only; still simulated). |
-| Extra multi-symbol UX | MVP: one open per symbol, feed universe only. Niceties (baskets, relative size, heatmap) wait. |
-| MTF strategy / auto signals | MVP only **tags** TFs and snapshots local closes. No HTF/LTF signal engine. |
+| Rich reports vs daily target | Paper PnL vs **1–2 triệu VND / day** (reports only; still simulated). |
+| Extra multi-symbol UX | One open per symbol, feed universe only. |
+| MTF strategy / auto signals | Paper only **tags** TFs and snapshots local closes. |
 | Browser UI | None (same as greenfield Minh). |
 | Live trading / copy-trade | Forbidden, not “later”. |
 
+## 10. Phase 2
+
+Locked for this PR. All rates come from `paper_accounts` / `src/paper/config.json`. Tests seed `feeRate: "0"` so MVP cash assertions stay `10000` after a zero-fee open.
+
+### Fees
+
+```text
+fee = qty * price * fee_rate
+open:  cash -= open_fee
+close: cash += pnl - close_fee   # each slice
+```
+
+Risk band is still `|entry − SL| * qty`. Fees sit **outside** that budget.
+
+### Leverage / isolated liq
+
+`qty` is still from risk. Margin is display + availability only — **do not subtract IM from cash**.
+
+```text
+margin    = qty * entry / leverage
+available = cash - sum(open margins)
+reject insufficient_margin if cash < existingIM + newIM + openFee
+liq long  = entry * (1 - 1/leverage + mm_rate)
+liq short = entry * (1 + 1/leverage - mm_rate)
+```
+
+Liq is evaluated only when `leverage > 1` (1× keeps MVP behavior). Product band `1–25`, default `1`. Reject `leverage_out_of_band` outside the account band.
+
+### Multi-TP
+
+`takeProfits: [{ price, qtyPct, filled? }]`. Percents must sum to 1 (1e-8). Sort long ascending / short descending (nearest first). Each slice is `qtyPct` of **original** qty; the last unfilled TP takes the remainder. Partial close keeps the row `open`. A single `takeProfit` is one plan at 100%.
+
+### Funding
+
+Read ticker `fundingRate` + `nextFundingTime` from `:43180` (already on the feed). On mark, if `now >= nextFundingTime` and `last_funding_ts !== nextFundingTime`:
+
+```text
+amount = ± qty * mark * rate   # long pays when rate > 0
+cash  += amount
+```
+
+Write `paper_funding` and set `last_funding_ts`. Apply once per settlement.
+
+### Still banned
+
+No API keys, no `/v5/order`, no paper→live bridge, no changes to feed WS/brief behavior.
+
 ---
 
-**Phase M.** Success is `src/paper/` + `bun run paper` + `127.0.0.1:43181/paper/*` matching this spec. Live orders are still forbidden.
+**Phase M + 2.** Success is `src/paper/` + `bun run paper` + `127.0.0.1:43181/paper/*` matching this spec. Live orders are still forbidden.

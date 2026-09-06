@@ -23,7 +23,14 @@ export async function paperConfig(dir: string, extra: Partial<PaperConfig> = {})
     dbPath: extra.dbPath ?? join(dir, "paper.sqlite"),
     httpHost: extra.httpHost ?? "127.0.0.1",
     httpPort: extra.httpPort ?? 0,
-    account: extra.account ?? base.account,
+    account: extra.account ?? {
+      ...base.account,
+      feeRate: "0",
+      defaultLeverage: "1",
+      leverageMin: "1",
+      leverageMax: "25",
+      mmRate: "0.005",
+    },
   };
 }
 
@@ -37,6 +44,8 @@ export function mockFeed(opts?: {
   lastPrice?: string | null;
   markPrice?: string | null;
   recvTs?: number | null;
+  fundingRate?: string | null;
+  nextFundingTime?: number | null;
   ok?: boolean;
   klines?: Partial<Record<string, PaperKlineSnap | null>>;
   tickers?: Record<string, Partial<PaperTicker>>;
@@ -44,6 +53,8 @@ export function mockFeed(opts?: {
   const lastPrice = opts?.lastPrice === undefined ? "63000" : opts.lastPrice;
   const markPrice = opts?.markPrice === undefined ? "63100" : opts.markPrice;
   const recvTs = opts?.recvTs === undefined ? Date.now() : opts.recvTs;
+  const fundingRate = opts?.fundingRate === undefined ? null : opts.fundingRate;
+  const nextFundingTime = opts?.nextFundingTime === undefined ? null : opts.nextFundingTime;
   return {
     async health() {
       return { ok: opts?.ok ?? true, url: "http://127.0.0.1:43180/health" };
@@ -55,6 +66,8 @@ export function mockFeed(opts?: {
         lastPrice: override?.lastPrice === undefined ? lastPrice : override.lastPrice,
         markPrice: override?.markPrice === undefined ? markPrice : override.markPrice,
         recvTs: override?.recvTs === undefined ? recvTs : override.recvTs,
+        fundingRate: override?.fundingRate === undefined ? fundingRate : override.fundingRate,
+        nextFundingTime: override?.nextFundingTime === undefined ? nextFundingTime : override.nextFundingTime,
       };
     },
     async lastKline(symbol: string, interval: string) {

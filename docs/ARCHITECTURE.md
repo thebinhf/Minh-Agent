@@ -21,7 +21,7 @@ src/index.ts
          GET /brief  (one snapshot JSON for Minh)
   → src/paper
        → paper SQLite ledger (separate file)
-       → risk engine (account 2–5% band, R:R from SL/TP, MTF tags)
+       → risk engine (account 2–5% band, R:R from SL/TP, MTF tags, Phase 2 fee/funding/lev)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 

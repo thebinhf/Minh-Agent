@@ -48,6 +48,8 @@ describe("paper HTTP", () => {
       expect(account.mode).toBe("paper");
       expect(account.cash).toBe("10000");
       expect(account.minRr).toBeNull();
+      expect(account.feeRate).toBe("0");
+      expect(account.defaultLeverage).toBe("1");
 
       const opened = await fetch(`${svc.url}/paper/positions`, {
         method: "POST",
@@ -65,9 +67,15 @@ describe("paper HTTP", () => {
 
       const marked = await fetch(`${svc.url}/paper/mark`, { method: "POST" });
       expect(marked.status).toBe(200);
-      const markBody = await marked.json() as { mode: string; positions: unknown[]; closed: unknown[] };
+      const markBody = await marked.json() as {
+        mode: string;
+        positions: unknown[];
+        closed: unknown[];
+        funding: unknown[];
+      };
       expect(markBody.mode).toBe("paper");
       expect(markBody.closed).toEqual([]);
+      expect(markBody.funding).toEqual([]);
 
       const closed = await fetch(`${svc.url}/paper/positions/${openedBody.position.id}/close`, { method: "POST" });
       expect(closed.status).toBe(200);
@@ -80,6 +88,33 @@ describe("paper HTTP", () => {
       expect(again.status).toBe(409);
       const againBody = await again.json() as { error: string };
       expect(againBody.error).toBe("already_closed");
+    } finally {
+      svc.stop();
+    }
+  });
+
+  test("accepts leverage and takeProfits on open", async () => {
+    const svc = await serve();
+    try {
+      const opened = await fetch(`${svc.url}/paper/positions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...OPEN_LONG,
+          leverage: "10",
+          takeProfits: [
+            { price: "64500", qtyPct: "0.5" },
+            { price: "66000", qtyPct: "0.5" },
+          ],
+        }),
+      });
+      expect(opened.status).toBe(201);
+      const body = await opened.json() as {
+        position: { leverage: string; liqPrice: string; takeProfits: Array<{ price: string }> };
+      };
+      expect(body.position.leverage).toBe("10");
+      expect(body.position.liqPrice).toBe("57015");
+      expect(body.position.takeProfits.map((plan) => plan.price)).toEqual(["64500", "66000"]);
     } finally {
       svc.stop();
     }

@@ -149,6 +149,8 @@ describe("paper engine", () => {
       lastPrice: "63300",
       markPrice: "63300",
       recvTs: Date.now(),
+      fundingRate: null,
+      nextFundingTime: null,
     });
     const marked = await engine.mark();
     expect(marked.mode).toBe("paper");
@@ -162,6 +164,8 @@ describe("paper engine", () => {
       lastPrice: "59000",
       markPrice: "59000",
       recvTs: Date.now(),
+      fundingRate: null,
+      nextFundingTime: null,
     });
     const stopped = await engine.mark();
     expect(stopped.closed).toHaveLength(1);
@@ -187,6 +191,8 @@ describe("paper engine", () => {
       lastPrice: "59000",
       markPrice: "59000",
       recvTs: Date.now(),
+      fundingRate: null,
+      nextFundingTime: null,
     });
     const marked = await engine.mark();
     expect(marked.closed[0]?.closeReason).toBe("tp");

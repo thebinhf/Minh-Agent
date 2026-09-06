@@ -46,6 +46,8 @@ export function httpFeed(feedUrl: string): PaperFeed {
         lastPrice: asText(row.lastPrice ?? row.last_price),
         markPrice: asText(row.markPrice ?? row.mark_price),
         recvTs: asTs(row.recvTs ?? row.recv_ts),
+        fundingRate: asText(row.fundingRate ?? row.funding_rate),
+        nextFundingTime: asTs(row.nextFundingTime ?? row.next_funding_time),
       };
     },
 
