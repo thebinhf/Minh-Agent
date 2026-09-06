@@ -23,6 +23,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Express task board / static UI | Cursor environment-setup scaffold only. Removed. |
 | `apps/` monorepo packages | Tracker is a feature, not a sibling app. |
 | Trading / private Bybit topics | Public linear market data only. No API keys. |
+| Paper trading | Spec only — [paper-trading.md](paper-trading.md). No ledger, CLI, or HTTP yet. |
 | Browser dashboard | Greenfield Minh has no browser operator UI. |
 
 ## Docs
@@ -31,3 +32,4 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
+| [paper-trading.md](paper-trading.md) | Paper trading MVP spec (simulated only; not implemented) |
