@@ -16,6 +16,9 @@ RestartSec=3
 Environment=BYBIT_HTTP_HOST=127.0.0.1
 Environment=BYBIT_HTTP_PORT=43180
 Environment=BYBIT_DB_PATH=/var/lib/bybit-ws-tracker/market.sqlite
+Environment=PAPER_HTTP_HOST=127.0.0.1
+Environment=PAPER_HTTP_PORT=43181
+Environment=PAPER_DB_PATH=/var/lib/bybit-ws-tracker/paper.sqlite
 NoNewPrivileges=true
 PrivateTmp=true
 

@@ -1,0 +1,59 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { assertNoApiKeys, assertSeparateDb, forbiddenKeyEnvNames } from "../../src/paper/config";
+import { PaperSafetyError } from "../../src/paper/errors";
+import { startPaper } from "../../src/paper/index";
+
+const KEYS = ["BYBIT_API_KEY", "BYBIT_API_SECRET", "BYBIT_SECRET"] as const;
+const saved: Record<string, string | undefined> = {};
+
+afterEach(() => {
+  for (const name of KEYS) {
+    if (saved[name] === undefined) delete process.env[name];
+    else process.env[name] = saved[name];
+    delete saved[name];
+  }
+});
+
+describe("paper safety", () => {
+  test("refuses to start when Bybit key env vars are set", async () => {
+    saved.BYBIT_API_KEY = process.env.BYBIT_API_KEY;
+    process.env.BYBIT_API_KEY = "not-a-real-key";
+    expect(forbiddenKeyEnvNames()).toContain("BYBIT_API_KEY");
+    expect(() => assertNoApiKeys()).toThrow(PaperSafetyError);
+    expect(() => assertNoApiKeys()).toThrow(/paper never uses API keys/);
+    await expect(startPaper()).rejects.toThrow(PaperSafetyError);
+  });
+
+  test("paper DB path must not equal the feed DB path", () => {
+    expect(() => assertSeparateDb("/tmp/same.sqlite", "/tmp/same.sqlite")).toThrow(PaperSafetyError);
+    expect(() => assertSeparateDb("/tmp/paper.sqlite", "/tmp/market.sqlite")).not.toThrow();
+  });
+
+  test("paper sources never mention private order routes or live promote", async () => {
+    const files = [
+      "src/paper/engine.ts",
+      "src/paper/feed.ts",
+      "src/paper/http.ts",
+      "src/paper/cli.ts",
+      "src/paper/index.ts",
+      "src/paper/risk.ts",
+    ];
+    for (const file of files) {
+      const src = await Bun.file(file).text();
+      expect(src).not.toContain("api.bybit.com");
+      expect(src).not.toContain("/v5/order");
+      expect(src).not.toContain("PAPER_LIVE");
+      expect(src).not.toContain("promote");
+      expect(src).not.toMatch(/private.*websocket/i);
+    }
+  });
+
+  test("feed tests stay free of paper fixtures", () => {
+    const feedTests = readdirSync(join(import.meta.dir, "../feed/bb"));
+    expect(feedTests.some((name) => name.includes("paper"))).toBe(false);
+    const paperTests = readdirSync(import.meta.dir);
+    expect(paperTests.some((name) => name.endsWith(".test.ts"))).toBe(true);
+  });
+});
