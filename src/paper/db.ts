@@ -120,6 +120,12 @@ function migrate(db: Database, seed: PaperAccountSeed) {
   );
 
   db.prepare(
+    `UPDATE paper_accounts SET
+      risk_pct_min = ?, risk_pct_max = ?, default_risk_pct = ?, updated_ts = ?
+     WHERE id = 1`,
+  ).run(seed.riskPctMin, seed.riskPctMax, seed.defaultRiskPct, now);
+
+  db.prepare(
     `INSERT INTO paper_meta (key, value, updated_ts) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_ts = excluded.updated_ts`,
   ).run("schema_version", PAPER_SCHEMA_VERSION, now);

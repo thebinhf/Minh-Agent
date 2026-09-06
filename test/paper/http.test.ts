@@ -48,6 +48,8 @@ describe("paper HTTP", () => {
       expect(account.mode).toBe("paper");
       expect(account.cash).toBe("10000");
       expect(account.minRr).toBeNull();
+      expect(account.riskPctMin).toBe("0.01");
+      expect(account.riskPctMax).toBe("0.10");
       expect(account.feeRate).toBe("0");
       expect(account.defaultLeverage).toBe("1");
 
@@ -126,7 +128,7 @@ describe("paper HTTP", () => {
       const bad = await fetch(`${svc.url}/paper/positions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...OPEN_LONG, riskPct: "0.08" }),
+        body: JSON.stringify({ ...OPEN_LONG, riskPct: "0.15" }),
       });
       expect(bad.status).toBe(400);
       const body = await bad.json() as { mode: string; error: string; gate: string };

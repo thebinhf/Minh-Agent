@@ -39,6 +39,27 @@ describe("paper engine", () => {
     expect(engine.account().cash).toBe("10000");
   });
 
+  test("allows 1% and 10% risk; 10% at 1x can still fail IM", async () => {
+    const low = await harness();
+    const onePct = await low.engine.open({ ...OPEN_LONG, riskPct: "0.01" });
+    expect(onePct.position.riskPct).toBe("0.01");
+    expect(onePct.position.riskQuote).toBe("100");
+
+    const highLev = await harness();
+    const tenPct = await highLev.engine.open({ ...OPEN_LONG, riskPct: "0.10", leverage: "10" });
+    expect(tenPct.position.riskPct).toBe("0.1");
+    expect(tenPct.position.riskQuote).toBe("1000");
+    expect(tenPct.position.margin).toBe("2100");
+
+    const highFlat = await harness();
+    try {
+      await highFlat.engine.open({ ...OPEN_LONG, riskPct: "0.10" });
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(reject(error).error).toBe("insufficient_margin");
+    }
+  });
+
   test("rejects duplicate symbol, unknown symbol, missing SL/TP, wrong-side levels", async () => {
     const { engine } = await harness();
     await engine.open(OPEN_LONG);
