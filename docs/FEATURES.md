@@ -32,4 +32,4 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
-| [paper-trading.md](paper-trading.md) | Paper trading MVP spec (simulated only; not implemented) |
+| [paper-trading.md](paper-trading.md) | Paper trading MVP spec (2–5% risk, no hardcoded R:R, MTF; not implemented) |

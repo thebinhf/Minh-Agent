@@ -1,6 +1,6 @@
 # Paper trading — MVP spec
 
-**Tóm tắt:** Paper trading là tài khoản ảo (SQLite), risk ~2% equity mỗi lệnh, chỉ mở khi RR ≥ 1:2, fill/mark lấy giá local `127.0.0.1:43180`. Không API key, không lệnh thật. Spec only — chưa implement.
+**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **2–5%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Không API key, không lệnh thật. Spec only — chưa implement.
 
 Simulated equity account for Minh. Fills and marks come from the **local** Bybit public cache (`src/feed/bb`), never from Bybit private API. This document is the locked product spec (An + Minh). A later implementation PR must follow it; this PR does not add runtime code, SQLite tables, or scripts.
 
@@ -13,8 +13,9 @@ Simulated equity account for Minh. Fills and marks come from the **local** Bybit
 | Goal | Lock |
 | --- | --- |
 | Virtual USDT equity in a **paper** SQLite file | Isolated ledger; not the feed cache |
-| Position size from risk **~2%** of equity per trade | Minh lock — qty is derived, not free-form |
-| Require **RR ≥ 1:2** (reward:risk ≥ 2.0) before open | Reject otherwise |
+| Position size from risk **2–5%** of equity per trade | Band lock — qty is derived; **do not hardcode 2%** in source |
+| R:R is **not hardcoded** | Derived from SL/TP and stored; optional `min_rr` lives on the account/config, never as a magic `2` in the engine |
+| Multi-timeframe (MTF) on every open | Operator must name **≥ 2** feed intervals (đánh đa khung); paper records them and reads local klines |
 | Open with stop-loss + take-profit | Both required |
 | Close (manual) and mark-to-market PnL | Unrealized on open; realized on close |
 | Fill / mark price from local market data | `http://127.0.0.1:43180` ticker / WS cache |
@@ -47,7 +48,7 @@ src/index.ts                    # composition root (today: feed only)
 
   → src/paper/                  # FUTURE impl — not in this PR
        → paper SQLite ledger    # paper_* tables only
-       → risk engine (2%, RR ≥ 2)
+       → risk engine (2–5% band, R:R from SL/TP, MTF tags)
        → CLI  bun run paper …
        → HTTP 127.0.0.1:43181 /paper/*   # separate bind; not feed routes
 ```
@@ -61,8 +62,9 @@ src/index.ts                    # composition root (today: feed only)
 Price I/O for paper:
 
 1. Prefer `GET http://127.0.0.1:43180/tickers?symbol=BTCUSDT` (or `GET /brief?symbol=`).
-2. Allowed equivalent: `openDb(BYBIT_DB_PATH, true)` and read `ticker_latest` — same cache the HTTP layer serves.
-3. Forbidden: `api.bybit.com` signed routes, private WS, Bybit MCP private tools, any key-bearing client.
+2. MTF context: `GET /brief?symbol=` (15/60/240) and/or `GET /klines?symbol=&interval=` for each tagged timeframe. Same cache, still public-only.
+3. Allowed equivalent: `openDb(BYBIT_DB_PATH, true)` and read `ticker_latest` / `klines` — same cache the HTTP layer serves.
+4. Forbidden: `api.bybit.com` signed routes, private WS, Bybit MCP private tools, any key-bearing client.
 
 If the feed is down or the ticker is stale, **reject** the open/close/mark. Do not invent a price.
 
@@ -84,8 +86,10 @@ One row for MVP (`id = 1`, name `minh-paper`).
 | `cash` | TEXT NOT NULL | Realized cash (no open margin lock in MVP) |
 | `equity` | TEXT NOT NULL | `cash` + sum of unrealized MTM; refreshed on mark/close |
 | `starting_cash` | TEXT NOT NULL | Seed; default `10000` |
-| `risk_pct` | TEXT NOT NULL | `0.02` (Minh lock) |
-| `min_rr` | TEXT NOT NULL | `2` (reward / risk) |
+| `risk_pct_min` | TEXT NOT NULL | Band floor — default `0.02`. Config, not a source constant. |
+| `risk_pct_max` | TEXT NOT NULL | Band cap — default `0.05`. Config, not a source constant. |
+| `default_risk_pct` | TEXT NOT NULL | Used when an open omits `riskPct`; must sit inside `[min, max]`. |
+| `min_rr` | TEXT | Optional floor (reward / risk). **NULL = no RR gate.** Do not default this to `2` in code. |
 | `created_ts` | INTEGER NOT NULL | Unix ms |
 | `updated_ts` | INTEGER NOT NULL | Unix ms |
 
@@ -99,13 +103,16 @@ MVP does not deduct cash on open (linear paper, no margin wallet). `equity` is t
 | `account_id` | INTEGER NOT NULL | FK → `paper_accounts.id` |
 | `symbol` | TEXT NOT NULL | e.g. `BTCUSDT` (feed symbol set) |
 | `side` | TEXT NOT NULL | `long` \| `short` |
-| `qty` | TEXT NOT NULL | Base size; derived from 2% risk |
+| `qty` | TEXT NOT NULL | Base size; derived from this row’s `risk_pct` |
+| `risk_pct` | TEXT NOT NULL | This trade’s fraction of equity; must be in account `[risk_pct_min, risk_pct_max]` |
 | `entry_price` | TEXT NOT NULL | Fill price at open |
 | `stop_loss` | TEXT NOT NULL | Required |
 | `take_profit` | TEXT NOT NULL | Required; single TP in MVP |
 | `risk_quote` | TEXT NOT NULL | `|entry − SL| * qty` (USDT) |
 | `reward_quote` | TEXT NOT NULL | `|TP − entry| * qty` (USDT) |
-| `rr` | TEXT NOT NULL | `reward_quote / risk_quote` |
+| `rr` | TEXT NOT NULL | Derived `reward_quote / risk_quote` (informational unless `min_rr` is set) |
+| `timeframes` | TEXT NOT NULL | JSON array of ≥ 2 feed intervals, e.g. `["240","60","15"]` |
+| `mtf_json` | TEXT | Optional snapshot of last local close per tagged TF at open |
 | `status` | TEXT NOT NULL | `open` \| `closed` |
 | `opened_ts` | INTEGER NOT NULL | |
 | `closed_ts` | INTEGER | |
@@ -183,7 +190,7 @@ long:  pnl = (exit − entry) * qty
 short: pnl = (entry − exit) * qty
 ```
 
-No funding, fees, or leverage in MVP. `risk_quote` at open must be `≤ equity * 0.02` (tolerance: 1e-8 relative, TEXT math via decimal or integer micros — pick one in the impl PR and test it).
+No funding, fees, or leverage in MVP. `risk_quote` at open must be `≤ equity * risk_pct` for **that** trade’s `risk_pct` (tolerance: 1e-8 relative, TEXT math via decimal or integer micros — pick one in the impl PR and test it). `risk_pct` itself must be inside the account 2–5% band (values from config, not literals in the engine).
 
 **SL / TP evaluation** (on `paper mark` or immediately after a price read):
 
@@ -198,26 +205,32 @@ Mark and SL/TP checks are **on demand** (CLI/HTTP). No background notifier, no m
 
 ## 5. Risk engine
 
-Locks: **~2% equity risk per trade**, **RR ≥ 1:2**.
+Locks: risk **varies 2–5% per trade**; **do not hardcode** `0.02` or R:R `2` in source. Read the band (and optional `min_rr`) from `paper_accounts` / paper config. Every open is **multi-timeframe**.
 
 ### Inputs
 
-Client sends `symbol`, `side`, `stop_loss`, `take_profit`. Optional `note`. **Do not take `qty` from the client** in MVP — size is computed.
+Client sends `symbol`, `side`, `stop_loss`, `take_profit`, `timeframes` (≥ 2 intervals). Optional `riskPct` (else `default_risk_pct`), optional `note`. **Do not take `qty` from the client** in MVP — size is computed.
 
 `entry` = current fill price (`lastPrice`). `equity` = `paper_accounts.equity` after a mark of existing opens (or cash if no opens).
+
+Allowed intervals are the feed set (`src/feed/bb` config: today `5`, `15`, `60`, `240`). Suggested MTF stack matches the snapshot brief: **240 + 60 + 15** (HTF bias → LTF trigger). Two frames is the minimum (e.g. `60` + `15`).
 
 ### Size
 
 ```text
-risk_pct      = 0.02
+risk_pct      = request.riskPct ?? account.default_risk_pct
+# must satisfy account.risk_pct_min <= risk_pct <= account.risk_pct_max
+# defaults for those three columns: 0.02 / 0.05 / 0.02 — loaded from DB/config
 risk_budget   = equity * risk_pct
 stop_dist     = abs(entry − stop_loss)
 qty           = risk_budget / stop_dist
 risk_quote    = stop_dist * qty          # == risk_budget
 reward_dist   = abs(take_profit − entry)
 reward_quote  = reward_dist * qty
-rr            = reward_dist / stop_dist  # == reward_quote / risk_quote
+rr            = reward_dist / stop_dist  # stored; gated only if min_rr is set
 ```
+
+Impl must not write `const RISK_PCT = 0.02` or `const MIN_RR = 2`. Tests should pass with a **3%** open and with `min_rr` unset.
 
 ### Gates (reject open if any fail)
 
@@ -229,14 +242,27 @@ rr            = reward_dist / stop_dist  # == reward_quote / risk_quote
 | SL side | `long` ⇒ `stop_loss < entry`; `short` ⇒ `stop_loss > entry` |
 | TP side | `long` ⇒ `take_profit > entry`; `short` ⇒ `take_profit < entry` |
 | Stop distance | `stop_dist > 0` |
-| RR | `rr >= 2` |
-| Risk | `risk_quote <= equity * 0.02` (true by construction if qty is derived) |
+| Risk band | `risk_pct_min <= risk_pct <= risk_pct_max` (default band 0.02–0.05) |
+| Risk quote | `risk_quote <= equity * risk_pct` (true by construction if qty is derived) |
+| RR | **Only if** `account.min_rr` is non-null: `rr >= min_rr`. No implicit 1:2. |
+| MTF | `timeframes` has ≥ 2 unique feed intervals; each has at least one local kline |
 | Flat symbol | No other `open` position on that `symbol` |
 | Equity | `equity > 0` |
 
-`rr` is reward÷risk. **1:2** means reward is at least twice risk (`>= 2.0`). Values such as 1.99 reject. There is no “close enough” override and no `--force`.
+`rr` is reward÷risk, recorded on the position so Minh can review it. There is no hardcoded 1:2 reject. If an operator later sets `min_rr` on the account, that value is the floor — still not a compile-time constant.
 
-Reject body (CLI + HTTP) must name the failed gate (`rr`, `stale`, `sl_side`, `duplicate_symbol`, …). Do not open a position and “fix it later”.
+Reject body (CLI + HTTP) must name the failed gate (`risk_pct`, `mtf`, `stale`, `sl_side`, `duplicate_symbol`, `rr` when configured, …). Do not open a position and “fix it later”.
+
+### Multi-timeframe (đánh đa khung)
+
+Paper is not a PA engine. It **does not** invent entries from klines. It does require Minh to declare the frames used and to prove those candles exist locally:
+
+1. Persist `timeframes` on the position (order is HTF → LTF).
+2. Read each interval from `:43180` (`/brief` for 15/60/240, `/klines` for others such as `5`).
+3. Optionally store last close / `start_ts` / `confirm` per TF in `mtf_json` at open.
+4. Reject `mtf_incomplete` if a tagged interval has no rows (do not call Bybit REST from paper).
+
+Changing feed brief windows or adding intervals is **out of scope** for paper. Use what `:43180` already serves.
 
 ## 6. CLI commands + HTTP routes
 
@@ -251,10 +277,13 @@ Bind paper HTTP on **`127.0.0.1:43181`** (env `PAPER_HTTP_HOST` / `PAPER_HTTP_PO
 ```text
 bun run paper account
 bun run paper positions [--status open|closed|all]
-bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE [--note TEXT]
+bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE \
+  --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
 bun run paper close ID
 bun run paper mark
 ```
+
+`--tf` is required (comma-separated, ≥ 2). `--risk-pct` is optional (account default); must land in the 2–5% band.
 
 `--help` / `-h` prints usage and the paper-only warning. Exit `2` on usage errors; exit `1` on reject/stale; exit `0` and print JSON on success (same pretty-print habit as `bun run brief`).
 
@@ -296,8 +325,10 @@ bun run paper mark
   "equity": "10000",
   "unrealizedPnl": "0",
   "startingCash": "10000",
-  "riskPct": "0.02",
-  "minRr": "2",
+  "riskPctMin": "0.02",
+  "riskPctMax": "0.05",
+  "defaultRiskPct": "0.02",
+  "minRr": null,
   "openPositions": 0,
   "updatedTs": 0
 }
@@ -313,9 +344,13 @@ Request:
   "side": "long",
   "stopLoss": "60000",
   "takeProfit": "66000",
+  "riskPct": "0.03",
+  "timeframes": ["240", "60", "15"],
   "note": "optional"
 }
 ```
+
+`riskPct` omitted → `defaultRiskPct`. `timeframes` required.
 
 Success `201`:
 
@@ -326,13 +361,15 @@ Success `201`:
     "id": 1,
     "symbol": "BTCUSDT",
     "side": "long",
-    "qty": "0.00333333",
+    "qty": "0.005",
+    "riskPct": "0.03",
     "entryPrice": "63000",
     "stopLoss": "60000",
     "takeProfit": "66000",
-    "riskQuote": "200",
-    "rewardQuote": "400",
-    "rr": "2",
+    "riskQuote": "300",
+    "rewardQuote": "300",
+    "rr": "1",
+    "timeframes": ["240", "60", "15"],
     "status": "open",
     "openedTs": 0,
     "fillSource": "last",
@@ -342,19 +379,22 @@ Success `201`:
 }
 ```
 
+(`rr` is stored even when below 2 — no hardcoded reject unless `minRr` is set on the account.)
+
 Reject `400`:
 
 ```json
 {
   "mode": "paper",
-  "error": "rr_below_min",
-  "gate": "rr",
-  "rr": "1.5",
-  "minRr": "2"
+  "error": "risk_pct_out_of_band",
+  "gate": "risk_pct",
+  "riskPct": "0.08",
+  "riskPctMin": "0.02",
+  "riskPctMax": "0.05"
 }
 ```
 
-Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`.
+Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set).
 
 #### `POST /paper/positions/:id/close`
 
@@ -451,8 +491,10 @@ Impl PR must fail review if any of the five is missing or only “almost” true
 - [ ] Docs-only files in *this* PR unchanged in spirit; impl lives under `src/paper/` (or equivalent), not `src/feed/bb/`.
 - [ ] Feed brief / `:43180` GET routes / WS behavior **unchanged** (PR #5 stays as-is).
 - [ ] Separate `paper_*.sqlite` (or `PAPER_DB_PATH`) with the tables in [§3](#3-data-model). No paper tables in the feed file.
-- [ ] Open computes qty from **2%** of equity; client cannot raise risk.
-- [ ] Open with `rr < 2` is rejected; fixture/test proves it.
+- [ ] Open computes qty from the **requested** `riskPct` (or account default); client cannot pass `qty`.
+- [ ] `riskPct` outside **2–5%** (account `risk_pct_min`/`max`) is rejected; a **3%** open succeeds. No `const` `0.02` / `2` in the risk engine.
+- [ ] R:R is derived and stored; with `min_rr` unset, `rr < 2` still opens. `rr_below_min` only when `min_rr` is configured.
+- [ ] Open requires ≥ 2 `timeframes`; missing local klines → `mtf_incomplete`. Does not fetch Bybit REST from paper.
 - [ ] Open without SL or TP is rejected.
 - [ ] SL/TP on the wrong side of entry is rejected.
 - [ ] Fill price is local `lastPrice` from `:43180` (or readonly `ticker_latest`); tests stub that cache, not Bybit private API.
@@ -480,6 +522,7 @@ Do not implement these in the MVP impl PR. Mentioned so they are not silently in
 | Multi-account | Single `minh-paper` row. |
 | Rich reports vs daily target | Phase 2: paper PnL vs **1–2 triệu VND / day** target (reports only; still simulated). |
 | Extra multi-symbol UX | MVP: one open per symbol, feed universe only. Niceties (baskets, relative size, heatmap) wait. |
+| MTF strategy / auto signals | MVP only **tags** TFs and snapshots local closes. No HTF/LTF signal engine. |
 | Browser UI | None (same as greenfield Minh). |
 | Live trading / copy-trade | Forbidden, not “later”. |
 
