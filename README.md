@@ -20,6 +20,7 @@ bun run backfill --days 14   # 15/60/240 into SQLite; does not start WS
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/FEATURES.md](docs/FEATURES.md)
 - [docs/exchanges/BB.md](docs/exchanges/BB.md)
+- [docs/paper-trading.md](docs/paper-trading.md) — paper trading MVP spec (not implemented)
 
 ## Checks
 
