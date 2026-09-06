@@ -1,10 +1,10 @@
 {
   "name": "Minh-Agent",
-  "install": "bun install",
+  "install": "command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash; export PATH=\"$HOME/.bun/bin:$PATH\"; bun install",
   "terminals": [
     {
       "name": "minh-agent",
-      "command": "bun run start"
+      "command": "export PATH=\"$HOME/.bun/bin:$PATH\" && bun run start"
     }
   ],
   "ports": [
