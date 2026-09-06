@@ -101,7 +101,7 @@ export function emptyBrief(symbol: string, dbPath: string, now = Date.now(), lim
 export function buildBrief(
   store: BriefStore,
   opts: {
-    symbol?: string;
+    symbol?: string | null;
     dbPath: string;
     now?: number;
     limits?: Partial<BriefLimits>;
