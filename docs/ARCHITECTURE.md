@@ -19,8 +19,10 @@ src/index.ts
        → SQLite cache
        → read-only HTTP 127.0.0.1:43180
          GET /brief  (one snapshot JSON for Minh)
+         GET /chart  GET /depth  GET /heatmap
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
+bun run query chart|depth|heatmap
 bun run backfill   # one-shot; does not start WS
   → REST /v5/market/kline (official host, then restFallbacks)
     or JSON/CSV dump import

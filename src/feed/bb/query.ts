@@ -1,6 +1,7 @@
 import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { parseTimeArg } from "./recovery";
+import { buildChart, buildDepth, buildHeatmap } from "./view";
 
 function usage(): never {
   console.log(`Usage:
@@ -10,6 +11,9 @@ function usage(): never {
   bun run query orderbooks [SYMBOL]
   bun run query klines SYMBOL [INTERVAL] [--limit N] [--confirm 0|1] [--start TIME] [--end TIME]
   bun run query kline-stats [SYMBOL] [INTERVAL]
+  bun run query chart [SYMBOL] [INTERVAL] [--limit N] [--start TIME] [--end TIME]
+  bun run query depth [SYMBOL]
+  bun run query heatmap [SYMBOL] [--limit N] [--bucket STEP] [--start TIME] [--end TIME]
 
 TIME is Unix epoch milliseconds (13-digit, e.g. 1725600000000), ISO-8601, or YYYY-MM-DD.
 Seconds (10-digit) are not accepted. For a dump file / URL use: bun run backfill --from PATH|URL
@@ -79,6 +83,41 @@ try {
     case "kline-stats":
       console.log(JSON.stringify(store.klineStats(process.argv[3], process.argv[4]), null, 2));
       break;
+    case "chart": {
+      const rest = process.argv.slice(3);
+      const positional = rest.filter((arg) => !arg.startsWith("--"));
+      const startRaw = flag(rest, "--start");
+      const endRaw = flag(rest, "--end");
+      const limitRaw = flag(rest, "--limit");
+      console.log(JSON.stringify(buildChart(store, {
+        symbol: positional[0],
+        interval: positional[1],
+        limit: limitRaw ? Number(limitRaw) : undefined,
+        startTs: startRaw ? parseTimeArg(startRaw) : undefined,
+        endTs: endRaw ? parseTimeArg(endRaw) : undefined,
+      }), null, 2));
+      break;
+    }
+    case "depth":
+      console.log(JSON.stringify(buildDepth(store, { symbol: process.argv[3] }), null, 2));
+      break;
+    case "heatmap": {
+      const rest = process.argv.slice(3);
+      const positional = rest.filter((arg) => !arg.startsWith("--"));
+      const startRaw = flag(rest, "--start");
+      const endRaw = flag(rest, "--end");
+      const limitRaw = flag(rest, "--limit");
+      const bucketRaw = flag(rest, "--bucket");
+      const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+      console.log(JSON.stringify(buildHeatmap(store, {
+        symbol: positional[0],
+        limit: limitRaw ? Number(limitRaw) : undefined,
+        startTs: startRaw ? parseTimeArg(startRaw) : undefined,
+        endTs: endRaw ? parseTimeArg(endRaw) : undefined,
+        bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
+      }), null, 2));
+      break;
+    }
     default:
       usage();
   }
