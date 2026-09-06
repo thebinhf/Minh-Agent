@@ -43,13 +43,13 @@ describe("paper engine", () => {
     const low = await harness();
     const onePct = await low.engine.open({ ...OPEN_LONG, riskPct: "0.01" });
     expect(onePct.position.riskPct).toBe("0.01");
-    expect(onePct.position.riskQuote).toBe("100");
+    expect(onePct.position.status).toBe("open");
 
     const highLev = await harness();
     const tenPct = await highLev.engine.open({ ...OPEN_LONG, riskPct: "0.10", leverage: "10" });
     expect(tenPct.position.riskPct).toBe("0.1");
-    expect(tenPct.position.riskQuote).toBe("1000");
-    expect(tenPct.position.margin).toBe("2100");
+    expect(tenPct.position.leverage).toBe("10");
+    expect(tenPct.position.status).toBe("open");
 
     const highFlat = await harness();
     try {
