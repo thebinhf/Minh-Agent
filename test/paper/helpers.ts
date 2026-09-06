@@ -30,6 +30,7 @@ export async function paperConfig(dir: string, extra: Partial<PaperConfig> = {})
       leverageMin: "1",
       leverageMax: "25",
       mmRate: "0.005",
+      marginMode: "isolated",
     },
   };
 }

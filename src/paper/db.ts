@@ -68,6 +68,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
     ["leverage_max", "TEXT NOT NULL DEFAULT '25'"],
     ["default_leverage", "TEXT NOT NULL DEFAULT '1'"],
     ["mm_rate", "TEXT NOT NULL DEFAULT '0.005'"],
+    ["margin_mode", "TEXT NOT NULL DEFAULT 'isolated'"],
   ];
   for (const [name, spec] of accountAdds) {
     if (!accountCols.has(name)) db.exec(`ALTER TABLE paper_accounts ADD COLUMN ${name} ${spec}`);
@@ -121,9 +122,9 @@ function migrate(db: Database, seed: PaperAccountSeed) {
 
   db.prepare(
     `UPDATE paper_accounts SET
-      risk_pct_min = ?, risk_pct_max = ?, default_risk_pct = ?, updated_ts = ?
+      risk_pct_min = ?, risk_pct_max = ?, default_risk_pct = ?, margin_mode = ?, updated_ts = ?
      WHERE id = 1`,
-  ).run(seed.riskPctMin, seed.riskPctMax, seed.defaultRiskPct, now);
+  ).run(seed.riskPctMin, seed.riskPctMax, seed.defaultRiskPct, seed.marginMode, now);
 
   db.prepare(
     `INSERT INTO paper_meta (key, value, updated_ts) VALUES (?, ?, ?)
@@ -257,6 +258,9 @@ function wrap(db: Database) {
     `UPDATE paper_accounts SET fee_rate = ?, leverage_min = ?, leverage_max = ?,
       default_leverage = ?, mm_rate = ?, updated_ts = ? WHERE id = 1`,
   );
+  const updateMarginModeStmt = db.prepare(
+    `UPDATE paper_accounts SET margin_mode = ?, updated_ts = ? WHERE id = 1`,
+  );
   const insertPositionStmt = db.prepare(
     `INSERT INTO paper_positions (
       account_id, symbol, side, qty, risk_pct, entry_price, stop_loss, take_profit,
@@ -286,7 +290,10 @@ function wrap(db: Database) {
     `SELECT * FROM paper_positions WHERE status = 'open' ORDER BY id`,
   );
   const markOpenStmt = db.prepare(
-    `UPDATE paper_positions SET unrealized_pnl = ?, mark_price = ? WHERE id = ? AND status = 'open'`,
+    `UPDATE paper_positions SET
+      unrealized_pnl = ?, mark_price = ?, margin = ?,
+      liq_price = COALESCE(?, liq_price)
+     WHERE id = ? AND status = 'open'`,
   );
   const closePositionStmt = db.prepare(
     `UPDATE paper_positions SET
@@ -360,6 +367,9 @@ function wrap(db: Database) {
         ts,
       );
     },
+    setMarginMode(mode: "isolated" | "cross", ts = Date.now()) {
+      updateMarginModeStmt.run(mode, ts);
+    },
     updateAccount(cash: string, equity: string, ts = Date.now()) {
       updateAccountStmt.run(cash, equity, ts);
     },
@@ -432,8 +442,8 @@ function wrap(db: Database) {
       const row = countOpenStmt.get() as { n: number };
       return Number(row.n);
     },
-    markOpen(id: number, unrealizedPnl: string, markPrice: string) {
-      markOpenStmt.run(unrealizedPnl, markPrice, id);
+    markOpen(id: number, unrealizedPnl: string, markPrice: string, margin: string, liqPrice: string | null = null) {
+      markOpenStmt.run(unrealizedPnl, markPrice, margin, liqPrice, id);
     },
     closePosition(row: {
       id: number;

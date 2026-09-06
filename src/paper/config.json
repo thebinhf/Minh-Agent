@@ -16,6 +16,7 @@
     "leverageMin": "1",
     "leverageMax": "25",
     "defaultLeverage": "1",
-    "mmRate": "0.005"
+    "mmRate": "0.005",
+    "marginMode": "isolated"
   }
 }

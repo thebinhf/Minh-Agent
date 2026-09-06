@@ -359,7 +359,10 @@ bun run paper mark
   "leverageMax": "25",
   "defaultLeverage": "1",
   "mmRate": "0.005",
+  "marginMode": "isolated",
   "marginUsed": "0",
+  "marginBalance": "10000",
+  "totalMm": "0",
   "availableCash": "10000",
   "openPositions": 0,
   "updatedTs": 0
@@ -552,6 +555,7 @@ Phase 2 (this PR):
 - [x] Open/close charge `qty * price * fee_rate`; IM is not subtracted from cash.
 - [x] `leverage` in band; `insufficient_margin` when `cash < existingIM + newIM + openFee`.
 - [x] Isolated liq only when leverage > 1; SL still wins a gap.
+- [x] Cross IM/MM use mark; liq when account margin balance ≤ total MM. Isolated default unchanged.
 - [x] `takeProfits` percents sum to 1; nearest-first scale-out; last slice takes remainder.
 - [x] Funding from ticker `fundingRate` / `nextFundingTime`; once per settlement; long pays when rate > 0.
 - [x] Qty/price/leverage follow Bybit linear `instruments-info` (lot, tick, min notional, market max). Isolated liq uses the UTA formula. No `/v5/order`.
@@ -608,13 +612,27 @@ liq short = [entry*qty + entry*qty/lev] / [qty + qty*mm_rate]
 
 Liq is evaluated only when `leverage > 1` (1× keeps MVP behavior). Product band `1–25`, default `1`, then floored to the instrument `leverageStep`. Reject `leverage_out_of_band` outside the account **or** instrument band.
 
+### Cross (account)
+
+Account `marginMode` is `isolated` (default) or `cross`. Isolated keeps per-position liq. Cross follows Bybit UTA one-way:
+
+```text
+IM   = qty * mark / leverage + qty * entry * (1 ± 1/leverage) * fee_rate
+MM   = qty * mark * mm_rate  + qty * entry * (1 ± 1/leverage) * fee_rate
+MB   = cash + sum(unrealized)          # margin balance
+avail = MB − sum(IM)                   # UP&L counts toward new opens
+liq when MB <= sum(MM)                 # close remaining opens at mark
+```
+
+Estimated per-position cross liq is the mark that would set MB = total MM with other positions held constant (0 if no positive solution — a small long vs a large wallet). Isolated liq price is ignored in cross. SL/TP still fire first.
+
 ### Multi-TP
 
 `takeProfits: [{ price, qtyPct, filled? }]`. Percents must sum to 1 (1e-8). Sort long ascending / short descending (nearest first). Each slice is `qtyPct` of **original** qty; the last unfilled TP takes the remainder. Partial close keeps the row `open`. A single `takeProfit` is one plan at 100%.
 
 ### Venue (Bybit linear, current)
 
-Paper is still a simulation, but **size / price / position math follow the live venue**. Current adapter: Bybit USDT perpetual, isolated, one-way. Specs live in `src/paper/instruments/bybit-linear.json` (public `instruments-info` snapshot). Paper does **not** call Bybit REST or `/v5/order`.
+Paper is still a simulation, but **size / price / position math follow the live venue**. Current adapter: Bybit USDT perpetual, isolated **or** cross, one-way. Specs live in `src/paper/instruments/bybit-linear.json` (public `instruments-info` snapshot). Paper does **not** call Bybit REST or `/v5/order`.
 
 | Rule | Bybit linear behavior |
 | --- | --- |

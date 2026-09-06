@@ -55,6 +55,7 @@ describe("paper HTTP", () => {
       expect(account.riskPctMax).toBe("0.10");
       expect(account.feeRate).toBe("0");
       expect(account.defaultLeverage).toBe("1");
+      expect(account.marginMode).toBe("isolated");
 
       const opened = await fetch(`${svc.url}/paper/positions`, {
         method: "POST",

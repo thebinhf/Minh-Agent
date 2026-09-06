@@ -2,12 +2,15 @@ import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
 import type { PaperDb } from "./db";
 import {
+  estimateCrossLiq,
   feeOn,
   fundingAmount,
   furthestTakeProfit,
   liqHit,
   liqPrice,
+  maintenanceMargin,
   marginOn,
+  parseMarginMode,
   parseTakeProfits,
   requireLeverage,
   takeProfitCloseQty,
@@ -133,12 +136,32 @@ function sumMargin(rows: PaperPositionRow[]): Dec {
   return rows.reduce((acc, row) => acc.add(Dec.from(row.margin ?? "0")), Dec.zero());
 }
 
+function positionMm(row: PaperPositionRow, mmRate: Dec, feeRate: Dec): Dec {
+  const mark = Dec.from(row.mark_price || row.entry_price);
+  return maintenanceMargin(Dec.from(row.qty), mark, mmRate, {
+    side: row.side,
+    feeRate,
+    entry: Dec.from(row.entry_price),
+    leverage: Dec.from(row.leverage ?? "1"),
+  });
+}
+
+function sumMm(rows: PaperPositionRow[], mmRate: Dec, feeRate: Dec): Dec {
+  return rows.reduce((acc, row) => acc.add(positionMm(row, mmRate, feeRate)), Dec.zero());
+}
+
 function viewAccount(store: PaperDb): AccountView {
   const account = store.getAccount();
   const opens = store.listOpen();
   const unrealized = sumUnrealized(opens);
   const marginUsed = sumMargin(opens);
   const cash = Dec.from(account.cash);
+  const equity = cash.add(unrealized);
+  const marginMode = parseMarginMode(account.margin_mode);
+  const feeRate = Dec.from(account.fee_rate ?? "0");
+  const mmRate = Dec.from(account.mm_rate ?? "0.005");
+  const totalMm = sumMm(opens, mmRate, feeRate);
+  const available = (marginMode === "cross" ? equity : cash).sub(marginUsed);
   return {
     mode: "paper",
     id: account.id,
@@ -157,8 +180,11 @@ function viewAccount(store: PaperDb): AccountView {
     leverageMax: account.leverage_max ?? "25",
     defaultLeverage: account.default_leverage ?? "1",
     mmRate: account.mm_rate ?? "0.005",
+    marginMode,
     marginUsed: marginUsed.toText(),
-    availableCash: cash.sub(marginUsed).toText(),
+    marginBalance: equity.toText(),
+    totalMm: totalMm.toText(),
+    availableCash: available.toText(),
     openPositions: opens.length,
     updatedTs: account.updated_ts,
   };
@@ -299,12 +325,18 @@ export function createPaperEngine(opts: {
       }
     } else {
       const lev = Dec.from(input.row.leverage ?? "1");
+      const entryPx = Dec.from(input.row.entry_price);
+      const mode = parseMarginMode(store.getAccount().margin_mode);
+      const notional = mode === "cross"
+        ? Dec.from(input.row.mark_price || input.row.entry_price)
+        : entryPx;
       store.partialClose({
         id: input.row.id,
         qty: remaining.toText(),
-        margin: marginOn(remaining, Dec.from(input.row.entry_price), lev, {
+        margin: marginOn(remaining, notional, lev, {
           side: input.row.side,
           feeRate: feeRateOf(),
+          entry: entryPx,
         }).toText(),
         realizedPnl: realized.toText(),
         closeFee: closeFee.toText(),
@@ -387,7 +419,11 @@ export function createPaperEngine(opts: {
         })));
         continue;
       }
-      if (liqHit(side, last, liq) && Dec.from(fresh.leverage ?? "1").gt(Dec.from("1"))) {
+      if (
+        parseMarginMode(store.getAccount().margin_mode) === "isolated"
+        && liqHit(side, last, liq)
+        && Dec.from(fresh.leverage ?? "1").gt(Dec.from("1"))
+      ) {
         closed.push(store.transaction(() => applyCloseQty({
           row: fresh,
           qty: Dec.from(fresh.qty),
@@ -438,15 +474,63 @@ export function createPaperEngine(opts: {
       const latest = store.getPosition(row.id);
       if (!latest || latest.status === "closed") continue;
       const markPx = snapPrice(markPriceOf(ticker), spec);
-      const unrealized = pnlAt(side, Dec.from(latest.entry_price), markPx, Dec.from(latest.qty)).toText();
-      store.markOpen(latest.id, unrealized, markPx.toText());
+      const unrealizedDec = pnlAt(side, Dec.from(latest.entry_price), markPx, Dec.from(latest.qty));
+      const acc = store.getAccount();
+      const mode = parseMarginMode(acc.margin_mode);
+      const feeRate = Dec.from(acc.fee_rate ?? "0");
+      const lev = Dec.from(latest.leverage ?? "1");
+      const qty = Dec.from(latest.qty);
+      const entryPx = Dec.from(latest.entry_price);
+      const notional = mode === "cross" ? markPx : entryPx;
+      const margin = marginOn(qty, notional, lev, { side, feeRate, entry: entryPx });
+      let liqOut: string | null = null;
+      if (mode === "cross") {
+        const others = store.listOpen().filter((item) => item.id !== latest.id);
+        const rawCross = estimateCrossLiq({
+          side,
+          qty,
+          entry: entryPx,
+          leverage: lev,
+          mmRate: Dec.from(acc.mm_rate ?? "0.005"),
+          feeRate,
+          cash: Dec.from(acc.cash),
+          othersUnrealized: sumUnrealized(others),
+          othersMm: sumMm(others, Dec.from(acc.mm_rate ?? "0.005"), feeRate),
+        });
+        liqOut = rawCross.isPos() ? snapPrice(rawCross, spec).toText() : "0";
+      }
+      store.markOpen(latest.id, unrealizedDec.toText(), markPx.toText(), margin.toText(), liqOut);
       stillOpen.push({
         id: latest.id,
         symbol: latest.symbol,
         markPrice: markPx.toText(),
-        unrealizedPnl: unrealized,
+        unrealizedPnl: unrealizedDec.toText(),
         status: "open",
       });
+    }
+    if (parseMarginMode(store.getAccount().margin_mode) === "cross") {
+      const left = store.listOpen();
+      const acc = store.getAccount();
+      const feeRate = Dec.from(acc.fee_rate ?? "0");
+      const mmRate = Dec.from(acc.mm_rate ?? "0.005");
+      const marginBalance = Dec.from(acc.cash).add(sumUnrealized(left));
+      const totalMm = sumMm(left, mmRate, feeRate);
+      if (left.length > 0 && !marginBalance.gt(totalMm)) {
+        stillOpen.length = 0;
+        for (const row of left) {
+          const price = Dec.from(row.mark_price || row.entry_price);
+          closed.push(store.transaction(() => applyCloseQty({
+            row,
+            qty: Dec.from(row.qty),
+            price,
+            reason: "liq",
+            source: "liq",
+            recvTs: null,
+            now,
+            plans: parsePlans(row.take_profits_json).map((plan) => ({ ...plan, filled: true })),
+          })));
+        }
+      }
     }
     const account = rewriteEquity(now);
     return {
@@ -456,6 +540,9 @@ export function createPaperEngine(opts: {
         equity: account.equity,
         unrealizedPnl: account.unrealizedPnl,
         marginUsed: account.marginUsed,
+        marginMode: account.marginMode,
+        marginBalance: account.marginBalance,
+        totalMm: account.totalMm,
       },
       positions: stillOpen,
       closed,
@@ -522,18 +609,41 @@ export function createPaperEngine(opts: {
       assertOptionalMinRr(account, sized.rr);
       const feeRate = Dec.from(account.fee_rate ?? "0");
       const openFee = feeOn(qty, entry, feeRate);
-      const margin = marginOn(qty, entry, leverage, { side, feeRate });
-      const used = sumMargin(store.listOpen());
-      if (Dec.from(account.cash).sub(used).sub(margin).sub(openFee).isNeg()) {
+      const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
+      const opens = store.listOpen();
+      const used = sumMargin(opens);
+      const marginMode = parseMarginMode(account.margin_mode);
+      const availBase = marginMode === "cross"
+        ? Dec.from(account.cash).add(sumUnrealized(opens))
+        : Dec.from(account.cash);
+      if (availBase.sub(used).sub(margin).sub(openFee).isNeg()) {
         throw new PaperReject("insufficient_margin", "leverage", {
           cash: account.cash,
           margin: margin.toText(),
           openFee: openFee.toText(),
           marginUsed: used.toText(),
+          marginMode,
         });
       }
-      const rawLiq = liqPrice(side, entry, leverage, Dec.from(account.mm_rate ?? "0"));
-      const liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
+      const mmRate = Dec.from(account.mm_rate ?? "0");
+      let liq = Dec.zero();
+      if (marginMode === "isolated") {
+        const rawLiq = liqPrice(side, entry, leverage, mmRate);
+        liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
+      } else {
+        const rawCross = estimateCrossLiq({
+          side,
+          qty,
+          entry,
+          leverage,
+          mmRate,
+          feeRate,
+          cash: Dec.from(account.cash),
+          othersUnrealized: sumUnrealized(opens),
+          othersMm: sumMm(opens, mmRate, feeRate),
+        });
+        liq = rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
+      }
       const opened = store.transaction(() => {
         store.updateAccount(Dec.from(store.getAccount().cash).sub(openFee).toText(), account.equity, now);
         const id = store.insertPosition({

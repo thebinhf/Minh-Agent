@@ -1,6 +1,19 @@
 import { Dec, REL_TOL } from "./decimal";
 import { PaperReject } from "./errors";
-import type { PaperAccountRow, PaperSide, TakeProfitPlan } from "./types";
+import type { PaperAccountRow, PaperMarginMode, PaperSide, TakeProfitPlan } from "./types";
+
+export function parseMarginMode(raw: string | null | undefined): PaperMarginMode {
+  const value = (raw ?? "isolated").trim().toLowerCase();
+  if (value === "isolated" || value === "cross") return value;
+  throw new PaperReject("invalid_margin_mode", "margin", { marginMode: raw });
+}
+
+export function closeFeeOn(qty: Dec, entry: Dec, leverage: Dec, side: PaperSide, feeRate: Dec): Dec {
+  if (feeRate.isZero()) return Dec.zero();
+  const inv = Dec.from("1").div(leverage);
+  const factor = side === "long" ? Dec.from("1").sub(inv) : Dec.from("1").add(inv);
+  return qty.mul(entry).mul(factor).mul(feeRate);
+}
 
 function assertTpSide(side: PaperSide, entry: Dec, takeProfit: Dec): void {
   if (side === "long" && !takeProfit.gt(entry)) {
@@ -32,18 +45,59 @@ export function feeOn(qty: Dec, price: Dec, feeRate: Dec): Dec {
   return qty.mul(price).mul(feeRate);
 }
 
-/** Bybit isolated IM: qty*entry/lev + estimated close fee. */
+/**
+ * Bybit IM. Isolated uses entry as notional; cross uses mark.
+ * Close-fee term is always on entry: qty*entry*(1±1/lev)*fee.
+ */
 export function marginOn(
   qty: Dec,
-  entry: Dec,
+  notional: Dec,
   leverage: Dec,
-  extra?: { side: PaperSide; feeRate: Dec },
+  extra?: { side: PaperSide; feeRate: Dec; entry?: Dec },
 ): Dec {
-  const im = qty.mul(entry).div(leverage);
+  const im = qty.mul(notional).div(leverage);
   if (!extra || extra.feeRate.isZero()) return im;
-  const inv = Dec.from("1").div(leverage);
-  const factor = extra.side === "long" ? Dec.from("1").sub(inv) : Dec.from("1").add(inv);
-  return im.add(qty.mul(entry).mul(factor).mul(extra.feeRate));
+  return im.add(closeFeeOn(qty, extra.entry ?? notional, leverage, extra.side, extra.feeRate));
+}
+
+/** Bybit MM: qty*mark*mmRate + estimated close fee. Deduction = 0. */
+export function maintenanceMargin(
+  qty: Dec,
+  mark: Dec,
+  mmRate: Dec,
+  extra?: { side: PaperSide; feeRate: Dec; entry: Dec; leverage: Dec },
+): Dec {
+  const mm = qty.mul(mark).mul(mmRate);
+  if (!extra || extra.feeRate.isZero()) return mm;
+  return mm.add(closeFeeOn(qty, extra.entry, extra.leverage, extra.side, extra.feeRate));
+}
+
+/** Cross UTA: mark where marginBalance = total MM, other positions held constant. */
+export function estimateCrossLiq(input: {
+  side: PaperSide;
+  qty: Dec;
+  entry: Dec;
+  leverage: Dec;
+  mmRate: Dec;
+  feeRate: Dec;
+  cash: Dec;
+  othersUnrealized: Dec;
+  othersMm: Dec;
+}): Dec {
+  if (!input.qty.isPos()) return Dec.zero();
+  const fee = closeFeeOn(input.qty, input.entry, input.leverage, input.side, input.feeRate);
+  if (input.side === "long") {
+    const num = input.cash.add(input.othersUnrealized).sub(input.entry.mul(input.qty)).sub(input.othersMm).sub(fee);
+    const den = input.qty.mul(input.mmRate.sub(Dec.from("1")));
+    if (den.isZero()) return Dec.zero();
+    const mark = num.div(den);
+    return mark.isPos() ? mark : Dec.zero();
+  }
+  const num = input.cash.add(input.othersUnrealized).add(input.entry.mul(input.qty)).sub(input.othersMm).sub(fee);
+  const den = input.qty.mul(Dec.from("1").add(input.mmRate));
+  if (!den.isPos()) return Dec.zero();
+  const mark = num.div(den);
+  return mark.isPos() ? mark : Dec.zero();
 }
 
 /**

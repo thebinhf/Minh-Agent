@@ -1,5 +1,6 @@
 export type PaperSide = "long" | "short";
 export type PaperStatus = "open" | "closed";
+export type PaperMarginMode = "isolated" | "cross";
 export type PaperCloseReason = "sl" | "tp" | "manual" | "liq";
 export type PaperFillKind = "open" | "close";
 export type PaperFillSource = "last" | "sl" | "tp" | "liq";
@@ -23,6 +24,7 @@ export type PaperAccountSeed = {
   leverageMax: string;
   defaultLeverage: string;
   mmRate: string;
+  marginMode: PaperMarginMode;
 };
 
 export type PaperConfig = {
@@ -77,6 +79,7 @@ export type PaperAccountRow = {
   leverage_max: string;
   default_leverage: string;
   mm_rate: string;
+  margin_mode: PaperMarginMode;
   created_ts: number;
   updated_ts: number;
 };
@@ -182,7 +185,10 @@ export type AccountView = {
   leverageMax: string;
   defaultLeverage: string;
   mmRate: string;
+  marginMode: PaperMarginMode;
   marginUsed: string;
+  marginBalance: string;
+  totalMm: string;
   availableCash: string;
   openPositions: number;
   updatedTs: number;

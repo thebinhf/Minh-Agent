@@ -71,6 +71,7 @@ function normalizeAccount(raw: PaperAccountSeed): PaperAccountSeed {
     leverageMax: raw.leverageMax ?? "25",
     defaultLeverage: raw.defaultLeverage ?? "1",
     mmRate: raw.mmRate ?? "0.005",
+    marginMode: raw.marginMode === "cross" ? "cross" : "isolated",
   };
 }
 

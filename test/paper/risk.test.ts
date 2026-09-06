@@ -31,6 +31,7 @@ function account(partial: Partial<PaperAccountRow> = {}): PaperAccountRow {
     leverage_max: "25",
     default_leverage: "1",
     mm_rate: "0.005",
+    margin_mode: "isolated",
     created_ts: 0,
     updated_ts: 0,
     ...partial,
