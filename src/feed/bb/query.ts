@@ -1,7 +1,7 @@
 import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { parseTimeArg } from "./recovery";
-import { buildChart, buildDepth, buildHeatmap } from "./view";
+import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 
 function usage(): never {
   console.log(`Usage:
@@ -14,6 +14,7 @@ function usage(): never {
   bun run query chart [SYMBOL] [INTERVAL] [--limit N] [--start TIME] [--end TIME]
   bun run query depth [SYMBOL]
   bun run query heatmap [SYMBOL] [--limit N] [--bucket STEP] [--start TIME] [--end TIME]
+  bun run query market [SYMBOL] [INTERVAL] [--limit N] [--heatmap-limit N] [--bucket STEP]
 
 TIME is Unix epoch milliseconds (13-digit, e.g. 1725600000000), ISO-8601, or YYYY-MM-DD.
 Seconds (10-digit) are not accepted. For a dump file / URL use: bun run backfill --from PATH|URL
@@ -101,6 +102,22 @@ try {
     case "depth":
       console.log(JSON.stringify(buildDepth(store, { symbol: process.argv[3] }), null, 2));
       break;
+    case "market": {
+      const rest = process.argv.slice(3);
+      const positional = rest.filter((arg) => !arg.startsWith("--"));
+      const limitRaw = flag(rest, "--limit");
+      const heatLimitRaw = flag(rest, "--heatmap-limit");
+      const bucketRaw = flag(rest, "--bucket");
+      const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+      console.log(JSON.stringify(buildMarket(store, {
+        symbol: positional[0],
+        interval: positional[1],
+        limit: limitRaw ? Number(limitRaw) : undefined,
+        heatmapLimit: heatLimitRaw ? Number(heatLimitRaw) : undefined,
+        bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
+      }), null, 2));
+      break;
+    }
     case "heatmap": {
       const rest = process.argv.slice(3);
       const positional = rest.filter((arg) => !arg.startsWith("--"));

@@ -34,4 +34,4 @@ export async function startBybitTracker(): Promise<BybitTrackerFeature> {
 export { buildBrief } from "./brief";
 export { loadConfig } from "./config";
 export { openDb } from "./db";
-export { buildChart, buildDepth, buildHeatmap, stitchBars } from "./view";
+export { buildChart, buildDepth, buildHeatmap, buildMarket, stitchBars } from "./view";

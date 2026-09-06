@@ -10,6 +10,7 @@ import {
   buildChart,
   buildDepth,
   buildHeatmap,
+  buildMarket,
   stitchBars,
 } from "../../../src/feed/bb/view";
 
@@ -146,6 +147,49 @@ describe("buildChart / buildDepth / buildHeatmap", () => {
       expect(buck.bid[0]?.[buck.prices.indexOf("100")]).toBe("3");
       expect(buck.ask[1]?.[buck.prices.indexOf("102")]).toBe("2");
       expect(bucketPrice("100.4", 1)).toBe("100");
+      expect(raw.live).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("heatmap appends orderbook_latest when it is newer than the last snapshot", () => {
+    const { store } = tempDb();
+    try {
+      store.saveOrderbook(book("BTCUSDT", [["10", "1"]], [["11", "1"]]), 50, "snapshot", 1_000, 1_000, true);
+      store.saveOrderbook(book("BTCUSDT", [["12", "9"]], [["13", "2"]]), 50, "delta", 2_000, 2_000, false);
+      const heat = buildHeatmap(store, { symbol: "BTCUSDT" });
+      expect(heat.times).toEqual([1_000, 2_000]);
+      expect(heat.live).toBe(true);
+      expect(heat.bestBid.at(-1)).toBe("12");
+      expect(heat.bid[1]?.[heat.prices.indexOf("12")]).toBe("9");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("market is one snapshot: ticker + stitched chart + depth + heatmap", () => {
+    const { store } = tempDb();
+    try {
+      store.saveTicker({
+        symbol: "BTCUSDT",
+        type: "snapshot",
+        fields: { lastPrice: "100", markPrice: "101", bid1Price: "99", ask1Price: "102" },
+      }, 7, false);
+      store.saveKline("BTCUSDT", candle({ start: 0, interval: "15", volume: "3" }), 7);
+      store.saveOrderbook(book("BTCUSDT", [["99", "2"]], [["102", "1"]]), 50, "snapshot", 7, 7, true);
+      const market = buildMarket(store, { symbol: "BTCUSDT", interval: "15", now: 42 });
+      expect(market.ts).toBe(42);
+      expect(market.ticker.lastPrice).toBe("100");
+      expect(market.chart.source).toBe("kline");
+      expect(market.chart.bars[0]?.volume).toBe("3");
+      expect(market.depth.bestBid).toBe("99");
+      expect(market.heatmap.live).toBe(true);
+      expect(market.meta.sources).toEqual({
+        chart: "kline",
+        depth: "orderbook_latest",
+        heatmap: "orderbook_snapshots",
+      });
     } finally {
       store.close();
     }
@@ -182,9 +226,20 @@ describe("GET /chart /depth /heatmap", () => {
       const heat = await (await fetch(`http://127.0.0.1:${server.port}/heatmap?symbol=BTCUSDT&bucket=1`)).json() as {
         snapshotCount: number;
         prices: string[];
+        live: boolean;
       };
       expect(heat.snapshotCount).toBe(1);
       expect(heat.prices).toEqual(["10", "11"]);
+      expect(heat.live).toBe(true);
+
+      const market = await (await fetch(`http://127.0.0.1:${server.port}/market?symbol=BTCUSDT&interval=15`)).json() as {
+        chart: { source: string };
+        depth: { bestBid: string };
+        heatmap: { live: boolean };
+      };
+      expect(market.chart.source).toBe("kline");
+      expect(market.depth.bestBid).toBe("10");
+      expect(market.heatmap.live).toBe(true);
     } finally {
       server.stop();
       store.close();

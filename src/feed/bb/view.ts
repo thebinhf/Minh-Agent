@@ -67,9 +67,39 @@ export type HeatmapView = {
   bestBid: Array<string | null>;
   bestAsk: Array<string | null>;
   snapshotCount: number;
+  /** Last column is `orderbook_latest` when newer than the last snapshot. */
+  live: boolean;
 };
 
-export type ViewStore = Pick<TrackerDb, "listKlines" | "listOrderbooks" | "listOrderbookSnapshots">;
+export type MarketTicker = {
+  lastPrice: string | null;
+  markPrice: string | null;
+  bid1Price: string | null;
+  ask1Price: string | null;
+  recvTs: number | null;
+};
+
+export type MarketView = {
+  symbol: string;
+  ts: number;
+  interval: string;
+  ticker: MarketTicker;
+  chart: ChartView;
+  depth: DepthView;
+  heatmap: HeatmapView;
+  meta: {
+    sources: {
+      chart: "kline";
+      depth: "orderbook_latest";
+      heatmap: "orderbook_snapshots";
+    };
+  };
+};
+
+export const DEFAULT_MARKET_CHART_LIMIT = 80;
+export const DEFAULT_MARKET_HEATMAP_LIMIT = 60;
+
+export type ViewStore = Pick<TrackerDb, "listKlines" | "listOrderbooks" | "listOrderbookSnapshots" | "listTickers">;
 
 function normalizeSymbol(raw: string | undefined | null): string {
   const symbol = raw?.trim().toUpperCase();
@@ -285,6 +315,44 @@ function lastMid(bestBids: Array<string | null>, bestAsks: Array<string | null>)
  * stream prints here. Size at each price is the resting book, sampled
  * on the snapshot timer (default 5s).
  */
+function ingestBook(
+  row: Record<string, unknown>,
+  bucket: number | null,
+  into: {
+    times: number[];
+    bestBid: Array<string | null>;
+    bestAsk: Array<string | null>;
+    bidMaps: Array<Map<string, number>>;
+    askMaps: Array<Map<string, number>>;
+    priceSet: Set<string>;
+  },
+): boolean {
+  const ts = numberField(row.recv_ts);
+  if (ts == null) return false;
+  const bidLevels = parseLevels(row.bids_json ?? row.bids);
+  const askLevels = parseLevels(row.asks_json ?? row.asks);
+  const bidMap = new Map<string, number>();
+  const askMap = new Map<string, number>();
+  for (const [price, size] of bidLevels) {
+    const key = bucket ? bucketPrice(price, bucket) : price;
+    bidMap.set(key, (bidMap.get(key) ?? 0) + (Number(size) || 0));
+    into.priceSet.add(key);
+  }
+  for (const [price, size] of askLevels) {
+    const key = bucket ? bucketPrice(price, bucket) : price;
+    askMap.set(key, (askMap.get(key) ?? 0) + (Number(size) || 0));
+    into.priceSet.add(key);
+  }
+  into.times.push(ts);
+  into.bidMaps.push(bidMap);
+  into.askMaps.push(askMap);
+  const sortedBids = [...bidMap.keys()].sort((a, b) => cmpPrice(b, a));
+  const sortedAsks = [...askMap.keys()].sort(cmpPrice);
+  into.bestBid.push(sortedBids[0] ?? null);
+  into.bestAsk.push(sortedAsks[0] ?? null);
+  return true;
+}
+
 export function buildHeatmap(
   store: ViewStore,
   opts: {
@@ -293,11 +361,13 @@ export function buildHeatmap(
     startTs?: number;
     endTs?: number;
     bucket?: number | null;
+    includeLive?: boolean;
   } = {},
 ): HeatmapView {
   const symbol = normalizeSymbol(opts.symbol);
   const limit = Math.min(Math.max(opts.limit ?? DEFAULT_HEATMAP_LIMIT, 1), HEATMAP_MAX_LIMIT);
   const bucket = opts.bucket != null && opts.bucket > 0 ? opts.bucket : null;
+  const includeLive = opts.includeLive !== false;
   const rows = (store.listOrderbookSnapshots({
     symbol,
     limit,
@@ -306,41 +376,32 @@ export function buildHeatmap(
     maxLimit: HEATMAP_MAX_LIMIT,
   }) as Array<Record<string, unknown>>).slice().reverse();
 
-  const times: number[] = [];
-  const bestBid: Array<string | null> = [];
-  const bestAsk: Array<string | null> = [];
-  const bidMaps: Array<Map<string, number>> = [];
-  const askMaps: Array<Map<string, number>> = [];
-  const priceSet = new Set<string>();
+  const acc = {
+    times: [] as number[],
+    bestBid: [] as Array<string | null>,
+    bestAsk: [] as Array<string | null>,
+    bidMaps: [] as Array<Map<string, number>>,
+    askMaps: [] as Array<Map<string, number>>,
+    priceSet: new Set<string>(),
+  };
 
-  for (const row of rows) {
-    const ts = numberField(row.recv_ts);
-    if (ts == null) continue;
-    const bidLevels = parseLevels(row.bids_json);
-    const askLevels = parseLevels(row.asks_json);
-    const bidMap = new Map<string, number>();
-    const askMap = new Map<string, number>();
-    for (const [price, size] of bidLevels) {
-      const key = bucket ? bucketPrice(price, bucket) : price;
-      bidMap.set(key, (bidMap.get(key) ?? 0) + (Number(size) || 0));
-      priceSet.add(key);
+  for (const row of rows) ingestBook(row, bucket, acc);
+
+  let live = false;
+  if (includeLive) {
+    const latest = (store.listOrderbooks(symbol) as Array<Record<string, unknown>>)[0];
+    const latestTs = latest ? numberField(latest.recv_ts) : null;
+    const lastSnap = acc.times.at(-1);
+    if (latest && latestTs != null && (lastSnap == null || latestTs > lastSnap)) {
+      ingestBook(latest, bucket, acc);
+      live = true;
+    } else if (latest && latestTs != null && lastSnap === latestTs) {
+      live = true;
     }
-    for (const [price, size] of askLevels) {
-      const key = bucket ? bucketPrice(price, bucket) : price;
-      askMap.set(key, (askMap.get(key) ?? 0) + (Number(size) || 0));
-      priceSet.add(key);
-    }
-    times.push(ts);
-    bidMaps.push(bidMap);
-    askMaps.push(askMap);
-    const sortedBids = [...bidMap.keys()].sort((a, b) => cmpPrice(b, a));
-    const sortedAsks = [...askMap.keys()].sort(cmpPrice);
-    bestBid.push(sortedBids[0] ?? null);
-    bestAsk.push(sortedAsks[0] ?? null);
   }
 
-  let prices = [...priceSet].sort(cmpPrice);
-  const mid = lastMid(bestBid, bestAsk);
+  let prices = [...acc.priceSet].sort(cmpPrice);
+  const mid = lastMid(acc.bestBid, acc.bestAsk);
   if (prices.length > HEATMAP_MAX_PRICES && mid != null) {
     prices = prices
       .map((price) => ({ price, dist: Math.abs(Number(price) - mid) }))
@@ -350,11 +411,11 @@ export function buildHeatmap(
       .sort(cmpPrice);
   }
 
-  const bid = bidMaps.map((map) => prices.map((price) => {
+  const bid = acc.bidMaps.map((map) => prices.map((price) => {
     const size = map.get(price);
     return size == null ? null : addSizes(size, 0);
   }));
-  const ask = askMaps.map((map) => prices.map((price) => {
+  const ask = acc.askMaps.map((map) => prices.map((price) => {
     const size = map.get(price);
     return size == null ? null : addSizes(size, 0);
   }));
@@ -362,12 +423,81 @@ export function buildHeatmap(
   return {
     symbol,
     bucket: bucket == null ? null : addSizes(bucket, 0),
-    times,
+    times: acc.times,
     prices,
     bid,
     ask,
-    bestBid,
-    bestAsk,
-    snapshotCount: times.length,
+    bestBid: acc.bestBid,
+    bestAsk: acc.bestAsk,
+    snapshotCount: acc.times.length,
+    live,
+  };
+}
+
+function readMarketTicker(store: ViewStore, symbol: string): MarketTicker {
+  const empty: MarketTicker = {
+    lastPrice: null,
+    markPrice: null,
+    bid1Price: null,
+    ask1Price: null,
+    recvTs: null,
+  };
+  try {
+    const rows = store.listTickers(symbol) as Array<Record<string, unknown>>;
+    const row = rows[0];
+    if (!row) return empty;
+    return {
+      lastPrice: textField(row.last_price),
+      markPrice: textField(row.mark_price),
+      bid1Price: textField(row.bid1_price),
+      ask1Price: textField(row.ask1_price),
+      recvTs: numberField(row.recv_ts),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * One local payload for Minh: stitched kline chart + live depth + liquidity heatmap.
+ * Does not invent prices. Missing pieces are empty / null.
+ */
+export function buildMarket(
+  store: ViewStore,
+  opts: {
+    symbol?: string | null;
+    interval?: string | null;
+    limit?: number;
+    heatmapLimit?: number;
+    bucket?: number | null;
+    now?: number;
+  } = {},
+): MarketView {
+  const symbol = normalizeSymbol(opts.symbol);
+  const interval = opts.interval?.trim() || DEFAULT_CHART_INTERVAL;
+  return {
+    symbol,
+    ts: opts.now ?? Date.now(),
+    interval,
+    ticker: readMarketTicker(store, symbol),
+    chart: buildChart(store, {
+      symbol,
+      interval,
+      limit: opts.limit ?? DEFAULT_MARKET_CHART_LIMIT,
+    }),
+    depth: buildDepth(store, { symbol }),
+    heatmap: buildHeatmap(store, {
+      symbol,
+      limit: opts.heatmapLimit ?? DEFAULT_MARKET_HEATMAP_LIMIT,
+      bucket: opts.bucket,
+      includeLive: true,
+    }),
+    meta: {
+      sources: {
+        chart: "kline",
+        depth: "orderbook_latest",
+        heatmap: "orderbook_snapshots",
+      },
+    },
   };
 }
