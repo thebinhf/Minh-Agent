@@ -49,6 +49,10 @@ HTTP (read-only):
 
 - `GET /health`
 - `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
+- `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
+- `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size
+- `GET /heatmap?symbol=BTCUSDT&limit=120&bucket=10` — liquidity grid from book snapshots (+ live book)
+- `GET /market?symbol=BTCUSDT&interval=15` — one payload: ticker + chart + depth + heatmap
 - `GET /tickers?symbol=BTCUSDT`
 - `GET /orderbooks?symbol=ETHUSDT`
 - `GET /klines?symbol=SOLUSDT&interval=15&limit=50&start=&end=`
@@ -65,6 +69,10 @@ bun run query orderbooks ETHUSDT
 bun run query klines SOLUSDT 15 --limit 20
 bun run query klines BTCUSDT 15 --start 2026-08-01 --end 2026-09-01 --limit 2000
 bun run query kline-stats BTCUSDT 15
+bun run query chart BTCUSDT 15 --limit 200
+bun run query depth ETHUSDT
+bun run query heatmap BTCUSDT --limit 120 --bucket 10
+bun run query market BTCUSDT 15 --bucket 10
 bun run query meta
 ```
 
@@ -92,6 +100,7 @@ Read what landed:
 | Surface | How |
 | --- | --- |
 | Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
+| Chart / depth / heatmap | `bun run query chart\|depth\|heatmap\|market` or `GET /chart` `/depth` `/heatmap` `/market` |
 | CLI | `bun run query klines SYMBOL INTERVAL --start TIME --end TIME --limit N` (cap 20000) |
 | HTTP | `GET /klines?symbol=BTCUSDT&interval=15&start=&end=&limit=1000` and `GET /kline-stats` |
 | SQL | `SELECT * FROM klines WHERE symbol=? AND interval=? AND start_ts>=? ORDER BY start_ts` |
@@ -125,6 +134,38 @@ Minh should read **one** local payload instead of stitching `/tickers` + `/kline
 - Kline rows: `start_ts`, `open`, `high`, `low`, `close`, `volume`, `turnover`, `confirm` (boolean).
 - Arrays are **oldest-first (newest last)**. The last row is the most recent candle and may be unconfirmed.
 - Read-only against local SQLite. No API keys, no private WS, no orders.
+
+## Chart, depth, heatmap
+
+These are **read models** on the same public cache. They do not start a browser UI and they do not invent prices.
+
+```text
+kline.{interval}.{symbol}  ──upsert (symbol, interval, start)──►  GET /chart
+                               volume = kline.volume
+                               last bar may be confirm=false
+
+orderbook.50.{symbol}      ──snapshot, then delta; u=1 reset──►  GET /depth
+                               size 0 deletes a level
+                               snapshots every orderbookEveryMs ──►  GET /heatmap
+                               + orderbook_latest as last column when newer
+
+GET /market  = ticker + /chart + /depth + /heatmap   (one local JSON)
+```
+
+**Nối nến (correct):** subscribe each interval (`5` / `15` / `60` / `240`) and upsert by `start`. The forming candle is the same `start` row mutating until `confirm=true`. After reconnect, REST gap-fill writes the same table; `/chart` sorts oldest-first and lists missing steps in `gaps`.
+
+**Incorrect:** building OHLC from `tickers.lastPrice`, using `volume24h` as bar volume, or aggregating 5m into 15m in application code while 15m is already on the wire.
+
+| View | Source | Not this |
+| --- | --- | --- |
+| `/chart` | `klines` (`source: "kline"`, `volumeSource: "kline.volume"`) | ticker last / volume24h |
+| `/depth` | `orderbook_latest` (bids desc, asks asc, `cumSize` from the touch) | mid blend, trades |
+| `/heatmap` | `orderbook_snapshots` + live `orderbook_latest` (`live: true` when the last column is current) | trade footprint / CVD (needs `publicTrade`, not subscribed) |
+| `/market` | ticker + `/chart` + `/depth` + `/heatmap` | stitching those four endpoints by hand |
+
+`/heatmap?bucket=10` rounds prices to a step before summing size. Default snapshot cadence is 5s; retention is `orderbookSnapshotsHours` (6h). If `orderbook_latest.recv_ts` is newer than the last snapshot, that book is appended as the last column. Empty cache returns empty arrays, not a fake series.
+
+HTTP stays `Bun.serve` on localhost. No Elysia / Express.
 
 Confirmed klines older than `retention.klinesDays` (default 14) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
 

@@ -402,6 +402,34 @@ function wrap(db: Database) {
         : "SELECT * FROM orderbook_latest ORDER BY symbol";
       return symbol ? db.prepare(sql).all(symbol) : db.prepare(sql).all();
     },
+    listOrderbookSnapshots(opts: {
+      symbol?: string;
+      limit?: number;
+      startTs?: number;
+      endTs?: number;
+      maxLimit?: number;
+    }) {
+      const where: string[] = [];
+      const args: Array<string | number> = [];
+      if (opts.symbol) {
+        where.push("symbol = ?");
+        args.push(opts.symbol);
+      }
+      if (opts.startTs !== undefined) {
+        where.push("recv_ts >= ?");
+        args.push(opts.startTs);
+      }
+      if (opts.endTs !== undefined) {
+        where.push("recv_ts <= ?");
+        args.push(opts.endTs);
+      }
+      const cap = opts.maxLimit ?? 500;
+      const limit = Math.min(Math.max(opts.limit ?? 120, 1), cap);
+      const sql = `SELECT * FROM orderbook_snapshots ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY recv_ts DESC LIMIT ?`;
+      args.push(limit);
+      return db.prepare(sql).all(...args);
+    },
     listKlines(opts: {
       symbol?: string;
       interval?: string;
