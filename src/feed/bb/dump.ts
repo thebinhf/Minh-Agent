@@ -22,7 +22,7 @@ export function inferDumpMeta(name: string): DumpMeta {
 
 export function decodeDumpBytes(bytes: Uint8Array): string {
   const gzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
-  const raw = gzip ? Bun.gunzipSync(bytes) : bytes;
+  const raw = gzip ? Bun.gunzipSync(Uint8Array.from(bytes)) : bytes;
   return new TextDecoder().decode(raw);
 }
 

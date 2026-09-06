@@ -197,7 +197,7 @@ describe("REST host failover", () => {
   test("fillKlineHistory pages a window even when recent candles already exist", async () => {
     const config = {
       restEndpoint: "https://api.bybit.com",
-      restFallbacks: [],
+      restFallbacks: [] as string[],
       symbols: ["BTCUSDT"],
       klineIntervals: ["15"],
       retention: { klinesDays: 1 },
