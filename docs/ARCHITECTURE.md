@@ -15,9 +15,14 @@ Layout matches the greenfield Minh Agent convention: one Bun process, I/O at the
 src/index.ts
   → src/feed/bb
        → public linear WS (+ stale-pong watchdog, subscribe retry)
-       → REST kline gap-fill after connect (best-effort)
+       → REST kline gap-fill after connect (best-effort, host failover)
        → SQLite cache
        → read-only HTTP 127.0.0.1:43180
+
+bun run backfill   # one-shot; does not start WS
+  → REST /v5/market/kline (official host, then restFallbacks)
+    or JSON/CSV dump import
+  → same SQLite klines table
 ```
 
 ## Layout

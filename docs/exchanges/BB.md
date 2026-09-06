@@ -29,10 +29,13 @@ Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50
 | --- | --- |
 | Stale pong | After `watchdogGraceMs` (30s), if no pong for `pongStaleMs` (60s), close the socket so reconnect/backoff runs. |
 | Gap-fill | After subscribe succeeds, REST `GET /v5/market/kline` backfills each symbol×interval from `MAX(start_ts)` (or `klinesDays` lookback). Failures are logged; WS stays up. Disable with `BYBIT_GAP_FILL=0`. |
+| Historical backfill | One-shot `bun run backfill` walks a full window (default 15/60/240) via REST failover or a JSON/CSV dump. Does not start WS. |
 | Orderbook | `books.clear()` on every connect. Deltas are ignored until a snapshot or `u=1`. |
 | Retry | Subscribe in chunks of 10 with ack timeout + 3 retries. REST kline uses the same retry helper. |
 
-REST is **best-effort**. In regions where Bybit REST is blocked, the WS cache still runs; kline holes from an outage stay until REST works again.
+REST is **best-effort**. Official `api.bybit.com` / `api.bytick.com` return CloudFront HTTP 403 from many US cloud IPs. The tracker still runs on public linear WS. On 401/403/404, kline fetch tries `restFallbacks` (default `https://api.manepa.jp`, Bybit's documented Japan public host). That host served `/v5/market/kline` from a US AWS VM on 2026-09-06; treat it as opportunistic. If every REST host fails, import a dump (below) — live WS is unchanged.
+
+`public.bybit.com/kline_for_metatrader4/` is also reachable from US cloud (S3 listing + `.csv.gz`). Those monthly files currently stop at 2025, so they are for older history, not the open 2026 candles.
 
 ## Quick start
 
@@ -47,7 +50,8 @@ HTTP (read-only):
 - `GET /health`
 - `GET /tickers?symbol=BTCUSDT`
 - `GET /orderbooks?symbol=ETHUSDT`
-- `GET /klines?symbol=SOLUSDT&interval=15&limit=50`
+- `GET /klines?symbol=SOLUSDT&interval=15&limit=50&start=&end=`
+- `GET /kline-stats?symbol=BTCUSDT&interval=15`
 - `GET /meta`
 
 CLI against the same SQLite file:
@@ -57,8 +61,37 @@ bun run query health
 bun run query tickers BTCUSDT
 bun run query orderbooks ETHUSDT
 bun run query klines SOLUSDT 15 --limit 20
+bun run query klines BTCUSDT 15 --start 2026-08-01 --end 2026-09-01 --limit 2000
+bun run query kline-stats BTCUSDT 15
 bun run query meta
 ```
+
+### Historical klines for PA (15 / 60 / 240)
+
+Live WS only writes candles while the process is up. Deeper history is a separate, one-shot job. It writes the same `klines` table; Minh never talks to a trading API.
+
+```bash
+# Probe which public REST hosts answer from this machine
+bun run backfill --probe
+
+# REST: try official host, then restFallbacks. Default intervals 15,60,240
+bun run backfill --days 14
+bun run backfill --symbol BTCUSDT,ETHUSDT --interval 15,60,240 --days 30
+
+# Offline / dump import (JSON REST envelope, tuple array, or MT4 CSV; gzip ok)
+bun run backfill --from ./btc-15.json --symbol BTCUSDT --interval 15
+bun run backfill --from https://public.bybit.com/kline_for_metatrader4/BTCUSDT/2025/BTCUSDT_15_2025-01-01_2025-01-31.csv.gz
+```
+
+Read what landed:
+
+| Surface | How |
+| --- | --- |
+| CLI | `bun run query klines SYMBOL INTERVAL --start TIME --end TIME --limit N` (cap 20000) |
+| HTTP | `GET /klines?symbol=BTCUSDT&interval=15&start=&end=&limit=1000` and `GET /kline-stats` |
+| SQL | `SELECT * FROM klines WHERE symbol=? AND interval=? AND start_ts>=? ORDER BY start_ts` |
+
+Confirmed klines older than `retention.klinesDays` (default 14) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
 
 ## Config and env overrides
 
@@ -76,6 +109,8 @@ Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 | `BYBIT_ORDERBOOK_DEPTH` | book depth |
 | `BYBIT_PING_INTERVAL_MS` | heartbeat interval |
 | `BYBIT_REST_ENDPOINT` | REST base (`https://api.bybit.com`) |
+| `BYBIT_REST_FALLBACKS` | comma-separated extra REST bases; empty string disables fallbacks |
+| `BYBIT_KLINES_DAYS` | confirmed-kline retention (also the default `backfill --days`) |
 | `BYBIT_PONG_STALE_MS` | watchdog stale-pong threshold |
 | `BYBIT_GAP_FILL` | `0` disables REST kline gap-fill |
 
