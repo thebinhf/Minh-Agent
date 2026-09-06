@@ -104,6 +104,25 @@ export class Dec {
     return this.sub(other).lte(slack);
   }
 
+  /** Floor to a positive step (Bybit qty: never exceed the computed size). */
+  floorToStep(step: Dec): Dec {
+    if (!step.isPos()) throw new Error("step must be positive");
+    if (this.isNeg()) throw new Error("floorToStep expects a non-negative value");
+    return new Dec((this.raw / step.raw) * step.raw);
+  }
+
+  /** Nearest step (Bybit UI tick snap). Half-up on exact halves. */
+  roundToStep(step: Dec): Dec {
+    if (!step.isPos()) throw new Error("step must be positive");
+    if (this.isNeg()) throw new Error("roundToStep expects a non-negative value");
+    const q = (this.raw + step.raw / 2n) / step.raw;
+    return new Dec(q * step.raw);
+  }
+
+  isOnStep(step: Dec): boolean {
+    return step.isPos() && this.raw % step.raw === 0n;
+  }
+
   toText(): string {
     const neg = this.raw < 0n;
     const abs = neg ? -this.raw : this.raw;

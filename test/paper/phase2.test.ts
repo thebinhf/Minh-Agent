@@ -9,7 +9,12 @@ import {
   parseTakeProfits,
   requireLeverage,
 } from "../../src/paper/phase2";
+import { requireInstrument, snapPrice } from "../../src/paper/venue";
 import { OPEN_LONG, mockFeed, paperEngine } from "./helpers";
+
+function btcLiq(side: "long" | "short", entry: string, leverage: string, mm = "0.005"): string {
+  return snapPrice(liqPrice(side, Dec.from(entry), Dec.from(leverage), Dec.from(mm)), requireInstrument("BTCUSDT")).toText();
+}
 
 const dirs: string[] = [];
 
@@ -53,8 +58,12 @@ const ACCOUNT = {
 describe("phase2 helpers", () => {
   test("fee, liq, funding, and leverage band come from account values", () => {
     expect(feeOn(Dec.from("0.1"), Dec.from("63000"), Dec.from("0.00055")).toText()).toBe("3.465");
-    expect(liqPrice("long", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")).toText()).toBe("57015");
-    expect(liqPrice("short", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")).toText()).toBe("68985");
+    expect(liqPrice("long", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")).toText()).toBe(
+      Dec.from("63000").mul(Dec.from("0.9")).div(Dec.from("0.995")).toText(),
+    );
+    expect(liqPrice("short", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")).toText()).toBe(
+      Dec.from("63000").mul(Dec.from("1.1")).div(Dec.from("1.005")).toText(),
+    );
     expect(fundingAmount("long", Dec.from("0.1"), Dec.from("63000"), Dec.from("0.0001")).toText()).toBe("-0.63");
     expect(fundingAmount("short", Dec.from("0.1"), Dec.from("63000"), Dec.from("0.0001")).toText()).toBe("0.63");
     expect(requireLeverage(ACCOUNT, "10").toText()).toBe("10");
@@ -112,7 +121,7 @@ describe("phase2 engine", () => {
     expect(opened.position.leverage).toBe("10");
     expect(opened.position.qty).toBe("0.1");
     expect(opened.position.margin).toBe("630");
-    expect(opened.position.liqPrice).toBe("57015");
+    expect(opened.position.liqPrice).toBe(btcLiq("long", "63000", "10"));
     expect(engine.account().cash).toBe("10000");
     expect(engine.account().marginUsed).toBe("630");
     expect(engine.account().availableCash).toBe("9370");
@@ -155,7 +164,7 @@ describe("phase2 engine", () => {
       takeProfit: "80000",
       leverage: "10",
     });
-    expect(lev10.position.liqPrice).toBe("57015");
+    expect(lev10.position.liqPrice).toBe(btcLiq("long", "63000", "10"));
     tenX.feed.ticker = async (symbol) => ({
       symbol,
       lastPrice: "56000",
@@ -167,7 +176,7 @@ describe("phase2 engine", () => {
     const marked10 = await tenX.engine.mark();
     expect(marked10.closed).toHaveLength(1);
     expect(marked10.closed[0]?.closeReason).toBe("liq");
-    expect(marked10.closed[0]?.closePrice).toBe("57015");
+    expect(marked10.closed[0]?.closePrice).toBe(btcLiq("long", "63000", "10"));
     expect(tenX.engine.positions("open")).toEqual([]);
   });
 

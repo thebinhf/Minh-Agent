@@ -431,7 +431,7 @@ Reject `400`:
 }
 ```
 
-Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set), `leverage_out_of_band`, `insufficient_margin`, `tp_qty_pct_sum`.
+Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set), `leverage_out_of_band`, `insufficient_margin`, `tp_qty_pct_sum`, `unknown_instrument`, `min_order_qty`, `max_order_qty`, `min_notional`, `price_filter`.
 
 #### `POST /paper/positions/:id/close`
 
@@ -554,6 +554,7 @@ Phase 2 (this PR):
 - [x] Isolated liq only when leverage > 1; SL still wins a gap.
 - [x] `takeProfits` percents sum to 1; nearest-first scale-out; last slice takes remainder.
 - [x] Funding from ticker `fundingRate` / `nextFundingTime`; once per settlement; long pays when rate > 0.
+- [x] Qty/price/leverage follow Bybit linear `instruments-info` (lot, tick, min notional, market max). Isolated liq uses the UTA formula. No `/v5/order`.
 - [x] Live orders still forbidden.
 
 ## 9. Out of scope / later
@@ -591,21 +592,40 @@ Risk band is still `|entry − SL| * qty`. Fees sit **outside** that budget.
 
 ### Leverage / isolated liq
 
-`qty` is still from risk. Margin is display + availability only — **do not subtract IM from cash**.
+`qty` is still from risk, then **floored to the venue lot**. Margin is display + availability only — **do not subtract IM from cash**.
 
 ```text
 margin    = qty * entry / leverage
+            + qty * entry * (1 ± 1/leverage) * fee_rate   # Bybit isolated IM
 available = cash - sum(open margins)
 reject insufficient_margin if cash < existingIM + newIM + openFee
-liq long  = entry * (1 - 1/leverage + mm_rate)
-liq short = entry * (1 + 1/leverage - mm_rate)
+
+# Bybit UTA isolated USDT (no extra margin, no MM deduction)
+liq long  = [entry*qty − entry*qty/lev] / [qty − qty*mm_rate]
+liq short = [entry*qty + entry*qty/lev] / [qty + qty*mm_rate]
+# stored liq is snapped to tickSize; skipped when leverage = 1
 ```
 
-Liq is evaluated only when `leverage > 1` (1× keeps MVP behavior). Product band `1–25`, default `1`. Reject `leverage_out_of_band` outside the account band.
+Liq is evaluated only when `leverage > 1` (1× keeps MVP behavior). Product band `1–25`, default `1`, then floored to the instrument `leverageStep`. Reject `leverage_out_of_band` outside the account **or** instrument band.
 
 ### Multi-TP
 
 `takeProfits: [{ price, qtyPct, filled? }]`. Percents must sum to 1 (1e-8). Sort long ascending / short descending (nearest first). Each slice is `qtyPct` of **original** qty; the last unfilled TP takes the remainder. Partial close keeps the row `open`. A single `takeProfit` is one plan at 100%.
+
+### Venue (Bybit linear, current)
+
+Paper is still a simulation, but **size / price / position math follow the live venue**. Current adapter: Bybit USDT perpetual, isolated, one-way. Specs live in `src/paper/instruments/bybit-linear.json` (public `instruments-info` snapshot). Paper does **not** call Bybit REST or `/v5/order`.
+
+| Rule | Bybit linear behavior |
+| --- | --- |
+| Open | Market in base-coin qty at local `lastPrice` (already on tick) |
+| Close | Reduce-only market (manual) or stop-market at SL / TP / liq |
+| Qty | Floor computed risk qty to `qtyStep`; reject `< minOrderQty`, `> maxMktOrderQty`, or notional `< minNotionalValue` |
+| Price | Snap SL / TP / liq / last / mark to `tickSize` (UI snap), then re-check side |
+| Leverage | Floor to `leverageStep`; cap is `min(account, instrument)` |
+| PnL / funding / fees | Linear USDT: `(exit−entry)*qty` long; funding `± qty*mark*rate` |
+
+A later venue is a new adapter file — do not invent a second size model inside the engine.
 
 ### Funding
 

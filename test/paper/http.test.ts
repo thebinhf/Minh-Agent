@@ -2,6 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { startPaperHttp } from "../../src/paper/http";
 import { createPaperEngine } from "../../src/paper/engine";
+import { Dec } from "../../src/paper/decimal";
+import { liqPrice } from "../../src/paper/phase2";
+import { requireInstrument, snapPrice } from "../../src/paper/venue";
 import { OPEN_LONG, mockFeed, paperConfig, tempStore } from "./helpers";
 
 const dirs: string[] = [];
@@ -115,7 +118,9 @@ describe("paper HTTP", () => {
         position: { leverage: string; liqPrice: string; takeProfits: Array<{ price: string }> };
       };
       expect(body.position.leverage).toBe("10");
-      expect(body.position.liqPrice).toBe("57015");
+      expect(body.position.liqPrice).toBe(
+        snapPrice(liqPrice("long", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")), requireInstrument("BTCUSDT")).toText(),
+      );
       expect(body.position.takeProfits.map((plan) => plan.price)).toEqual(["64500", "66000"]);
     } finally {
       svc.stop();

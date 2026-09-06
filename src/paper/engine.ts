@@ -14,6 +14,7 @@ import {
 } from "./phase2";
 import {
   assertOptionalMinRr,
+  assertSlTpSide,
   normalizeTimeframes,
   parseSide,
   pnlAt,
@@ -22,6 +23,16 @@ import {
   slHit,
   tpHit,
 } from "./risk";
+import {
+  assertMarketQty,
+  defaultCatalog,
+  floorCloseQty,
+  floorQty,
+  requireInstrument,
+  snapLeverage,
+  snapPrice,
+  type InstrumentCatalog,
+} from "./venue";
 import type {
   AccountView,
   ClosedMark,
@@ -158,8 +169,10 @@ export function createPaperEngine(opts: {
   feed: PaperFeed;
   config: PaperConfig;
   universe: PaperUniverse;
+  instruments?: InstrumentCatalog;
 }) {
   const { store, feed, config, universe } = opts;
+  const instruments = opts.instruments ?? defaultCatalog();
   const symbolSet = new Set(universe.symbols.map((s) => s.toUpperCase()));
   const intervalSet = new Set(universe.intervals.map(String));
 
@@ -289,7 +302,10 @@ export function createPaperEngine(opts: {
       store.partialClose({
         id: input.row.id,
         qty: remaining.toText(),
-        margin: marginOn(remaining, Dec.from(input.row.entry_price), lev).toText(),
+        margin: marginOn(remaining, Dec.from(input.row.entry_price), lev, {
+          side: input.row.side,
+          feeRate: feeRateOf(),
+        }).toText(),
         realizedPnl: realized.toText(),
         closeFee: closeFee.toText(),
         takeProfitsJson: JSON.stringify(input.plans),
@@ -316,7 +332,7 @@ export function createPaperEngine(opts: {
     if (ticker.nextFundingTime == null || ticker.fundingRate == null || ticker.fundingRate === "") return null;
     if (now < ticker.nextFundingTime) return null;
     if (row.last_funding_ts != null && row.last_funding_ts === ticker.nextFundingTime) return null;
-    const mark = markPriceOf(ticker);
+    const mark = snapPrice(markPriceOf(ticker), requireInstrument(row.symbol, instruments));
     const amount = fundingAmount(row.side, Dec.from(row.qty), mark, Dec.from(ticker.fundingRate));
     const account = store.getAccount();
     store.updateAccount(Dec.from(account.cash).add(amount).toText(), account.equity, now);
@@ -353,7 +369,8 @@ export function createPaperEngine(opts: {
       if (funded) funding.push(funded);
       const fresh = store.getPosition(row.id);
       if (!fresh || fresh.status === "closed") continue;
-      const last = requireLast(ticker);
+      const spec = requireInstrument(fresh.symbol, instruments);
+      const last = snapPrice(requireLast(ticker), spec);
       const side = fresh.side as PaperSide;
       const stop = Dec.from(fresh.stop_loss);
       const liq = Dec.from(fresh.liq_price ?? "0");
@@ -393,12 +410,15 @@ export function createPaperEngine(opts: {
         const unfilled = plans.filter((item) => !item.filled && item !== plan);
         const isLast = unfilled.length === 0;
         plan.filled = true;
-        const qty = takeProfitCloseQty(
+        const remaining = Dec.from(working.qty);
+        const rawQty = takeProfitCloseQty(
           Dec.from(working.qty_initial ?? working.qty),
-          Dec.from(working.qty),
+          remaining,
           plan,
           isLast,
         );
+        const qty = floorCloseQty(rawQty, spec, remaining, isLast);
+        if (!qty.isPos()) continue;
         const result = store.transaction(() => applyCloseQty({
           row: working,
           qty,
@@ -417,7 +437,7 @@ export function createPaperEngine(opts: {
       if (hitTp && store.getPosition(row.id)?.status === "closed") continue;
       const latest = store.getPosition(row.id);
       if (!latest || latest.status === "closed") continue;
-      const markPx = markPriceOf(ticker);
+      const markPx = snapPrice(markPriceOf(ticker), spec);
       const unrealized = pnlAt(side, Dec.from(latest.entry_price), markPx, Dec.from(latest.qty)).toText();
       store.markOpen(latest.id, unrealized, markPx.toText());
       stillOpen.push({
@@ -471,23 +491,38 @@ export function createPaperEngine(opts: {
         throw new PaperReject("duplicate_symbol", "duplicate_symbol", { symbol });
       }
       const account = store.getAccount();
+      const spec = requireInstrument(symbol, instruments);
       const riskPct = requireBandPct(account, request.riskPct);
-      const leverage = requireLeverage(account, request.leverage);
+      const leverage = snapLeverage(requireLeverage(account, request.leverage), spec);
       const ticker = await requireTicker(symbol, now);
-      const entry = requireLast(ticker);
-      const plans = parseTakeProfits(side, entry, request.takeProfit, request.takeProfits);
+      const entry = snapPrice(requireLast(ticker), spec);
+      const stopLoss = snapPrice(Dec.from(request.stopLoss.trim()), spec);
+      const snappedTps = request.takeProfits?.map((plan) => ({
+        ...plan,
+        price: snapPrice(Dec.from(String(plan.price)), spec).toText(),
+      }));
+      const snappedTp = request.takeProfit
+        ? snapPrice(Dec.from(request.takeProfit), spec).toText()
+        : undefined;
+      const plans = parseTakeProfits(side, entry, snappedTp, snappedTps);
       const takeProfit = furthestTakeProfit(plans);
+      assertSlTpSide(side, entry, stopLoss, Dec.from(takeProfit));
       const sized = sizeFromRisk({
         equity: Dec.from(account.equity),
         riskPct,
         side,
         entry,
-        stopLoss: Dec.from(request.stopLoss.trim()),
+        stopLoss,
         takeProfit: Dec.from(takeProfit),
       });
+      const qty = floorQty(sized.qty, spec);
+      assertMarketQty(spec, qty, entry);
+      const riskQuote = sized.stopDist.mul(qty);
+      const rewardQuote = sized.rewardDist.mul(qty);
       assertOptionalMinRr(account, sized.rr);
-      const openFee = feeOn(sized.qty, sized.entry, Dec.from(account.fee_rate ?? "0"));
-      const margin = marginOn(sized.qty, sized.entry, leverage);
+      const feeRate = Dec.from(account.fee_rate ?? "0");
+      const openFee = feeOn(qty, entry, feeRate);
+      const margin = marginOn(qty, entry, leverage, { side, feeRate });
       const used = sumMargin(store.listOpen());
       if (Dec.from(account.cash).sub(used).sub(margin).sub(openFee).isNeg()) {
         throw new PaperReject("insufficient_margin", "leverage", {
@@ -497,29 +532,30 @@ export function createPaperEngine(opts: {
           marginUsed: used.toText(),
         });
       }
-      const liq = liqPrice(side, sized.entry, leverage, Dec.from(account.mm_rate ?? "0"));
+      const rawLiq = liqPrice(side, entry, leverage, Dec.from(account.mm_rate ?? "0"));
+      const liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
       const opened = store.transaction(() => {
         store.updateAccount(Dec.from(store.getAccount().cash).sub(openFee).toText(), account.equity, now);
         const id = store.insertPosition({
           symbol,
           side,
-          qty: sized.qty.toText(),
+          qty: qty.toText(),
           riskPct: sized.riskPct.toText(),
-          entryPrice: sized.entry.toText(),
-          stopLoss: sized.stopLoss.toText(),
+          entryPrice: entry.toText(),
+          stopLoss: stopLoss.toText(),
           takeProfit,
-          riskQuote: sized.riskQuote.toText(),
-          rewardQuote: sized.rewardQuote.toText(),
+          riskQuote: riskQuote.toText(),
+          rewardQuote: rewardQuote.toText(),
           rr: sized.rr.toText(),
           timeframes: JSON.stringify(timeframes),
           mtfJson: JSON.stringify(mtf),
           openedTs: now,
           unrealizedPnl: "0",
-          markPrice: sized.entry.toText(),
+          markPrice: entry.toText(),
           fillRecvTs: ticker.recvTs ?? now,
           note: request.note?.trim() ? request.note.trim() : null,
           leverage: leverage.toText(),
-          qtyInitial: sized.qty.toText(),
+          qtyInitial: qty.toText(),
           margin: margin.toText(),
           liqPrice: liq.toText(),
           takeProfitsJson: JSON.stringify(plans),
@@ -530,8 +566,8 @@ export function createPaperEngine(opts: {
           kind: "open",
           symbol,
           side,
-          qty: sized.qty.toText(),
-          price: sized.entry.toText(),
+          qty: qty.toText(),
+          price: entry.toText(),
           source: "last",
           recvTs: ticker.recvTs,
           ts: now,
@@ -552,7 +588,7 @@ export function createPaperEngine(opts: {
         throw new PaperReject("already_closed", "status", { id });
       }
       const ticker = await requireTicker(row.symbol, now);
-      const price = requireLast(ticker);
+      const price = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
       const closed = store.transaction(() => applyCloseQty({
         row,
         qty: Dec.from(row.qty),

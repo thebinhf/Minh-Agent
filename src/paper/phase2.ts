@@ -32,18 +32,34 @@ export function feeOn(qty: Dec, price: Dec, feeRate: Dec): Dec {
   return qty.mul(price).mul(feeRate);
 }
 
-export function marginOn(qty: Dec, entry: Dec, leverage: Dec): Dec {
-  return qty.mul(entry).div(leverage);
+/** Bybit isolated IM: qty*entry/lev + estimated close fee. */
+export function marginOn(
+  qty: Dec,
+  entry: Dec,
+  leverage: Dec,
+  extra?: { side: PaperSide; feeRate: Dec },
+): Dec {
+  const im = qty.mul(entry).div(leverage);
+  if (!extra || extra.feeRate.isZero()) return im;
+  const inv = Dec.from("1").div(leverage);
+  const factor = extra.side === "long" ? Dec.from("1").sub(inv) : Dec.from("1").add(inv);
+  return im.add(qty.mul(entry).mul(factor).mul(extra.feeRate));
 }
 
-/** Isolated linear liq. Band/mm come from the account — not source constants. */
+/**
+ * Bybit UTA isolated USDT perp (no extra margin, no MM deduction):
+ * long  (entry*qty − entry*qty/lev) / (qty − qty*mm)
+ * short (entry*qty + entry*qty/lev) / (qty + qty*mm)
+ */
 export function liqPrice(side: PaperSide, entry: Dec, leverage: Dec, mmRate: Dec): Dec {
   const inv = Dec.from("1").div(leverage);
   if (side === "long") {
-    const px = entry.mul(Dec.from("1").sub(inv).add(mmRate));
+    const den = Dec.from("1").sub(mmRate);
+    if (!den.isPos()) return Dec.zero();
+    const px = entry.mul(Dec.from("1").sub(inv)).div(den);
     return px.isPos() ? px : Dec.zero();
   }
-  return entry.mul(Dec.from("1").add(inv).sub(mmRate));
+  return entry.mul(Dec.from("1").add(inv)).div(Dec.from("1").add(mmRate));
 }
 
 export function liqHit(side: PaperSide, last: Dec, liq: Dec): boolean {
