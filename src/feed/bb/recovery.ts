@@ -90,7 +90,7 @@ export function restCandleConfirm(start: number, intervalMs: number, now: number
   return start + intervalMs <= now;
 }
 
-/** Parse CLI/HTTP time as epoch ms or ISO / `YYYY-MM-DD`. */
+/** Parse CLI/HTTP time as Unix epoch milliseconds (13-digit), ISO-8601, or `YYYY-MM-DD`. */
 export function parseTimeArg(raw: string): number {
   const trimmed = raw.trim();
   if (/^\d+$/.test(trimmed)) return Number(trimmed);

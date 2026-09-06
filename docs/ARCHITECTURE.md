@@ -18,7 +18,9 @@ src/index.ts
        → REST kline gap-fill after connect (best-effort, host failover)
        → SQLite cache
        → read-only HTTP 127.0.0.1:43180
+         GET /brief  (one snapshot JSON for Minh)
 
+bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
 bun run backfill   # one-shot; does not start WS
   → REST /v5/market/kline (official host, then restFallbacks)
     or JSON/CSV dump import

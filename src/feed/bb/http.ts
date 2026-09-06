@@ -1,3 +1,4 @@
+import { buildBrief } from "./brief";
 import type { TrackerDb } from "./db";
 import type { TrackerConfig } from "./types";
 
@@ -143,6 +144,13 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
 
       if (path === "/meta") {
         return json({ meta: store.getMeta() });
+      }
+
+      if (path === "/brief") {
+        return json(buildBrief(store, {
+          symbol: url.searchParams.get("symbol"),
+          dbPath: config.dbPath,
+        }));
       }
 
       return json({ error: "not found" }, 404);

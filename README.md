@@ -10,6 +10,7 @@ Bun trading agent. Architecture follows the [greenfield Minh Agent](https://gith
 bun install
 bun test
 bun run start          # HTTP 127.0.0.1:43180
+bun run brief BTCUSDT  # one local JSON snapshot (ticker + 15/60/240)
 bun run backfill --probe
 bun run backfill --days 14   # 15/60/240 into SQLite; does not start WS
 ```
