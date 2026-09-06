@@ -78,13 +78,27 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
           if (req.method === "POST") {
             const body = (await req.json()) as Record<string, unknown>;
             const timeframes = Array.isArray(body.timeframes) ? body.timeframes.map(String) : [];
+            const takeProfits = Array.isArray(body.takeProfits)
+              ? body.takeProfits.map((plan: unknown, i: number) => {
+                  if (!plan || typeof plan !== "object") {
+                    throw new PaperReject("invalid_take_profits", "tp", { index: i });
+                  }
+                  const row = plan as Record<string, unknown>;
+                  return {
+                    price: String(row.price ?? ""),
+                    qtyPct: String(row.qtyPct ?? ""),
+                  };
+                })
+              : undefined;
             const opened = await engine.open({
               symbol: String(body.symbol ?? ""),
               side: String(body.side ?? ""),
               stopLoss: String(body.stopLoss ?? ""),
-              takeProfit: String(body.takeProfit ?? ""),
+              takeProfit: body.takeProfit == null ? undefined : String(body.takeProfit),
+              takeProfits,
               timeframes,
               riskPct: body.riskPct == null || body.riskPct === "" ? undefined : String(body.riskPct),
+              leverage: body.leverage == null || body.leverage === "" ? undefined : String(body.leverage),
               note: body.note == null ? undefined : String(body.note),
             });
             return json(opened, 201);

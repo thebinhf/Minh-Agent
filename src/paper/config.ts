@@ -66,6 +66,12 @@ function normalizeAccount(raw: PaperAccountSeed): PaperAccountSeed {
     riskPctMax: raw.riskPctMax,
     defaultRiskPct: raw.defaultRiskPct,
     minRr: raw.minRr === undefined || raw.minRr === "" ? null : raw.minRr,
+    feeRate: raw.feeRate ?? "0",
+    leverageMin: raw.leverageMin ?? "1",
+    leverageMax: raw.leverageMax ?? "25",
+    defaultLeverage: raw.defaultLeverage ?? "1",
+    mmRate: raw.mmRate ?? "0.005",
+    marginMode: raw.marginMode === "cross" ? "cross" : "isolated",
   };
 }
 

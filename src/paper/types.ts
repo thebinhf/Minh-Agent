@@ -1,8 +1,15 @@
 export type PaperSide = "long" | "short";
 export type PaperStatus = "open" | "closed";
-export type PaperCloseReason = "sl" | "tp" | "manual";
+export type PaperMarginMode = "isolated" | "cross";
+export type PaperCloseReason = "sl" | "tp" | "manual" | "liq";
 export type PaperFillKind = "open" | "close";
-export type PaperFillSource = "last" | "sl" | "tp";
+export type PaperFillSource = "last" | "sl" | "tp" | "liq";
+
+export type TakeProfitPlan = {
+  price: string;
+  qtyPct: string;
+  filled?: boolean;
+};
 
 export type PaperAccountSeed = {
   name: string;
@@ -12,6 +19,12 @@ export type PaperAccountSeed = {
   riskPctMax: string;
   defaultRiskPct: string;
   minRr: string | null;
+  feeRate: string;
+  leverageMin: string;
+  leverageMax: string;
+  defaultLeverage: string;
+  mmRate: string;
+  marginMode: PaperMarginMode;
 };
 
 export type PaperConfig = {
@@ -28,6 +41,8 @@ export type PaperTicker = {
   lastPrice: string | null;
   markPrice: string | null;
   recvTs: number | null;
+  fundingRate: string | null;
+  nextFundingTime: number | null;
 };
 
 export type PaperKlineSnap = {
@@ -59,6 +74,12 @@ export type PaperAccountRow = {
   risk_pct_max: string;
   default_risk_pct: string;
   min_rr: string | null;
+  fee_rate: string;
+  leverage_min: string;
+  leverage_max: string;
+  default_leverage: string;
+  mm_rate: string;
+  margin_mode: PaperMarginMode;
   created_ts: number;
   updated_ts: number;
 };
@@ -89,15 +110,25 @@ export type PaperPositionRow = {
   fill_source: PaperFillSource;
   fill_recv_ts: number;
   note: string | null;
+  leverage: string;
+  qty_initial: string;
+  margin: string;
+  liq_price: string;
+  take_profits_json: string;
+  last_funding_ts: number | null;
+  open_fee: string;
+  close_fee: string;
 };
 
 export type OpenRequest = {
   symbol: string;
   side: string;
   stopLoss: string;
-  takeProfit: string;
+  takeProfit?: string;
+  takeProfits?: TakeProfitPlan[];
   timeframes: string[];
   riskPct?: string;
+  leverage?: string;
   note?: string;
 };
 
@@ -126,6 +157,14 @@ export type PositionView = {
   fillSource: PaperFillSource;
   fillRecvTs: number;
   note: string | null;
+  leverage: string;
+  qtyInitial: string;
+  margin: string;
+  liqPrice: string;
+  takeProfits: TakeProfitPlan[];
+  openFee: string;
+  closeFee: string;
+  lastFundingTs: number | null;
 };
 
 export type AccountView = {
@@ -141,6 +180,16 @@ export type AccountView = {
   riskPctMax: string;
   defaultRiskPct: string;
   minRr: string | null;
+  feeRate: string;
+  leverageMin: string;
+  leverageMax: string;
+  defaultLeverage: string;
+  mmRate: string;
+  marginMode: PaperMarginMode;
+  marginUsed: string;
+  marginBalance: string;
+  totalMm: string;
+  availableCash: string;
   openPositions: number;
   updatedTs: number;
 };
@@ -156,9 +205,20 @@ export type MarkedPosition = {
 export type ClosedMark = {
   id: number;
   symbol: string;
-  status: "closed";
+  status: "closed" | "open";
   closeReason: PaperCloseReason;
   closePrice: string;
   realizedPnl: string;
   closedTs: number;
+  qty: string;
+  remainingQty: string;
+  partial: boolean;
+};
+
+export type FundingMark = {
+  positionId: number;
+  symbol: string;
+  rate: string;
+  amount: string;
+  fundingTime: number;
 };

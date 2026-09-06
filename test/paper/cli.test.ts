@@ -22,6 +22,23 @@ describe("paper CLI parser", () => {
       riskPct: "0.03",
       note: "htf bias",
     });
+    expect(parsePaperArgs([
+      "open", "BTCUSDT", "--side", "long", "--sl", "60000",
+      "--tps", "64500:0.5,66000:0.5", "--tf", "60,15", "--leverage", "10",
+    ])).toEqual({
+      name: "open",
+      symbol: "BTCUSDT",
+      side: "long",
+      stopLoss: "60000",
+      takeProfits: [
+        { price: "64500", qtyPct: "0.5" },
+        { price: "66000", qtyPct: "0.5" },
+      ],
+      timeframes: ["60", "15"],
+      leverage: "10",
+      riskPct: undefined,
+      note: undefined,
+    });
   });
 
   test("usage errors for --help and missing --tf", () => {
@@ -29,6 +46,7 @@ describe("paper CLI parser", () => {
     expect(() => parsePaperArgs(["-h"])).toThrow(PaperUsageError);
     expect(() => parsePaperArgs([])).toThrow(PaperUsageError);
     expect(() => parsePaperArgs(["open", "BTCUSDT", "--side", "long", "--sl", "1", "--tp", "2"])).toThrow(PaperUsageError);
+    expect(() => parsePaperArgs(["open", "BTCUSDT", "--side", "long", "--sl", "1", "--tf", "60,15"])).toThrow(PaperUsageError);
     try {
       parsePaperArgs(["--help"]);
     } catch (error) {

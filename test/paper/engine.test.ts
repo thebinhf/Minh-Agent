@@ -39,6 +39,27 @@ describe("paper engine", () => {
     expect(engine.account().cash).toBe("10000");
   });
 
+  test("allows 1% and 10% risk; 10% at 1x can still fail IM", async () => {
+    const low = await harness();
+    const onePct = await low.engine.open({ ...OPEN_LONG, riskPct: "0.01" });
+    expect(onePct.position.riskPct).toBe("0.01");
+    expect(onePct.position.status).toBe("open");
+
+    const highLev = await harness();
+    const tenPct = await highLev.engine.open({ ...OPEN_LONG, riskPct: "0.10", leverage: "10" });
+    expect(tenPct.position.riskPct).toBe("0.1");
+    expect(tenPct.position.leverage).toBe("10");
+    expect(tenPct.position.status).toBe("open");
+
+    const highFlat = await harness();
+    try {
+      await highFlat.engine.open({ ...OPEN_LONG, riskPct: "0.10" });
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(reject(error).error).toBe("insufficient_margin");
+    }
+  });
+
   test("rejects duplicate symbol, unknown symbol, missing SL/TP, wrong-side levels", async () => {
     const { engine } = await harness();
     await engine.open(OPEN_LONG);
@@ -149,6 +170,8 @@ describe("paper engine", () => {
       lastPrice: "63300",
       markPrice: "63300",
       recvTs: Date.now(),
+      fundingRate: null,
+      nextFundingTime: null,
     });
     const marked = await engine.mark();
     expect(marked.mode).toBe("paper");
@@ -162,6 +185,8 @@ describe("paper engine", () => {
       lastPrice: "59000",
       markPrice: "59000",
       recvTs: Date.now(),
+      fundingRate: null,
+      nextFundingTime: null,
     });
     const stopped = await engine.mark();
     expect(stopped.closed).toHaveLength(1);
@@ -187,6 +212,8 @@ describe("paper engine", () => {
       lastPrice: "59000",
       markPrice: "59000",
       recvTs: Date.now(),
+      fundingRate: null,
+      nextFundingTime: null,
     });
     const marked = await engine.mark();
     expect(marked.closed[0]?.closeReason).toBe("tp");

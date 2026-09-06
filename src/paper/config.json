@@ -8,9 +8,15 @@
     "name": "minh-paper",
     "quote": "USDT",
     "startingCash": "10000",
-    "riskPctMin": "0.02",
-    "riskPctMax": "0.05",
+    "riskPctMin": "0.01",
+    "riskPctMax": "0.10",
     "defaultRiskPct": "0.02",
-    "minRr": null
+    "minRr": null,
+    "feeRate": "0.00055",
+    "leverageMin": "1",
+    "leverageMax": "25",
+    "defaultLeverage": "1",
+    "mmRate": "0.005",
+    "marginMode": "isolated"
   }
 }

@@ -2,6 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { startPaperHttp } from "../../src/paper/http";
 import { createPaperEngine } from "../../src/paper/engine";
+import { Dec } from "../../src/paper/decimal";
+import { liqPrice } from "../../src/paper/phase2";
+import { requireInstrument, snapPrice } from "../../src/paper/venue";
 import { OPEN_LONG, mockFeed, paperConfig, tempStore } from "./helpers";
 
 const dirs: string[] = [];
@@ -48,6 +51,11 @@ describe("paper HTTP", () => {
       expect(account.mode).toBe("paper");
       expect(account.cash).toBe("10000");
       expect(account.minRr).toBeNull();
+      expect(account.riskPctMin).toBe("0.01");
+      expect(account.riskPctMax).toBe("0.10");
+      expect(account.feeRate).toBe("0");
+      expect(account.defaultLeverage).toBe("1");
+      expect(account.marginMode).toBe("isolated");
 
       const opened = await fetch(`${svc.url}/paper/positions`, {
         method: "POST",
@@ -65,9 +73,15 @@ describe("paper HTTP", () => {
 
       const marked = await fetch(`${svc.url}/paper/mark`, { method: "POST" });
       expect(marked.status).toBe(200);
-      const markBody = await marked.json() as { mode: string; positions: unknown[]; closed: unknown[] };
+      const markBody = await marked.json() as {
+        mode: string;
+        positions: unknown[];
+        closed: unknown[];
+        funding: unknown[];
+      };
       expect(markBody.mode).toBe("paper");
       expect(markBody.closed).toEqual([]);
+      expect(markBody.funding).toEqual([]);
 
       const closed = await fetch(`${svc.url}/paper/positions/${openedBody.position.id}/close`, { method: "POST" });
       expect(closed.status).toBe(200);
@@ -85,13 +99,42 @@ describe("paper HTTP", () => {
     }
   });
 
+  test("accepts leverage and takeProfits on open", async () => {
+    const svc = await serve();
+    try {
+      const opened = await fetch(`${svc.url}/paper/positions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...OPEN_LONG,
+          leverage: "10",
+          takeProfits: [
+            { price: "64500", qtyPct: "0.5" },
+            { price: "66000", qtyPct: "0.5" },
+          ],
+        }),
+      });
+      expect(opened.status).toBe(201);
+      const body = await opened.json() as {
+        position: { leverage: string; liqPrice: string; takeProfits: Array<{ price: string }> };
+      };
+      expect(body.position.leverage).toBe("10");
+      expect(body.position.liqPrice).toBe(
+        snapPrice(liqPrice("long", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")), requireInstrument("BTCUSDT")).toText(),
+      );
+      expect(body.position.takeProfits.map((plan) => plan.price)).toEqual(["64500", "66000"]);
+    } finally {
+      svc.stop();
+    }
+  });
+
   test("rejects out-of-band risk and GET on mutating paths", async () => {
     const svc = await serve();
     try {
       const bad = await fetch(`${svc.url}/paper/positions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...OPEN_LONG, riskPct: "0.08" }),
+        body: JSON.stringify({ ...OPEN_LONG, riskPct: "0.15" }),
       });
       expect(bad.status).toBe(400);
       const body = await bad.json() as { mode: string; error: string; gate: string };

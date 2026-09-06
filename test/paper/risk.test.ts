@@ -22,10 +22,16 @@ function account(partial: Partial<PaperAccountRow> = {}): PaperAccountRow {
     cash: "10000",
     equity: "10000",
     starting_cash: "10000",
-    risk_pct_min: "0.02",
-    risk_pct_max: "0.05",
+    risk_pct_min: "0.01",
+    risk_pct_max: "0.10",
     default_risk_pct: "0.02",
     min_rr: null,
+    fee_rate: "0",
+    leverage_min: "1",
+    leverage_max: "25",
+    default_leverage: "1",
+    mm_rate: "0.005",
+    margin_mode: "isolated",
     created_ts: 0,
     updated_ts: 0,
     ...partial,
@@ -48,10 +54,14 @@ describe("risk engine", () => {
     expect(sized.rr.toText()).toBe("1");
   });
 
-  test("reads the band from the account — 8% rejected, default used when omitted", () => {
-    expect(() => requireBandPct(account(), "0.08")).toThrow(PaperReject);
+  test("reads the 1–10% band from the account — 15% rejected, 1% and 10% allowed", () => {
+    expect(requireBandPct(account(), "0.01").toText()).toBe("0.01");
+    expect(requireBandPct(account(), "0.08").toText()).toBe("0.08");
+    expect(requireBandPct(account(), "0.10").toText()).toBe("0.1");
+    expect(() => requireBandPct(account(), "0.15")).toThrow(PaperReject);
+    expect(() => requireBandPct(account(), "0.005")).toThrow(PaperReject);
     try {
-      requireBandPct(account(), "0.08");
+      requireBandPct(account(), "0.15");
     } catch (error) {
       expect(error).toBeInstanceOf(PaperReject);
       expect((error as PaperReject).error).toBe("risk_pct_out_of_band");

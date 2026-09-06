@@ -10,12 +10,14 @@ export const PAPER_USAGE = `Usage:
   bun run paper account
   bun run paper positions [--status open|closed|all]
   bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
+  bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
   bun run paper close ID
   bun run paper mark
 
 Paper simulation only — no API keys, no real orders.
 Fills and marks come from the local feed at 127.0.0.1:43180.
 --tf is required (comma-separated, at least two feed intervals).
+--tp or --tps is required. --tps is PRICE:qtyPct pairs that must sum to 1.
 `;
 
 export type PaperCliCommand =
@@ -26,13 +28,25 @@ export type PaperCliCommand =
       symbol: string;
       side: string;
       stopLoss: string;
-      takeProfit: string;
+      takeProfit?: string;
+      takeProfits?: Array<{ price: string; qtyPct: string }>;
       timeframes: string[];
       riskPct?: string;
+      leverage?: string;
       note?: string;
     }
   | { name: "close"; id: number }
   | { name: "mark" };
+
+function parseTps(raw: string): Array<{ price: string; qtyPct: string }> {
+  return raw.split(",").map((part) => {
+    const [price, qtyPct] = part.split(":");
+    if (!price?.trim() || !qtyPct?.trim()) {
+      throw new PaperUsageError(PAPER_USAGE);
+    }
+    return { price: price.trim(), qtyPct: qtyPct.trim() };
+  });
+}
 
 function flag(argv: string[], name: string): string | undefined {
   const idx = argv.indexOf(name);
@@ -72,16 +86,20 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
     const side = flag(rest, "--side");
     const sl = flag(rest, "--sl");
     const tp = flag(rest, "--tp");
+    const tps = flag(rest, "--tps");
     const tf = flag(rest, "--tf");
-    if (!symbol || !side || !sl || !tp || !tf) throw new PaperUsageError(PAPER_USAGE);
+    const leverage = flag(rest, "--leverage");
+    if (!symbol || !side || !sl || !tf || (!tp && !tps)) throw new PaperUsageError(PAPER_USAGE);
     return {
       name: "open",
       symbol,
       side,
       stopLoss: sl,
-      takeProfit: tp,
+      ...(tp ? { takeProfit: tp } : {}),
+      ...(tps ? { takeProfits: parseTps(tps) } : {}),
       timeframes: tf.split(",").map((item) => item.trim()).filter(Boolean),
       riskPct: flag(rest, "--risk-pct"),
+      ...(leverage ? { leverage } : {}),
       note: flag(rest, "--note"),
     };
   }
@@ -100,8 +118,10 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
     side: command.side,
     stopLoss: command.stopLoss,
     takeProfit: command.takeProfit,
+    takeProfits: command.takeProfits,
     timeframes: command.timeframes,
     riskPct: command.riskPct,
+    leverage: command.leverage,
     note: command.note,
   });
 }
