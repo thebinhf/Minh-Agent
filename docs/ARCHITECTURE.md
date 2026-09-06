@@ -19,6 +19,7 @@ src/index.ts
        → SQLite cache
        → read-only HTTP 127.0.0.1:43180
          GET /brief  (one snapshot JSON for Minh)
+         GET /chart  GET /depth  GET /heatmap  GET /market
   → src/paper
        → paper SQLite ledger (separate file)
        → risk engine (account 1–10% band, R:R from SL/TP, MTF tags, Phase 2 fee/funding/lev)
@@ -26,6 +27,7 @@ src/index.ts
        → CLI  bun run paper …
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
+bun run query chart|depth|heatmap|market
 bun run paper account    # simulated equity (no keys, no real orders)
 bun run backfill   # one-shot; does not start WS
   → REST /v5/market/kline (official host, then restFallbacks)

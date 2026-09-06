@@ -1,6 +1,7 @@
 import { buildBrief } from "./brief";
 import type { TrackerDb } from "./db";
 import type { TrackerConfig } from "./types";
+import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
@@ -150,6 +151,56 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
         return json(buildBrief(store, {
           symbol: url.searchParams.get("symbol"),
           dbPath: config.dbPath,
+        }));
+      }
+
+      if (path === "/chart") {
+        const startRaw = url.searchParams.get("start");
+        const endRaw = url.searchParams.get("end");
+        const start = startRaw ? Number(startRaw) : Number.NaN;
+        const end = endRaw ? Number(endRaw) : Number.NaN;
+        const limitRaw = url.searchParams.get("limit");
+        return json(buildChart(store, {
+          symbol: url.searchParams.get("symbol"),
+          interval: url.searchParams.get("interval"),
+          limit: limitRaw ? Number(limitRaw) : undefined,
+          startTs: Number.isFinite(start) ? start : undefined,
+          endTs: Number.isFinite(end) ? end : undefined,
+        }));
+      }
+
+      if (path === "/depth") {
+        return json(buildDepth(store, { symbol: url.searchParams.get("symbol") }));
+      }
+
+      if (path === "/market") {
+        const limitRaw = url.searchParams.get("limit");
+        const heatLimitRaw = url.searchParams.get("heatmapLimit");
+        const bucketRaw = url.searchParams.get("bucket");
+        const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+        return json(buildMarket(store, {
+          symbol: url.searchParams.get("symbol"),
+          interval: url.searchParams.get("interval"),
+          limit: limitRaw ? Number(limitRaw) : undefined,
+          heatmapLimit: heatLimitRaw ? Number(heatLimitRaw) : undefined,
+          bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
+        }));
+      }
+
+      if (path === "/heatmap") {
+        const startRaw = url.searchParams.get("start");
+        const endRaw = url.searchParams.get("end");
+        const start = startRaw ? Number(startRaw) : Number.NaN;
+        const end = endRaw ? Number(endRaw) : Number.NaN;
+        const limitRaw = url.searchParams.get("limit");
+        const bucketRaw = url.searchParams.get("bucket");
+        const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+        return json(buildHeatmap(store, {
+          symbol: url.searchParams.get("symbol"),
+          limit: limitRaw ? Number(limitRaw) : undefined,
+          startTs: Number.isFinite(start) ? start : undefined,
+          endTs: Number.isFinite(end) ? end : undefined,
+          bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
         }));
       }
 

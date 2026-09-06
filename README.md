@@ -11,6 +11,10 @@ bun install
 bun test
 bun run start          # feed :43180 + paper :43181
 bun run brief BTCUSDT  # one local JSON snapshot (ticker + 15/60/240)
+bun run query chart BTCUSDT 15
+bun run query depth BTCUSDT
+bun run query heatmap BTCUSDT --bucket 10
+bun run query market BTCUSDT 15 --bucket 10
 bun run paper account  # simulated equity (requires local feed prices to mutate)
 bun run backfill --probe
 bun run backfill --days 14   # 15/60/240 into SQLite; does not start WS
