@@ -27,12 +27,13 @@ function usage(): never {
 
 Public linear klines only. No API keys. Live WS is not started.
 
-  --from rest|PATH|URL   REST (default) or a JSON/CSV dump (gzip ok)
+  --from rest|PATH|URL   rest = live public REST (default keyword, not a filename).
+                         PATH or http(s) URL = JSON/CSV dump import (gzip ok)
   --symbol LIST          default: config symbols
   --interval LIST        default: 15,60,240
   --days N               lookback from --end (default: retention.klinesDays)
-  --start TIME           epoch ms or ISO
-  --end TIME             epoch ms or ISO (default: now)
+  --start TIME           Unix epoch ms (13-digit, e.g. 1725600000000), ISO-8601, or YYYY-MM-DD
+  --end TIME             same formats as --start (default: now)
   --probe                print which public REST hosts answer /v5/market/time
 `);
   process.exit(2);

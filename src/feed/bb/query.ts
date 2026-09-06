@@ -10,6 +10,9 @@ function usage(): never {
   bun run query orderbooks [SYMBOL]
   bun run query klines SYMBOL [INTERVAL] [--limit N] [--confirm 0|1] [--start TIME] [--end TIME]
   bun run query kline-stats [SYMBOL] [INTERVAL]
+
+TIME is Unix epoch milliseconds (13-digit, e.g. 1725600000000), ISO-8601, or YYYY-MM-DD.
+Seconds (10-digit) are not accepted. For a dump file / URL use: bun run backfill --from PATH|URL
 `);
   process.exit(2);
 }

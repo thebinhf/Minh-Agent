@@ -48,6 +48,7 @@ bun run start
 HTTP (read-only):
 
 - `GET /health`
+- `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
 - `GET /tickers?symbol=BTCUSDT`
 - `GET /orderbooks?symbol=ETHUSDT`
 - `GET /klines?symbol=SOLUSDT&interval=15&limit=50&start=&end=`
@@ -57,6 +58,7 @@ HTTP (read-only):
 CLI against the same SQLite file:
 
 ```bash
+bun run brief BTCUSDT
 bun run query health
 bun run query tickers BTCUSDT
 bun run query orderbooks ETHUSDT
@@ -65,6 +67,8 @@ bun run query klines BTCUSDT 15 --start 2026-08-01 --end 2026-09-01 --limit 2000
 bun run query kline-stats BTCUSDT 15
 bun run query meta
 ```
+
+`--start` / `--end` on `query klines` are Unix epoch **milliseconds** (13-digit), ISO-8601, or `YYYY-MM-DD`. Seconds (10-digit) are not accepted. `--from` is a `backfill` flag (REST keyword or dump PATH/URL), not a query flag.
 
 ### Historical klines for PA (15 / 60 / 240)
 
@@ -87,9 +91,40 @@ Read what landed:
 
 | Surface | How |
 | --- | --- |
+| Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
 | CLI | `bun run query klines SYMBOL INTERVAL --start TIME --end TIME --limit N` (cap 20000) |
 | HTTP | `GET /klines?symbol=BTCUSDT&interval=15&start=&end=&limit=1000` and `GET /kline-stats` |
 | SQL | `SELECT * FROM klines WHERE symbol=? AND interval=? AND start_ts>=? ORDER BY start_ts` |
+
+## Snapshot brief
+
+Minh should read **one** local payload instead of stitching `/tickers` + `/klines` (or MCP). CLI and HTTP share the same JSON:
+
+```json
+{
+  "symbol": "BTCUSDT",
+  "ts": 0,
+  "ticker": {
+    "lastPrice": null,
+    "markPrice": null,
+    "bid1Price": null,
+    "ask1Price": null,
+    "fundingRate": null,
+    "nextFundingTime": null,
+    "openInterest": null,
+    "openInterestValue": null,
+    "recvTs": null
+  },
+  "klines": { "15": [], "60": [], "240": [] },
+  "meta": { "db": "...", "limits": { "15": 80, "60": 48, "240": 30 } }
+}
+```
+
+- Default symbol is `BTCUSDT`.
+- Missing ticker / candles → `null` / `[]`. The endpoint does not 404 for an unknown symbol.
+- Kline rows: `start_ts`, `open`, `high`, `low`, `close`, `volume`, `turnover`, `confirm` (boolean).
+- Arrays are **oldest-first (newest last)**. The last row is the most recent candle and may be unconfirmed.
+- Read-only against local SQLite. No API keys, no private WS, no orders.
 
 Confirmed klines older than `retention.klinesDays` (default 14) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
 

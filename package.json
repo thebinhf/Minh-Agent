@@ -12,6 +12,7 @@
     "start": "bun run src/index.ts",
     "query": "bun run src/feed/bb/query.ts",
     "backfill": "bun run src/feed/bb/backfill.ts",
+    "brief": "bun run src/feed/bb/brief.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
