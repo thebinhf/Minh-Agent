@@ -2,7 +2,7 @@
   "name": "minh-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Minh (明) — Bun trading agent. First live feature: Bybit public WS market cache.",
+  "description": "Minh (明) — Bun trading agent. Public Bybit market cache + paper simulation (no keys, no real orders).",
   "type": "module",
   "engines": {
     "bun": ">=1.4"
@@ -13,6 +13,7 @@
     "query": "bun run src/feed/bb/query.ts",
     "backfill": "bun run src/feed/bb/backfill.ts",
     "brief": "bun run src/feed/bb/brief.ts",
+    "paper": "bun run src/paper/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

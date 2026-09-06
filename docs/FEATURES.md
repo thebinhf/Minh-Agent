@@ -13,6 +13,7 @@ Verify against `src/` before treating older PRs as product scope.
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
 | Historical kline backfill | Live | `bun run backfill` — REST failover or JSON/CSV dump into SQLite; no WS |
 | Snapshot brief | Live | `bun run brief` / `GET /brief` — one local JSON (ticker + 15/60/240) for Minh |
+| Paper trading | Live | `src/paper/` — virtual USDT ledger, 2–5% risk, MTF tags, CLI + `127.0.0.1:43181`. No keys, no real orders. See [paper-trading.md](paper-trading.md). |
 | Orderbook snapshot gate | Live | Clear RAM on connect; ignore deltas until snapshot/`u=1` |
 | Subscribe + REST retry | Live | Chunked subscribe (10) + exponential retry |
 
@@ -23,7 +24,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Express task board / static UI | Cursor environment-setup scaffold only. Removed. |
 | `apps/` monorepo packages | Tracker is a feature, not a sibling app. |
 | Trading / private Bybit topics | Public linear market data only. No API keys. |
-| Paper trading | Spec only — [paper-trading.md](paper-trading.md). No ledger, CLI, or HTTP yet. |
+| Live orders / paper→live bridge | Forbidden. Paper refuses to start if Bybit key env vars are set. |
 | Browser dashboard | Greenfield Minh has no browser operator UI. |
 
 ## Docs
@@ -32,4 +33,4 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
-| [paper-trading.md](paper-trading.md) | Paper trading MVP spec (2–5% risk, no hardcoded R:R, MTF; not implemented) |
+| [paper-trading.md](paper-trading.md) | Paper trading MVP spec + implementation contract (2–5% risk, no hardcoded R:R, MTF) |

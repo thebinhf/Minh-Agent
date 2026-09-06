@@ -1,0 +1,16 @@
+{
+  "httpHost": "127.0.0.1",
+  "httpPort": 43181,
+  "dbPath": "./data/paper.sqlite",
+  "feedUrl": "http://127.0.0.1:43180",
+  "staleMs": 15000,
+  "account": {
+    "name": "minh-paper",
+    "quote": "USDT",
+    "startingCash": "10000",
+    "riskPctMin": "0.02",
+    "riskPctMax": "0.05",
+    "defaultRiskPct": "0.02",
+    "minRr": null
+  }
+}

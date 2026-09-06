@@ -11,6 +11,10 @@
     {
       "name": "bybit-tracker",
       "port": 43180
+    },
+    {
+      "name": "paper",
+      "port": 43181
     }
   ]
 }
