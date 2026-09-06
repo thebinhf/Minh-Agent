@@ -89,3 +89,14 @@ export function computeGapStart(
 export function restCandleConfirm(start: number, intervalMs: number, now: number): boolean {
   return start + intervalMs <= now;
 }
+
+/** Parse CLI/HTTP time as epoch ms or ISO / `YYYY-MM-DD`. */
+export function parseTimeArg(raw: string): number {
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const ms = Date.parse(trimmed);
+  if (!Number.isFinite(ms)) {
+    throw new Error(`Invalid time: ${raw}`);
+  }
+  return ms;
+}

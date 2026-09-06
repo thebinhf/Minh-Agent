@@ -12,7 +12,43 @@ type RestKlineRow = [string, string, string, string, string, string, string];
 export type RestFetch = (
   url: string,
   init: { signal?: AbortSignal },
-) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+) => Promise<{
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+  arrayBuffer?: () => Promise<ArrayBuffer>;
+}>;
+
+const FAILOVER_STATUS = new Set([401, 403, 404]);
+
+let cachedWorkingBase: string | undefined;
+
+export function resetRestHostCache(): void {
+  cachedWorkingBase = undefined;
+}
+
+export function restBases(config: Pick<TrackerConfig, "restEndpoint" | "restFallbacks">): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [config.restEndpoint, ...(config.restFallbacks ?? [])]) {
+    if (!raw) continue;
+    const base = raw.replace(/\/+$/, "");
+    if (seen.has(base)) continue;
+    seen.add(base);
+    out.push(base);
+  }
+  return out;
+}
+
+function orderedBases(config: Pick<TrackerConfig, "restEndpoint" | "restFallbacks">): string[] {
+  const bases = restBases(config);
+  if (!cachedWorkingBase) return bases;
+  return [cachedWorkingBase, ...bases.filter((base) => base !== cachedWorkingBase)];
+}
+
+function isFailoverError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "failover" in error && error.failover === true);
+}
 
 export function parseRestKlineList(
   list: unknown,
@@ -44,6 +80,62 @@ export function parseRestKlineList(
   return candles;
 }
 
+async function fetchLinearKlinesFromBase(
+  base: string,
+  config: TrackerConfig,
+  opts: {
+    symbol: string;
+    interval: string;
+    start: number;
+    end: number;
+    now: number;
+    fetchImpl: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<BybitKline[]> {
+  const recovery = config.recovery;
+  const url = new URL("/v5/market/kline", base);
+  url.searchParams.set("category", "linear");
+  url.searchParams.set("symbol", opts.symbol);
+  url.searchParams.set("interval", opts.interval);
+  url.searchParams.set("start", String(opts.start));
+  url.searchParams.set("end", String(opts.end));
+  url.searchParams.set("limit", "1000");
+
+  return withRetries(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), recovery.restTimeoutMs);
+    const onAbort = () => controller.abort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const res = await opts.fetchImpl(url.toString(), { signal: controller.signal });
+      if (!res.ok) {
+        const error = new Error(`Bybit REST kline HTTP ${res.status} (${base})`);
+        if (FAILOVER_STATUS.has(res.status)) {
+          throw Object.assign(error, { retryable: false, failover: true, status: res.status });
+        }
+        throw error;
+      }
+      const body = (await res.json()) as {
+        retCode?: number;
+        retMsg?: string;
+        result?: { list?: unknown };
+      };
+      if (body.retCode !== 0) {
+        throw new Error(`Bybit REST kline ${body.retCode}: ${body.retMsg ?? "error"}`);
+      }
+      return parseRestKlineList(body.result?.list, opts.interval, opts.now);
+    } finally {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+    }
+  }, {
+    retries: recovery.restRetries,
+    delayMs: recovery.restRetryDelayMs,
+    signal: opts.signal,
+  });
+}
+
 export async function fetchLinearKlines(
   config: TrackerConfig,
   opts: {
@@ -56,50 +148,80 @@ export async function fetchLinearKlines(
     signal?: AbortSignal;
   },
 ): Promise<BybitKline[]> {
-  const recovery = config.recovery;
-  const url = new URL("/v5/market/kline", config.restEndpoint);
-  url.searchParams.set("category", "linear");
-  url.searchParams.set("symbol", opts.symbol);
-  url.searchParams.set("interval", opts.interval);
-  url.searchParams.set("start", String(opts.start));
-  url.searchParams.set("end", String(opts.end));
-  url.searchParams.set("limit", "1000");
-
   const fetchImpl = opts.fetchImpl ?? (fetch as RestFetch);
   const now = opts.now ?? Date.now();
+  const bases = orderedBases(config);
+  let lastError: unknown;
 
-  return withRetries(async () => {
+  for (const base of bases) {
+    try {
+      const candles = await fetchLinearKlinesFromBase(base, config, {
+        symbol: opts.symbol,
+        interval: opts.interval,
+        start: opts.start,
+        end: opts.end,
+        now,
+        fetchImpl,
+        signal: opts.signal,
+      });
+      if (cachedWorkingBase !== base) {
+        if (cachedWorkingBase || base !== restBases(config)[0]) {
+          console.log(`[minh:bb] REST kline host ${base}`);
+        }
+        cachedWorkingBase = base;
+      }
+      return candles;
+    } catch (error) {
+      lastError = error;
+      if (opts.signal?.aborted) throw error;
+      if (!isFailoverError(error)) throw error;
+      if (base === bases[bases.length - 1]) break;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[minh:bb] ${message}; trying next REST host`);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Bybit REST kline failed on every host");
+}
+
+export async function probeRestHosts(
+  config: Pick<TrackerConfig, "restEndpoint" | "restFallbacks" | "recovery">,
+  opts: { fetchImpl?: RestFetch; signal?: AbortSignal } = {},
+): Promise<Array<{ base: string; ok: boolean; status?: number; error?: string }>> {
+  const fetchImpl = opts.fetchImpl ?? (fetch as RestFetch);
+  const results: Array<{ base: string; ok: boolean; status?: number; error?: string }> = [];
+  for (const base of restBases(config)) {
+    const url = new URL("/v5/market/time", base);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), recovery.restTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), config.recovery?.restTimeoutMs ?? 10_000);
     const onAbort = () => controller.abort();
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     try {
       const res = await fetchImpl(url.toString(), { signal: controller.signal });
-      if (!res.ok) {
-        const error = new Error(`Bybit REST kline HTTP ${res.status}`);
-        if (res.status === 401 || res.status === 403 || res.status === 404) {
-          throw Object.assign(error, { retryable: false });
+      let ok = res.ok;
+      if (res.ok) {
+        try {
+          const body = (await res.json()) as { retCode?: number };
+          ok = body.retCode === 0 || body.retCode === undefined;
+        } catch {
+          ok = false;
         }
-        throw error;
       }
-      const body = (await res.json()) as {
-        retCode?: number;
-        retMsg?: string;
-        result?: { list?: unknown };
-      };
-      if (body.retCode !== 0) {
-        throw new Error(`Bybit REST kline ${body.retCode}: ${body.retMsg ?? "error"}`);
-      }
-      return parseRestKlineList(body.result?.list, opts.interval, now);
+      results.push({ base, ok, status: res.status });
+    } catch (error) {
+      results.push({
+        base,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       clearTimeout(timer);
       opts.signal?.removeEventListener("abort", onAbort);
     }
-  }, {
-    retries: recovery.restRetries,
-    delayMs: recovery.restRetryDelayMs,
-    signal: opts.signal,
-  });
+  }
+  return results;
 }
 
 export async function fillKlineGaps(
@@ -128,11 +250,13 @@ export async function fillKlineGaps(
       }
       series += 1;
       try {
-        const written = await fillOneSeries(config, store, {
+        const lastStart = store.getLastKlineStart(symbol, interval);
+        const written = await fillWindow(config, store, {
           symbol,
           interval,
+          start: computeGapStart(lastStart, now, lookbackMs),
+          end: now,
           now,
-          lookbackMs,
           fetchImpl: opts.fetchImpl,
           signal: opts.signal,
         });
@@ -148,21 +272,68 @@ export async function fillKlineGaps(
   return { series, candles, errors };
 }
 
-async function fillOneSeries(
+export async function fillKlineHistory(
   config: TrackerConfig,
-  store: Pick<TrackerDb, "getLastKlineStart" | "saveKline">,
+  store: Pick<TrackerDb, "saveKline">,
+  opts: {
+    symbols: string[];
+    intervals: string[];
+    start: number;
+    end: number;
+    now?: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<{ series: number; candles: number; errors: number; host?: string }> {
+  const now = opts.now ?? Date.now();
+  let candles = 0;
+  let errors = 0;
+  let series = 0;
+
+  for (const symbol of opts.symbols) {
+    for (const interval of opts.intervals) {
+      if (opts.signal?.aborted) {
+        return { series, candles, errors, host: cachedWorkingBase };
+      }
+      series += 1;
+      try {
+        const written = await fillWindow(config, store, {
+          symbol,
+          interval,
+          start: opts.start,
+          end: opts.end,
+          now,
+          fetchImpl: opts.fetchImpl,
+          signal: opts.signal,
+        });
+        candles += written;
+        console.log(`[minh:bb] backfill ${symbol} ${interval} wrote ${written}`);
+      } catch (error) {
+        errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[minh:bb] backfill ${symbol} ${interval}: ${message}`);
+      }
+    }
+  }
+
+  return { series, candles, errors, host: cachedWorkingBase };
+}
+
+async function fillWindow(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "saveKline">,
   opts: {
     symbol: string;
     interval: string;
+    start: number;
+    end: number;
     now: number;
-    lookbackMs: number;
     fetchImpl?: RestFetch;
     signal?: AbortSignal;
   },
 ): Promise<number> {
-  const lastStart = store.getLastKlineStart(opts.symbol, opts.interval);
-  let start = computeGapStart(lastStart, opts.now, opts.lookbackMs);
-  let end = opts.now;
+  let start = opts.start;
+  let end = opts.end;
   let written = 0;
 
   while (end > start) {

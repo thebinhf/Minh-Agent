@@ -1,5 +1,6 @@
 import { loadConfig } from "./config";
 import { openDb } from "./db";
+import { parseTimeArg } from "./recovery";
 
 function usage(): never {
   console.log(`Usage:
@@ -7,7 +8,8 @@ function usage(): never {
   bun run query meta
   bun run query tickers [SYMBOL]
   bun run query orderbooks [SYMBOL]
-  bun run query klines SYMBOL [INTERVAL] [--limit N] [--confirm 0|1]
+  bun run query klines SYMBOL [INTERVAL] [--limit N] [--confirm 0|1] [--start TIME] [--end TIME]
+  bun run query kline-stats [SYMBOL] [INTERVAL]
 `);
   process.exit(2);
 }
@@ -52,6 +54,8 @@ try {
       const interval = rest.find((arg) => !arg.startsWith("--"));
       const limitRaw = flag(rest, "--limit");
       const confirmRaw = flag(rest, "--confirm");
+      const startRaw = flag(rest, "--start");
+      const endRaw = flag(rest, "--end");
       console.log(
         JSON.stringify(
           store.listKlines({
@@ -59,6 +63,9 @@ try {
             interval,
             limit: limitRaw ? Number(limitRaw) : 20,
             confirm: confirmRaw === undefined ? undefined : confirmRaw === "1" || confirmRaw === "true",
+            startTs: startRaw ? parseTimeArg(startRaw) : undefined,
+            endTs: endRaw ? parseTimeArg(endRaw) : undefined,
+            maxLimit: 20_000,
           }),
           null,
           2,
@@ -66,6 +73,9 @@ try {
       );
       break;
     }
+    case "kline-stats":
+      console.log(JSON.stringify(store.klineStats(process.argv[3], process.argv[4]), null, 2));
+      break;
     default:
       usage();
   }

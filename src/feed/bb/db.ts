@@ -366,6 +366,30 @@ function wrap(db: Database) {
         .get(symbol, interval) as { start_ts: number | null } | null;
       return row?.start_ts ?? null;
     },
+    klineStats(symbol?: string, interval?: string) {
+      const where: string[] = [];
+      const args: string[] = [];
+      if (symbol) {
+        where.push("symbol = ?");
+        args.push(symbol);
+      }
+      if (interval) {
+        where.push("interval = ?");
+        args.push(interval);
+      }
+      const sql = `SELECT symbol, interval, COUNT(*) AS count,
+        MIN(start_ts) AS min_start, MAX(start_ts) AS max_start
+        FROM klines ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        GROUP BY symbol, interval
+        ORDER BY symbol, CAST(interval AS INTEGER)`;
+      return db.prepare(sql).all(...args) as Array<{
+        symbol: string;
+        interval: string;
+        count: number;
+        min_start: number | null;
+        max_start: number | null;
+      }>;
+    },
     listTickers(symbol?: string) {
       const sql = symbol
         ? "SELECT * FROM ticker_latest WHERE symbol = ? ORDER BY symbol"
@@ -378,7 +402,15 @@ function wrap(db: Database) {
         : "SELECT * FROM orderbook_latest ORDER BY symbol";
       return symbol ? db.prepare(sql).all(symbol) : db.prepare(sql).all();
     },
-    listKlines(opts: { symbol?: string; interval?: string; limit?: number; confirm?: boolean }) {
+    listKlines(opts: {
+      symbol?: string;
+      interval?: string;
+      limit?: number;
+      confirm?: boolean;
+      startTs?: number;
+      endTs?: number;
+      maxLimit?: number;
+    }) {
       const where: string[] = [];
       const args: Array<string | number> = [];
       if (opts.symbol) {
@@ -389,9 +421,18 @@ function wrap(db: Database) {
         where.push("interval = ?");
         args.push(opts.interval);
       }
+      if (opts.startTs !== undefined) {
+        where.push("start_ts >= ?");
+        args.push(opts.startTs);
+      }
+      if (opts.endTs !== undefined) {
+        where.push("start_ts <= ?");
+        args.push(opts.endTs);
+      }
       if (opts.confirm === true) where.push("confirm = 1");
       if (opts.confirm === false) where.push("confirm = 0");
-      const limit = Math.min(Math.max(opts.limit ?? 50, 1), 1000);
+      const cap = opts.maxLimit ?? 1000;
+      const limit = Math.min(Math.max(opts.limit ?? 50, 1), cap);
       const sql = `SELECT * FROM klines ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
         ORDER BY start_ts DESC LIMIT ?`;
       args.push(limit);

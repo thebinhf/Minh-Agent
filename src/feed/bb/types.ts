@@ -19,9 +19,14 @@ export type RecoveryConfig = {
   gapFill: boolean;
 };
 
+/** Public linear intervals used for price-action history (not the live 5m stream). */
+export const PA_KLINE_INTERVALS = ["15", "60", "240"] as const;
+
 export type TrackerConfig = {
   endpoint: string;
   restEndpoint: string;
+  /** Extra public REST bases tried after `restEndpoint` returns 401/403/404. */
+  restFallbacks: string[];
   httpHost: string;
   httpPort: number;
   dbPath: string;

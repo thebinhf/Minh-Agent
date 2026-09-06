@@ -1,6 +1,7 @@
 {
   "endpoint": "wss://stream.bybit.com/v5/public/linear",
   "restEndpoint": "https://api.bybit.com",
+  "restFallbacks": ["https://api.manepa.jp"],
   "httpHost": "127.0.0.1",
   "httpPort": 43180,
   "dbPath": "./data/bybit-market.sqlite",

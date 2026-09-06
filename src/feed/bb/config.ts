@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import type { RecoveryConfig, TrackerConfig } from "./types";
 
+/** Documented Japan public REST host. Verified to serve /v5/market/kline from a US cloud VM. */
+export const DEFAULT_REST_FALLBACKS = ["https://api.manepa.jp"];
+
 export const DEFAULT_RECOVERY: RecoveryConfig = {
   pongStaleMs: 60_000,
   watchdogIntervalMs: 10_000,
@@ -56,6 +59,7 @@ export async function loadConfig(
     ...base,
     endpoint: strEnv("BYBIT_WS_ENDPOINT") ?? base.endpoint,
     restEndpoint: strEnv("BYBIT_REST_ENDPOINT") ?? base.restEndpoint ?? "https://api.bybit.com",
+    restFallbacks: restFallbackList(base.restFallbacks),
     httpHost: strEnv("BYBIT_HTTP_HOST") ?? base.httpHost,
     httpPort: intEnv("BYBIT_HTTP_PORT") ?? base.httpPort,
     dbPath: resolve(process.cwd(), dbPath),
@@ -66,6 +70,10 @@ export async function loadConfig(
       symbols: csv(process.env.BYBIT_ORDERBOOK_SYMBOLS) ?? base.orderbook.symbols,
     },
     pingIntervalMs: intEnv("BYBIT_PING_INTERVAL_MS") ?? base.pingIntervalMs,
+    retention: {
+      ...base.retention,
+      klinesDays: intEnv("BYBIT_KLINES_DAYS") ?? base.retention.klinesDays,
+    },
     recovery: {
       ...DEFAULT_RECOVERY,
       ...base.recovery,
@@ -73,4 +81,9 @@ export async function loadConfig(
       gapFill: process.env.BYBIT_GAP_FILL === "0" ? false : (base.recovery?.gapFill ?? DEFAULT_RECOVERY.gapFill),
     },
   };
+}
+
+function restFallbackList(fileValue: string[] | undefined): string[] {
+  if (process.env.BYBIT_REST_FALLBACKS === "") return [];
+  return csv(process.env.BYBIT_REST_FALLBACKS) ?? fileValue ?? DEFAULT_REST_FALLBACKS;
 }

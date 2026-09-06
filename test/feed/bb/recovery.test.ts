@@ -4,6 +4,7 @@ import {
   computeGapStart,
   intervalToMs,
   isPongStale,
+  parseTimeArg,
   restCandleConfirm,
   withRetries,
 } from "../../../src/feed/bb/recovery";
@@ -105,5 +106,10 @@ describe("kline gap math", () => {
   test("REST candle is confirmed only after the interval closes", () => {
     expect(restCandleConfirm(0, 60_000, 59_999)).toBe(false);
     expect(restCandleConfirm(0, 60_000, 60_000)).toBe(true);
+  });
+
+  test("parseTimeArg accepts epoch ms and ISO dates", () => {
+    expect(parseTimeArg("1700000000000")).toBe(1_700_000_000_000);
+    expect(parseTimeArg("2025-01-01T00:00:00.000Z")).toBe(Date.parse("2025-01-01T00:00:00.000Z"));
   });
 });
