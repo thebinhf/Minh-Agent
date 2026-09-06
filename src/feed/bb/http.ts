@@ -116,13 +116,28 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
       }
 
       if (path === "/klines") {
+        const startRaw = url.searchParams.get("start");
+        const endRaw = url.searchParams.get("end");
+        const start = startRaw ? Number(startRaw) : Number.NaN;
+        const end = endRaw ? Number(endRaw) : Number.NaN;
         return json({
           klines: store.listKlines({
             symbol: url.searchParams.get("symbol") ?? undefined,
             interval: url.searchParams.get("interval") ?? undefined,
             limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
             confirm: parseBool(url.searchParams.get("confirm")),
+            startTs: Number.isFinite(start) ? start : undefined,
+            endTs: Number.isFinite(end) ? end : undefined,
           }),
+        });
+      }
+
+      if (path === "/kline-stats") {
+        return json({
+          stats: store.klineStats(
+            url.searchParams.get("symbol") ?? undefined,
+            url.searchParams.get("interval") ?? undefined,
+          ),
         });
       }
 
