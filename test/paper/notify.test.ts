@@ -6,8 +6,10 @@ import {
   dispatchNotify,
   formatNotifyText,
   normalizeNotifyKinds,
+  notifyBackoffMs,
   notifyRetryable,
   parseNotifyChannel,
+  parseRetryAfter,
   redactNotifyText,
   shouldNotify,
 } from "../../src/paper/notify";
@@ -88,11 +90,11 @@ describe("paper notify", () => {
     expect(ok).toEqual({ sent: true, attempts: 1 });
     const failed = await dispatchNotify(cfg, event("order.filled", {}), async () => {
       throw new Error("network down https://example.invalid/hook");
-    }, 0);
+    }, { retryDelayMs: 0 });
     expect(failed.sent).toBe(false);
-    expect(failed.attempts).toBe(2);
+    expect(failed.attempts).toBe(3);
     expect(failed.error).toContain("webhook network");
-    expect(failed.error).toContain("after 2 attempts");
+    expect(failed.error).toContain("after 3 attempts");
     expect(failed.error).not.toContain("example.invalid/hook");
   });
 
@@ -111,7 +113,7 @@ describe("paper notify", () => {
         n += 1;
         return new Response("nope", { status: n === 1 ? 503 : 200 });
       },
-      0,
+      { retryDelayMs: 0 },
     );
     expect(recovered).toEqual({ sent: true, attempts: 2 });
 
@@ -123,9 +125,9 @@ describe("paper notify", () => {
         calls.push(1);
         throw new Error(`fetch failed ${String(url)}`);
       },
-      0,
+      { retryDelayMs: 0 },
     );
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(clientErr.error).not.toContain("bot-token");
     expect(clientErr.error).toContain("bot***");
 
@@ -133,9 +135,43 @@ describe("paper notify", () => {
       telegramCfg,
       event("alert.fired", { op: "below", price: "1", last: "1" }),
       async () => new Response("no", { status: 401 }),
-      0,
+      { retryDelayMs: 0 },
     );
     expect(unauthorized).toEqual({ sent: false, attempts: 1, error: "telegram 401" });
+  });
+
+  test("equal-jitter exponential backoff, cap, and Retry-After", async () => {
+    expect(notifyBackoffMs(1, { jitter: 0 })).toBe(200);
+    expect(notifyBackoffMs(1, { jitter: 1 })).toBe(400);
+    expect(notifyBackoffMs(2, { jitter: 1 })).toBe(800);
+    expect(notifyBackoffMs(3, { jitter: 1 })).toBe(1600);
+    expect(notifyBackoffMs(8, { jitter: 1 })).toBe(4000);
+    expect(notifyBackoffMs(1, { jitter: 1, retryAfterMs: 2500 })).toBe(2500);
+    expect(notifyBackoffMs(1, { jitter: 1, retryAfterMs: 30_000 })).toBe(4000);
+    expect(notifyBackoffMs(1, { baseMs: 0, retryAfterMs: 2000 })).toBe(0);
+    expect(parseRetryAfter("2")).toBe(2000);
+    expect(parseRetryAfter("30")).toBe(4000);
+    expect(parseRetryAfter("nope")).toBeUndefined();
+    expect(parseRetryAfter("Wed, 21 Oct 2015 07:28:00 GMT", Date.parse("Wed, 21 Oct 2015 07:27:58 GMT"))).toBe(2000);
+
+    const slept: number[] = [];
+    const rateLimited = await dispatchNotify(
+      telegramCfg,
+      event("alert.fired", { op: "below", price: "1", last: "1" }),
+      async () => new Response(JSON.stringify({ parameters: { retry_after: 3 } }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+      {
+        random: () => 1,
+        sleep: async (ms) => {
+          slept.push(ms);
+        },
+      },
+    );
+    expect(rateLimited.sent).toBe(false);
+    expect(rateLimited.attempts).toBe(3);
+    expect(slept).toEqual([3000, 3000]);
   });
 
   test("missing telegram secrets skip send; Bybit key refuse is unchanged", () => {

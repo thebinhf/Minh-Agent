@@ -20,7 +20,18 @@ export type NotifyResult = {
 };
 
 const NOTIFY_TIMEOUT_MS = 5_000;
-const NOTIFY_RETRY_DELAY_MS = 400;
+const NOTIFY_MAX_ATTEMPTS = 3;
+const NOTIFY_BACKOFF_BASE_MS = 400;
+const NOTIFY_BACKOFF_FACTOR = 2;
+const NOTIFY_BACKOFF_CAP_MS = 4_000;
+
+export type NotifyDispatchOpts = {
+  /** 0 skips sleeping (tests). Unset uses exponential backoff. */
+  retryDelayMs?: number;
+  random?: () => number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+};
 
 export function parseNotifyChannel(raw: string | undefined): NotifyChannel {
   const channel = (raw ?? "log").trim().toLowerCase();
@@ -98,16 +109,66 @@ export function notifyRetryable(status: number | undefined): boolean {
   return status === undefined || status === 429 || status >= 500;
 }
 
+/** Equal-jitter exponential delay before the next attempt. `attempt` is the failure just completed (1-based). */
+export function notifyBackoffMs(
+  attempt: number,
+  opts: { baseMs?: number; factor?: number; capMs?: number; jitter?: number; retryAfterMs?: number } = {},
+): number {
+  const base = opts.baseMs ?? NOTIFY_BACKOFF_BASE_MS;
+  if (base <= 0) return 0;
+  const factor = opts.factor ?? NOTIFY_BACKOFF_FACTOR;
+  const cap = opts.capMs ?? NOTIFY_BACKOFF_CAP_MS;
+  const exp = Math.min(cap, base * factor ** Math.max(attempt - 1, 0));
+  const jitter = opts.jitter == null ? Math.random() : Math.min(1, Math.max(0, opts.jitter));
+  const delayed = Math.floor(exp * (0.5 + 0.5 * jitter));
+  if (opts.retryAfterMs == null || !Number.isFinite(opts.retryAfterMs) || opts.retryAfterMs < 0) {
+    return delayed;
+  }
+  return Math.min(cap, Math.max(delayed, opts.retryAfterMs));
+}
+
+/** Parse `Retry-After` (delta-seconds or HTTP date). Always capped. */
+export function parseRetryAfter(header: string | null | undefined, now = Date.now()): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(NOTIFY_BACKOFF_CAP_MS, seconds * 1000);
+  }
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) return undefined;
+  return Math.min(NOTIFY_BACKOFF_CAP_MS, Math.max(0, date - now));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type PostResult = { ok: true } | { ok: false; status?: number; error: string };
+type PostResult =
+  | { ok: true }
+  | { ok: false; status?: number; error: string; retryAfterMs?: number };
+
+async function retryAfterFromResponse(res: Response, now: number): Promise<number | undefined> {
+  const header = parseRetryAfter(res.headers.get("retry-after"), now);
+  if (header != null) return header;
+  if (res.status !== 429) return undefined;
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("json")) return undefined;
+  try {
+    const body = (await res.json()) as { parameters?: { retry_after?: unknown } };
+    const seconds = Number(body?.parameters?.retry_after);
+    if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+    return Math.min(NOTIFY_BACKOFF_CAP_MS, seconds * 1000);
+  } catch {
+    return undefined;
+  }
+}
 
 async function postOnce(
   fetchImpl: NotifyFetch,
   url: string,
   init: RequestInit,
+  now: () => number,
 ): Promise<PostResult> {
   try {
     const res = await fetchImpl(url, {
@@ -115,7 +176,12 @@ async function postOnce(
       signal: init.signal ?? AbortSignal.timeout(NOTIFY_TIMEOUT_MS),
     });
     if (res.ok) return { ok: true };
-    return { ok: false, status: res.status, error: String(res.status) };
+    return {
+      ok: false,
+      status: res.status,
+      error: String(res.status),
+      retryAfterMs: await retryAfterFromResponse(res, now()),
+    };
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
     const message = error instanceof Error ? error.message : String(error);
@@ -130,16 +196,26 @@ async function postWithRetry(
   fetchImpl: NotifyFetch,
   url: string,
   init: RequestInit,
-  retryDelayMs: number,
+  opts: NotifyDispatchOpts,
 ): Promise<PostResult & { attempts: number }> {
   let last: PostResult = { ok: false, error: "network" };
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    last = await postOnce(fetchImpl, url, init);
+  const wait = opts.sleep ?? sleep;
+  const random = opts.random ?? Math.random;
+  const now = opts.now ?? Date.now;
+  for (let attempt = 1; attempt <= NOTIFY_MAX_ATTEMPTS; attempt++) {
+    last = await postOnce(fetchImpl, url, init, now);
     if (last.ok) return { ...last, attempts: attempt };
-    if (!notifyRetryable(last.status) || attempt === 2) return { ...last, attempts: attempt };
-    if (retryDelayMs > 0) await sleep(retryDelayMs);
+    if (!notifyRetryable(last.status) || attempt === NOTIFY_MAX_ATTEMPTS) {
+      return { ...last, attempts: attempt };
+    }
+    const delay = notifyBackoffMs(attempt, {
+      baseMs: opts.retryDelayMs ?? NOTIFY_BACKOFF_BASE_MS,
+      jitter: random(),
+      retryAfterMs: last.retryAfterMs,
+    });
+    if (delay > 0) await wait(delay);
   }
-  return { ...last, attempts: 2 };
+  return { ...last, attempts: NOTIFY_MAX_ATTEMPTS };
 }
 
 function telegramRequest(config: NotifyConfig, text: string): { url: string; init: RequestInit } | NotifyResult {
@@ -182,7 +258,7 @@ export async function dispatchNotify(
   config: NotifyConfig,
   event: EventView,
   fetchImpl: NotifyFetch = fetch,
-  retryDelayMs = NOTIFY_RETRY_DELAY_MS,
+  opts: NotifyDispatchOpts = {},
 ): Promise<NotifyResult> {
   if (config.channel === "off" || config.channel === "log") {
     return { sent: false, skipped: config.channel };
@@ -196,7 +272,7 @@ export async function dispatchNotify(
     : webhookRequest(config, event, text);
   if ("sent" in request) return request;
 
-  const result = await postWithRetry(fetchImpl, request.url, request.init, retryDelayMs);
+  const result = await postWithRetry(fetchImpl, request.url, request.init, opts);
   if (result.ok) return { sent: true, attempts: result.attempts };
   return {
     sent: false,
