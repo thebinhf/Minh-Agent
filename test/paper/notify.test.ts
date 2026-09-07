@@ -6,7 +6,9 @@ import {
   dispatchNotify,
   formatNotifyText,
   normalizeNotifyKinds,
+  notifyRetryable,
   parseNotifyChannel,
+  redactNotifyText,
   shouldNotify,
 } from "../../src/paper/notify";
 import type { EventView, NotifyConfig } from "../../src/paper/types";
@@ -63,7 +65,7 @@ describe("paper notify", () => {
     };
     const sent = await dispatchNotify(telegramCfg, event("alert.fired", { op: "below", price: "1", last: "1" }), fetchImpl);
     const skipped = await dispatchNotify(telegramCfg, event("order.cancelled", { orderId: 8 }), fetchImpl);
-    expect(sent.sent).toBe(true);
+    expect(sent).toEqual({ sent: true, attempts: 1 });
     expect(skipped).toEqual({ sent: false, skipped: "kind" });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe("https://api.telegram.org/botbot-token/sendMessage");
@@ -83,12 +85,57 @@ describe("paper notify", () => {
       expect(body.text).toContain("order.filled");
       return new Response("ok", { status: 200 });
     });
-    expect(ok.sent).toBe(true);
+    expect(ok).toEqual({ sent: true, attempts: 1 });
     const failed = await dispatchNotify(cfg, event("order.filled", {}), async () => {
-      throw new Error("network down");
-    });
+      throw new Error("network down https://example.invalid/hook");
+    }, 0);
     expect(failed.sent).toBe(false);
-    expect(failed.error).toBe("network down");
+    expect(failed.attempts).toBe(2);
+    expect(failed.error).toContain("webhook network");
+    expect(failed.error).toContain("after 2 attempts");
+    expect(failed.error).not.toContain("example.invalid/hook");
+  });
+
+  test("retries 5xx once; does not retry 4xx; redacts telegram token from errors", async () => {
+    expect(notifyRetryable(500)).toBe(true);
+    expect(notifyRetryable(429)).toBe(true);
+    expect(notifyRetryable(401)).toBe(false);
+    expect(redactNotifyText("https://api.telegram.org/botbot-token/sendMessage", telegramCfg))
+      .toBe("https://api.telegram.org/bot***/sendMessage");
+
+    let n = 0;
+    const recovered = await dispatchNotify(
+      { channel: "webhook", kinds: telegramCfg.kinds, webhookUrl: "https://hook.example/x" },
+      event("alert.fired", { op: "below", price: "1", last: "1" }),
+      async () => {
+        n += 1;
+        return new Response("nope", { status: n === 1 ? 503 : 200 });
+      },
+      0,
+    );
+    expect(recovered).toEqual({ sent: true, attempts: 2 });
+
+    const calls: number[] = [];
+    const clientErr = await dispatchNotify(
+      telegramCfg,
+      event("alert.fired", { op: "below", price: "1", last: "1" }),
+      async (url) => {
+        calls.push(1);
+        throw new Error(`fetch failed ${String(url)}`);
+      },
+      0,
+    );
+    expect(calls).toHaveLength(2);
+    expect(clientErr.error).not.toContain("bot-token");
+    expect(clientErr.error).toContain("bot***");
+
+    const unauthorized = await dispatchNotify(
+      telegramCfg,
+      event("alert.fired", { op: "below", price: "1", last: "1" }),
+      async () => new Response("no", { status: 401 }),
+      0,
+    );
+    expect(unauthorized).toEqual({ sent: false, attempts: 1, error: "telegram 401" });
   });
 
   test("missing telegram secrets skip send; Bybit key refuse is unchanged", () => {

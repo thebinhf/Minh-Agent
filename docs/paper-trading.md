@@ -787,7 +787,7 @@ Optional extra channel on top of log + `paper_events`. Default remains **log**. 
 | Not sent | `order.cancelled`, `order.rejected`, funding, MTM, idle ticks |
 | Channel | `log` (default) \| `telegram` \| `webhook` \| `off` |
 | Secrets | env only: `PAPER_TELEGRAM_BOT_TOKEN`, `PAPER_TELEGRAM_CHAT_ID`, `PAPER_NOTIFY_URL` |
-| Failure | log `[minh:paper] notify …` and continue; never block a fill |
+| Failure | Never block a fill. 4xx → log once, no retry. 5xx / timeout / network → retry once, then log `[minh:paper] notify failed kind=…`. Missing token/URL → warn once, stay log-only. Logs redact bot token and webhook basic-auth. |
 
 ```text
 PAPER_NOTIFY=telegram
