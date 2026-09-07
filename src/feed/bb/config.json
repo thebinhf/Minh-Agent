@@ -33,7 +33,7 @@
     "pruneIntervalMs": 300000
   },
   "snapshot": {
-    "tickerEveryMs": 60000,
+    "tickerEveryMs": 0,
     "orderbookEveryMs": 5000
   },
   "recovery": {

@@ -30,6 +30,7 @@ export function openPaperDb(dbPath: string, seed: PaperAccountSeed) {
   db.exec("PRAGMA synchronous = NORMAL;");
   db.exec("PRAGMA foreign_keys = ON;");
   migrate(db, seed);
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
   return wrap(db);
 }
 

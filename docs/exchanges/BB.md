@@ -165,9 +165,13 @@ GET /market  = ticker + /chart + /depth + /heatmap   (one local JSON)
 
 `/heatmap?bucket=10` rounds prices to a step before summing size. Default snapshot cadence is 5s; retention is `orderbookSnapshotsHours` (6h). If `orderbook_latest.recv_ts` is newer than the last snapshot, that book is appended as the last column. Empty cache returns empty arrays, not a fake series.
 
+Ticker history snapshots are **off** by default (`snapshot.tickerEveryMs: 0`) — nothing reads `ticker_snapshots`. `ticker_latest` still upserts every tick. Set `tickerEveryMs` > 0 only if you want a 24h ticker tape. Orderbook snapshots still write on the timer only (not on every WS snapshot / reconnect `u=1`).
+
 HTTP stays `Bun.serve` on localhost. No Elysia / Express.
 
 Confirmed klines older than `retention.klinesDays` (default 14) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
+
+Prune also truncates WAL. If free pages are ≥15% of the file (and at least an hour since the last vacuum), it `VACUUM`s so the file actually shrinks. The extra `klines(symbol, interval, start_ts DESC)` index is dropped — the primary key already covers that lookup.
 
 ## Config and env overrides
 
@@ -190,9 +194,9 @@ Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 | `BYBIT_PONG_STALE_MS` | watchdog stale-pong threshold |
 | `BYBIT_GAP_FILL` | `0` disables REST kline gap-fill |
 
-SQLite tables: `ticker_latest`, `ticker_snapshots`, `orderbook_latest`, `orderbook_snapshots`, `klines`, `connection_health`, `meta`.
+SQLite tables: `ticker_latest`, `ticker_snapshots` (opt-in), `orderbook_latest`, `orderbook_snapshots`, `klines`, `connection_health`, `meta`.
 
-Retention prune drops old snapshot rows and confirmed klines on a timer (`retention` in `config.json`).
+Retention prune drops old snapshot rows and confirmed klines on a timer (`retention` in `config.json`), then checkpoints WAL and vacuums when the freelist is large.
 
 ## Deploy
 
