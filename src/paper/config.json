@@ -4,6 +4,7 @@
   "dbPath": "./data/paper.sqlite",
   "feedUrl": "http://127.0.0.1:43180",
   "staleMs": 15000,
+  "tickMs": 400,
   "account": {
     "name": "minh-paper",
     "quote": "USDT",
@@ -13,6 +14,7 @@
     "defaultRiskPct": "0.02",
     "minRr": null,
     "feeRate": "0.00055",
+    "makerFeeRate": "0.0002",
     "leverageMin": "1",
     "leverageMax": "25",
     "defaultLeverage": "1",

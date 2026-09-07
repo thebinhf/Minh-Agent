@@ -67,6 +67,7 @@ function normalizeAccount(raw: PaperAccountSeed): PaperAccountSeed {
     defaultRiskPct: raw.defaultRiskPct,
     minRr: raw.minRr === undefined || raw.minRr === "" ? null : raw.minRr,
     feeRate: raw.feeRate ?? "0",
+    makerFeeRate: raw.makerFeeRate ?? "0.0002",
     leverageMin: raw.leverageMin ?? "1",
     leverageMax: raw.leverageMax ?? "25",
     defaultLeverage: raw.defaultLeverage ?? "1",
@@ -90,6 +91,7 @@ export async function loadPaperConfig(
     dbPath: resolve(process.cwd(), dbPath),
     feedUrl: (strEnv("PAPER_FEED_URL") ?? base.feedUrl).replace(/\/$/, ""),
     staleMs: intEnv("PAPER_STALE_MS") ?? base.staleMs,
+    tickMs: intEnv("PAPER_TICK_MS") ?? base.tickMs ?? 400,
     account: normalizeAccount(base.account),
   };
 }

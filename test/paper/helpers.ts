@@ -23,9 +23,11 @@ export async function paperConfig(dir: string, extra: Partial<PaperConfig> = {})
     dbPath: extra.dbPath ?? join(dir, "paper.sqlite"),
     httpHost: extra.httpHost ?? "127.0.0.1",
     httpPort: extra.httpPort ?? 0,
+    tickMs: extra.tickMs ?? 0,
     account: extra.account ?? {
       ...base.account,
       feeRate: "0",
+      makerFeeRate: "0",
       defaultLeverage: "1",
       leverageMin: "1",
       leverageMax: "25",
@@ -41,6 +43,30 @@ export async function tempStore(dir?: string): Promise<{ dir: string; store: Pap
   return { dir: root, store: openPaperDb(config.dbPath, config.account), config };
 }
 
+function tickerRow(symbol: string, opts?: {
+  lastPrice?: string | null;
+  markPrice?: string | null;
+  recvTs?: number | null;
+  fundingRate?: string | null;
+  nextFundingTime?: number | null;
+  tickers?: Record<string, Partial<PaperTicker>>;
+}): PaperTicker {
+  const override = opts?.tickers?.[symbol];
+  const lastPrice = opts?.lastPrice === undefined ? "63000" : opts.lastPrice;
+  const markPrice = opts?.markPrice === undefined ? "63100" : opts.markPrice;
+  const recvTs = opts?.recvTs === undefined ? Date.now() : opts.recvTs;
+  const fundingRate = opts?.fundingRate === undefined ? null : opts.fundingRate;
+  const nextFundingTime = opts?.nextFundingTime === undefined ? null : opts.nextFundingTime;
+  return {
+    symbol,
+    lastPrice: override?.lastPrice === undefined ? lastPrice : override.lastPrice,
+    markPrice: override?.markPrice === undefined ? markPrice : override.markPrice,
+    recvTs: override?.recvTs === undefined ? recvTs : override.recvTs,
+    fundingRate: override?.fundingRate === undefined ? fundingRate : override.fundingRate,
+    nextFundingTime: override?.nextFundingTime === undefined ? nextFundingTime : override.nextFundingTime,
+  };
+}
+
 export function mockFeed(opts?: {
   lastPrice?: string | null;
   markPrice?: string | null;
@@ -51,33 +77,30 @@ export function mockFeed(opts?: {
   klines?: Partial<Record<string, PaperKlineSnap | null>>;
   tickers?: Record<string, Partial<PaperTicker>>;
 }): PaperFeed {
-  const lastPrice = opts?.lastPrice === undefined ? "63000" : opts.lastPrice;
-  const markPrice = opts?.markPrice === undefined ? "63100" : opts.markPrice;
-  const recvTs = opts?.recvTs === undefined ? Date.now() : opts.recvTs;
-  const fundingRate = opts?.fundingRate === undefined ? null : opts.fundingRate;
-  const nextFundingTime = opts?.nextFundingTime === undefined ? null : opts.nextFundingTime;
-  return {
+  const feed: PaperFeed = {
     async health() {
       return { ok: opts?.ok ?? true, url: "http://127.0.0.1:43180/health" };
     },
     async ticker(symbol: string) {
-      const override = opts?.tickers?.[symbol];
-      return {
-        symbol,
-        lastPrice: override?.lastPrice === undefined ? lastPrice : override.lastPrice,
-        markPrice: override?.markPrice === undefined ? markPrice : override.markPrice,
-        recvTs: override?.recvTs === undefined ? recvTs : override.recvTs,
-        fundingRate: override?.fundingRate === undefined ? fundingRate : override.fundingRate,
-        nextFundingTime: override?.nextFundingTime === undefined ? nextFundingTime : override.nextFundingTime,
-      };
+      return tickerRow(symbol, opts);
+    },
+    async tickers() {
+      const symbols = opts?.tickers ? Object.keys(opts.tickers) : [];
+      const out: PaperTicker[] = [];
+      for (const symbol of symbols) {
+        const row = await feed.ticker(symbol);
+        if (row) out.push(row);
+      }
+      return out;
     },
     async lastKline(symbol: string, interval: string) {
       if (opts?.klines && Object.prototype.hasOwnProperty.call(opts.klines, interval)) {
         return opts.klines[interval] ?? null;
       }
-      return { interval, close: lastPrice ?? "1", startTs: Date.now(), confirm: true };
+      return { interval, close: opts?.lastPrice ?? "63000", startTs: Date.now(), confirm: true };
     },
   };
+  return feed;
 }
 
 export async function paperEngine(feed: PaperFeed = mockFeed(), dir?: string) {

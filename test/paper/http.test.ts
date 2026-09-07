@@ -150,4 +150,27 @@ describe("paper HTTP", () => {
       svc.stop();
     }
   });
+
+  test("arms and lists alerts over HTTP", async () => {
+    const svc = await serve();
+    try {
+      const created = await fetch(`${svc.url}/paper/alerts`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ symbol: "BTCUSDT", op: "below", price: "60000" }),
+      });
+      expect(created.status).toBe(201);
+      const body = await created.json() as { mode: string; alert: { status: string; op: string } };
+      expect(body.mode).toBe("paper");
+      expect(body.alert.status).toBe("armed");
+      expect(body.alert.op).toBe("below");
+      const listed = await (await fetch(`${svc.url}/paper/alerts`)).json() as { alerts: unknown[] };
+      expect(listed.alerts).toHaveLength(1);
+      const account = await (await fetch(`${svc.url}/paper/account`)).json() as { makerFeeRate: string; armedAlerts: number };
+      expect(account.makerFeeRate).toBe("0");
+      expect(account.armedAlerts).toBe(1);
+    } finally {
+      svc.stop();
+    }
+  });
 });

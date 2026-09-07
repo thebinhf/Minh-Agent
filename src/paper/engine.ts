@@ -17,7 +17,6 @@ import {
 } from "./phase2";
 import {
   assertOptionalMinRr,
-  assertSlTpSide,
   normalizeTimeframes,
   parseSide,
   pnlAt,
@@ -36,17 +35,37 @@ import {
   snapPrice,
   type InstrumentCatalog,
 } from "./venue";
+import {
+  alertHit,
+  assertInvalidateSide,
+  limitFillHit,
+  limitInvalidated,
+  limitPostOnlyOk,
+  parseAlertOp,
+  parseOco,
+  parsePostOnly,
+} from "./watch";
 import type {
   AccountView,
+  AlertRequest,
+  AlertStatus,
+  AlertView,
   ClosedMark,
+  EventView,
   FundingMark,
+  LimitRequest,
   MarkedPosition,
   OpenRequest,
+  OrderStatus,
+  OrderView,
+  PaperAlertRow,
   PaperCloseReason,
   PaperConfig,
+  PaperEventRow,
   PaperFeed,
   PaperFillSource,
   PaperKlineSnap,
+  PaperOrderRow,
   PaperPositionRow,
   PaperSide,
   PaperStatus,
@@ -90,6 +109,17 @@ function parsePlans(raw: string | null | undefined): TakeProfitPlan[] {
   }
 }
 
+function parseEventPayload(raw: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : { raw };
+  } catch {
+    return { raw };
+  }
+}
+
 export function viewPosition(row: PaperPositionRow): PositionView {
   const plans = parsePlans(row.take_profits_json);
   return {
@@ -125,6 +155,63 @@ export function viewPosition(row: PaperPositionRow): PositionView {
     openFee: row.open_fee ?? "0",
     closeFee: row.close_fee ?? "0",
     lastFundingTs: row.last_funding_ts ?? null,
+  };
+}
+
+export function viewAlert(row: PaperAlertRow): AlertView {
+  return {
+    id: row.id,
+    symbol: row.symbol,
+    op: row.op,
+    price: row.price,
+    status: row.status,
+    once: row.once !== 0,
+    note: row.note,
+    createdTs: row.created_ts,
+    firedTs: row.fired_ts,
+    firedLast: row.fired_last,
+    channel: row.channel,
+  };
+}
+
+export function viewOrder(row: PaperOrderRow): OrderView {
+  return {
+    id: row.id,
+    symbol: row.symbol,
+    side: row.side,
+    type: "limit",
+    tif: "gtc",
+    postOnly: row.post_only !== 0,
+    status: row.status,
+    limitPrice: row.limit_price,
+    qty: row.qty,
+    riskPct: row.risk_pct,
+    stopLoss: row.stop_loss,
+    takeProfit: row.take_profit,
+    riskQuote: row.risk_quote,
+    rewardQuote: row.reward_quote,
+    rr: row.rr,
+    timeframes: parseJsonArray(row.timeframes),
+    leverage: row.leverage,
+    takeProfits: parsePlans(row.take_profits_json),
+    note: row.note,
+    createdTs: row.created_ts,
+    updatedTs: row.updated_ts,
+    filledTs: row.filled_ts,
+    filledPositionId: row.filled_position_id,
+    rejectReason: row.reject_reason,
+    oco: row.oco !== 0,
+    invalidatePrice: row.invalidate_price ?? row.stop_loss,
+  };
+}
+
+export function viewEvent(row: PaperEventRow): EventView {
+  return {
+    id: row.id,
+    kind: row.kind,
+    symbol: row.symbol,
+    payload: parseEventPayload(row.payload_json),
+    ts: row.ts,
   };
 }
 
@@ -176,6 +263,7 @@ function viewAccount(store: PaperDb): AccountView {
     defaultRiskPct: account.default_risk_pct,
     minRr: account.min_rr,
     feeRate: account.fee_rate ?? "0",
+    makerFeeRate: account.maker_fee_rate ?? "0",
     leverageMin: account.leverage_min ?? "1",
     leverageMax: account.leverage_max ?? "25",
     defaultLeverage: account.default_leverage ?? "1",
@@ -186,6 +274,8 @@ function viewAccount(store: PaperDb): AccountView {
     totalMm: totalMm.toText(),
     availableCash: available.toText(),
     openPositions: opens.length,
+    pendingOrders: store.countPendingOrders(),
+    armedAlerts: store.countArmedAlerts(),
     updatedTs: account.updated_ts,
   };
 }
@@ -276,8 +366,41 @@ export function createPaperEngine(opts: {
     return viewAccount(store);
   }
 
-  function feeRateOf(): Dec {
+  function takerFeeRate(): Dec {
     return Dec.from(store.getAccount().fee_rate ?? "0");
+  }
+
+  function makerFeeRate(): Dec {
+    return Dec.from(store.getAccount().maker_fee_rate ?? "0");
+  }
+
+  function emit(kind: string, symbol: string | null, payload: Record<string, unknown>, now: number): EventView {
+    const id = store.insertEvent({
+      kind,
+      symbol,
+      payloadJson: JSON.stringify(payload),
+      ts: now,
+    });
+    return { id, kind, symbol, payload, ts: now };
+  }
+
+  function requireKnownSymbol(raw: string): string {
+    const symbol = raw.trim().toUpperCase();
+    if (!symbolSet.has(symbol)) {
+      throw new PaperReject("unknown_symbol", "symbol", { symbol, allowed: universe.symbols });
+    }
+    return symbol;
+  }
+
+  function assertFlatSymbol(symbol: string): void {
+    const openId = store.openIdOnSymbol(symbol);
+    if (openId != null) {
+      throw new PaperReject("duplicate_symbol", "duplicate_symbol", { symbol, openId });
+    }
+    const pendingId = store.pendingOrderIdOnSymbol(symbol);
+    if (pendingId != null) {
+      throw new PaperReject("duplicate_symbol", "duplicate_symbol", { symbol, pendingOrderId: pendingId });
+    }
   }
 
   function applyCloseQty(input: {
@@ -291,7 +414,7 @@ export function createPaperEngine(opts: {
     plans: TakeProfitPlan[];
   }): ClosedMark {
     const pnl = pnlAt(input.row.side, Dec.from(input.row.entry_price), input.price, input.qty);
-    const fee = feeOn(input.qty, input.price, feeRateOf());
+    const fee = feeOn(input.qty, input.price, takerFeeRate());
     const realized = Dec.from(input.row.realized_pnl ?? "0").add(pnl);
     const closeFee = Dec.from(input.row.close_fee ?? "0").add(fee);
     const remaining = Dec.from(input.row.qty).sub(input.qty);
@@ -335,7 +458,7 @@ export function createPaperEngine(opts: {
         qty: remaining.toText(),
         margin: marginOn(remaining, notional, lev, {
           side: input.row.side,
-          feeRate: feeRateOf(),
+          feeRate: takerFeeRate(),
           entry: entryPx,
         }).toText(),
         realizedPnl: realized.toText(),
@@ -389,14 +512,377 @@ export function createPaperEngine(opts: {
     };
   }
 
-  async function mark(now = Date.now()) {
-    await requireHealthyFeed();
+  async function tickerMap(symbols: string[], now: number): Promise<Map<string, PaperTicker>> {
+    const map = new Map<string, PaperTicker>();
+    let batched: PaperTicker[] = [];
+    try {
+      batched = await feed.tickers();
+    } catch {
+      batched = [];
+    }
+    for (const ticker of batched) {
+      const symbol = ticker.symbol?.toUpperCase();
+      if (!symbol) continue;
+      try {
+        requireFresh(ticker, now);
+        requireLast(ticker);
+        map.set(symbol, { ...ticker, symbol });
+      } catch {
+        // skip stale batch row; per-symbol fallback below
+      }
+    }
+    for (const symbol of symbols) {
+      if (map.has(symbol)) continue;
+      try {
+        map.set(symbol, await requireTicker(symbol, now));
+      } catch {
+        // evaluate skips symbols without a fresh print
+      }
+    }
+    return map;
+  }
+
+  function assertMargin(margin: Dec, openFee: Dec): void {
+    const account = store.getAccount();
     const opens = store.listOpen();
+    const used = sumMargin(opens);
+    const marginMode = parseMarginMode(account.margin_mode);
+    const availBase = marginMode === "cross"
+      ? Dec.from(account.cash).add(sumUnrealized(opens))
+      : Dec.from(account.cash);
+    if (availBase.sub(used).sub(margin).sub(openFee).isNeg()) {
+      throw new PaperReject("insufficient_margin", "leverage", {
+        cash: account.cash,
+        margin: margin.toText(),
+        openFee: openFee.toText(),
+        marginUsed: used.toText(),
+        marginMode,
+      });
+    }
+  }
+
+  type OpenPlan = {
+    symbol: string;
+    side: PaperSide;
+    qty: Dec;
+    riskPct: Dec;
+    entry: Dec;
+    stopLoss: Dec;
+    takeProfit: string;
+    riskQuote: Dec;
+    rewardQuote: Dec;
+    rr: Dec;
+    timeframes: string[];
+    mtf: Record<string, PaperKlineSnap>;
+    leverage: Dec;
+    margin: Dec;
+    liq: Dec;
+    plans: TakeProfitPlan[];
+    openFee: Dec;
+    note: string | null;
+    fillSource: PaperFillSource;
+    fillRecvTs: number;
+  };
+
+  async function planOpen(
+    request: OpenRequest,
+    entryRaw: Dec,
+    ticker: PaperTicker,
+    feeRate: Dec,
+    fillSource: PaperFillSource,
+  ): Promise<OpenPlan> {
+    const symbol = requireKnownSymbol(request.symbol);
+    if (!request.stopLoss?.trim()) {
+      throw new PaperReject("missing_stop_loss", "sl_side", { symbol });
+    }
+    const side = parseSide(request.side);
+    const timeframes = normalizeTimeframes(request.timeframes ?? []);
+    const mtf = await snapshotMtf(symbol, timeframes);
+    const account = store.getAccount();
+    const spec = requireInstrument(symbol, instruments);
+    const riskPct = requireBandPct(account, request.riskPct);
+    const leverage = snapLeverage(requireLeverage(account, request.leverage), spec);
+    const entry = snapPrice(entryRaw, spec);
+    const stopLoss = snapPrice(Dec.from(request.stopLoss.trim()), spec);
+    const snappedTps = request.takeProfits?.map((plan) => ({
+      ...plan,
+      price: snapPrice(Dec.from(String(plan.price)), spec).toText(),
+    }));
+    const snappedTp = request.takeProfit
+      ? snapPrice(Dec.from(request.takeProfit), spec).toText()
+      : undefined;
+    const plans = parseTakeProfits(side, entry, snappedTp, snappedTps);
+    const takeProfit = furthestTakeProfit(plans);
+    const sized = sizeFromRisk({
+      equity: Dec.from(account.equity),
+      riskPct,
+      side,
+      entry,
+      stopLoss,
+      takeProfit: Dec.from(takeProfit),
+    });
+    const qty = floorQty(sized.qty, spec);
+    assertMarketQty(spec, qty, entry);
+    const riskQuote = sized.stopDist.mul(qty);
+    const rewardQuote = sized.rewardDist.mul(qty);
+    assertOptionalMinRr(account, sized.rr);
+    const openFee = feeOn(qty, entry, feeRate);
+    const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
+    assertMargin(margin, openFee);
+    const mmRate = Dec.from(account.mm_rate ?? "0");
+    const marginMode = parseMarginMode(account.margin_mode);
+    let liq = Dec.zero();
+    if (marginMode === "isolated") {
+      const rawLiq = liqPrice(side, entry, leverage, mmRate);
+      liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
+    } else {
+      const opens = store.listOpen();
+      const rawCross = estimateCrossLiq({
+        side,
+        qty,
+        entry,
+        leverage,
+        mmRate,
+        feeRate,
+        cash: Dec.from(account.cash),
+        othersUnrealized: sumUnrealized(opens),
+        othersMm: sumMm(opens, mmRate, feeRate),
+      });
+      liq = rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
+    }
+    return {
+      symbol,
+      side,
+      qty,
+      riskPct: sized.riskPct,
+      entry,
+      stopLoss,
+      takeProfit,
+      riskQuote,
+      rewardQuote,
+      rr: sized.rr,
+      timeframes,
+      mtf,
+      leverage,
+      margin,
+      liq,
+      plans,
+      openFee,
+      note: request.note?.trim() ? request.note.trim() : null,
+      fillSource,
+      fillRecvTs: ticker.recvTs ?? Date.now(),
+    };
+  }
+
+  function commitOpen(plan: OpenPlan, now: number): PaperPositionRow {
+    const opened = store.transaction(() => {
+      store.updateAccount(Dec.from(store.getAccount().cash).sub(plan.openFee).toText(), store.getAccount().equity, now);
+      const id = store.insertPosition({
+        symbol: plan.symbol,
+        side: plan.side,
+        qty: plan.qty.toText(),
+        riskPct: plan.riskPct.toText(),
+        entryPrice: plan.entry.toText(),
+        stopLoss: plan.stopLoss.toText(),
+        takeProfit: plan.takeProfit,
+        riskQuote: plan.riskQuote.toText(),
+        rewardQuote: plan.rewardQuote.toText(),
+        rr: plan.rr.toText(),
+        timeframes: JSON.stringify(plan.timeframes),
+        mtfJson: JSON.stringify(plan.mtf),
+        openedTs: now,
+        unrealizedPnl: "0",
+        markPrice: plan.entry.toText(),
+        fillSource: plan.fillSource,
+        fillRecvTs: plan.fillRecvTs,
+        note: plan.note,
+        leverage: plan.leverage.toText(),
+        qtyInitial: plan.qty.toText(),
+        margin: plan.margin.toText(),
+        liqPrice: plan.liq.toText(),
+        takeProfitsJson: JSON.stringify(plan.plans),
+        openFee: plan.openFee.toText(),
+      });
+      store.insertFill({
+        positionId: id,
+        kind: "open",
+        symbol: plan.symbol,
+        side: plan.side,
+        qty: plan.qty.toText(),
+        price: plan.entry.toText(),
+        source: plan.fillSource,
+        recvTs: plan.fillRecvTs,
+        ts: now,
+      });
+      rewriteEquity(now);
+      return store.getPosition(id)!;
+    });
+    return opened;
+  }
+
+  function fillPendingOrder(order: PaperOrderRow, ticker: PaperTicker, now: number): {
+    order: OrderView;
+    position: PositionView;
+    event: EventView;
+  } {
+    const spec = requireInstrument(order.symbol, instruments);
+    const entry = snapPrice(Dec.from(order.limit_price), spec);
+    const side = order.side;
+    const qty = Dec.from(order.qty);
+    const leverage = Dec.from(order.leverage);
+    const feeRate = makerFeeRate();
+    const openFee = feeOn(qty, entry, feeRate);
+    const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
+    assertMargin(margin, openFee);
+    if (store.openIdOnSymbol(order.symbol) != null) {
+      throw new PaperReject("duplicate_symbol", "duplicate_symbol", { symbol: order.symbol });
+    }
+    const mmRate = Dec.from(store.getAccount().mm_rate ?? "0");
+    const marginMode = parseMarginMode(store.getAccount().margin_mode);
+    let liq = Dec.zero();
+    if (marginMode === "isolated") {
+      const rawLiq = liqPrice(side, entry, leverage, mmRate);
+      liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
+    } else {
+      const opens = store.listOpen();
+      const rawCross = estimateCrossLiq({
+        side,
+        qty,
+        entry,
+        leverage,
+        mmRate,
+        feeRate,
+        cash: Dec.from(store.getAccount().cash),
+        othersUnrealized: sumUnrealized(opens),
+        othersMm: sumMm(opens, mmRate, feeRate),
+      });
+      liq = rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
+    }
+    const opened = commitOpen({
+      symbol: order.symbol,
+      side,
+      qty,
+      riskPct: Dec.from(order.risk_pct),
+      entry,
+      stopLoss: Dec.from(order.stop_loss),
+      takeProfit: order.take_profit,
+      riskQuote: Dec.from(order.risk_quote),
+      rewardQuote: Dec.from(order.reward_quote),
+      rr: Dec.from(order.rr),
+      timeframes: parseJsonArray(order.timeframes),
+      mtf: parseMtf(order.mtf_json) ?? {},
+      leverage,
+      margin,
+      liq,
+      plans: parsePlans(order.take_profits_json),
+      openFee,
+      note: order.note,
+      fillSource: "limit",
+      fillRecvTs: ticker.recvTs ?? now,
+    }, now);
+    store.fillOrder(order.id, opened.id, now);
+    const event = emit("order.filled", order.symbol, {
+      orderId: order.id,
+      positionId: opened.id,
+      limitPrice: order.limit_price,
+      qty: order.qty,
+      last: ticker.lastPrice,
+    }, now);
+    return { order: viewOrder(store.getOrder(order.id)!), position: viewPosition(opened), event };
+  }
+
+  function fireArmedAlerts(
+    tickers: Map<string, PaperTicker>,
+    now: number,
+  ): { fired: AlertView[]; events: EventView[] } {
+    const fired: AlertView[] = [];
+    const events: EventView[] = [];
+    for (const row of store.listAlerts("armed")) {
+      const ticker = tickers.get(row.symbol);
+      if (!ticker) continue;
+      let last: Dec;
+      try {
+        last = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
+      } catch {
+        continue;
+      }
+      if (!alertHit(row.op, last, Dec.from(row.price))) continue;
+      if (store.fireAlert(row.id, now, last.toText()) === 0) continue;
+      const view = viewAlert(store.getAlert(row.id)!);
+      fired.push(view);
+      events.push(emit("alert.fired", row.symbol, {
+        alertId: row.id,
+        op: row.op,
+        price: row.price,
+        last: last.toText(),
+        note: row.note,
+      }, now));
+    }
+    return { fired, events };
+  }
+
+  function fillPendingLimits(
+    tickers: Map<string, PaperTicker>,
+    now: number,
+  ): { filled: OrderView[]; rejected: OrderView[]; invalidated: OrderView[]; events: EventView[] } {
+    const filled: OrderView[] = [];
+    const rejected: OrderView[] = [];
+    const invalidated: OrderView[] = [];
+    const events: EventView[] = [];
+    for (const row of store.listOrders("pending")) {
+      const ticker = tickers.get(row.symbol);
+      if (!ticker) continue;
+      let last: Dec;
+      try {
+        last = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
+      } catch {
+        continue;
+      }
+      const invalidate = Dec.from(row.invalidate_price || row.stop_loss);
+      if ((row.oco == null || row.oco !== 0) && limitInvalidated(row.side, last, invalidate)) {
+        if (store.invalidateOrder(row.id, now) === 0) continue;
+        const view = viewOrder(store.getOrder(row.id)!);
+        invalidated.push(view);
+        events.push(emit("order.invalidated", row.symbol, {
+          orderId: row.id,
+          invalidate: invalidate.toText(),
+          stopLoss: row.stop_loss,
+          last: last.toText(),
+        }, now));
+        continue;
+      }
+      if (!limitFillHit(row.side, last, Dec.from(row.limit_price))) continue;
+      try {
+        const result = fillPendingOrder(row, ticker, now);
+        filled.push(result.order);
+        events.push(result.event);
+      } catch (error) {
+        if (!(error instanceof PaperReject)) throw error;
+        store.rejectOrder(row.id, error.error, now);
+        const view = viewOrder(store.getOrder(row.id)!);
+        rejected.push(view);
+        events.push(emit("order.rejected", row.symbol, {
+          orderId: row.id,
+          reason: error.error,
+          gate: error.gate,
+          last: last.toText(),
+        }, now));
+      }
+    }
+    return { filled, rejected, invalidated, events };
+  }
+
+  async function markOpenPositions(
+    tickers: Map<string, PaperTicker>,
+    now: number,
+  ): Promise<{ stillOpen: MarkedPosition[]; closed: ClosedMark[]; funding: FundingMark[]; events: EventView[] }> {
     const stillOpen: MarkedPosition[] = [];
     const closed: ClosedMark[] = [];
     const funding: FundingMark[] = [];
-    for (const row of opens) {
-      const ticker = await requireTicker(row.symbol, now);
+    const events: EventView[] = [];
+    for (const row of store.listOpen()) {
+      const ticker = tickers.get(row.symbol);
+      if (!ticker) continue;
       const funded = store.transaction(() => applyFunding(row, ticker, now));
       if (funded) funding.push(funded);
       const fresh = store.getPosition(row.id);
@@ -407,7 +893,7 @@ export function createPaperEngine(opts: {
       const stop = Dec.from(fresh.stop_loss);
       const liq = Dec.from(fresh.liq_price ?? "0");
       if (slHit(side, last, stop)) {
-        closed.push(store.transaction(() => applyCloseQty({
+        const result = store.transaction(() => applyCloseQty({
           row: fresh,
           qty: Dec.from(fresh.qty),
           price: stop,
@@ -416,7 +902,14 @@ export function createPaperEngine(opts: {
           recvTs: ticker.recvTs,
           now,
           plans: parsePlans(fresh.take_profits_json).map((plan) => ({ ...plan, filled: true })),
-        })));
+        }));
+        closed.push(result);
+        events.push(emit("position.closed", fresh.symbol, {
+          positionId: result.id,
+          closeReason: result.closeReason,
+          closePrice: result.closePrice,
+          realizedPnl: result.realizedPnl,
+        }, now));
         continue;
       }
       if (
@@ -424,7 +917,7 @@ export function createPaperEngine(opts: {
         && liqHit(side, last, liq)
         && Dec.from(fresh.leverage ?? "1").gt(Dec.from("1"))
       ) {
-        closed.push(store.transaction(() => applyCloseQty({
+        const result = store.transaction(() => applyCloseQty({
           row: fresh,
           qty: Dec.from(fresh.qty),
           price: liq,
@@ -433,7 +926,14 @@ export function createPaperEngine(opts: {
           recvTs: ticker.recvTs,
           now,
           plans: parsePlans(fresh.take_profits_json).map((plan) => ({ ...plan, filled: true })),
-        })));
+        }));
+        closed.push(result);
+        events.push(emit("position.closed", fresh.symbol, {
+          positionId: result.id,
+          closeReason: result.closeReason,
+          closePrice: result.closePrice,
+          realizedPnl: result.realizedPnl,
+        }, now));
         continue;
       }
       const plans = parsePlans(fresh.take_profits_json);
@@ -467,7 +967,16 @@ export function createPaperEngine(opts: {
         }));
         closed.push(result);
         hitTp = true;
-        if (result.status === "closed") break;
+        if (result.status === "closed") {
+          events.push(emit("position.closed", working.symbol, {
+            positionId: result.id,
+            closeReason: result.closeReason,
+            closePrice: result.closePrice,
+            realizedPnl: result.realizedPnl,
+            partial: result.partial,
+          }, now));
+          break;
+        }
         working = store.getPosition(working.id)!;
       }
       if (hitTp && store.getPosition(row.id)?.status === "closed") continue;
@@ -519,7 +1028,7 @@ export function createPaperEngine(opts: {
         stillOpen.length = 0;
         for (const row of left) {
           const price = Dec.from(row.mark_price || row.entry_price);
-          closed.push(store.transaction(() => applyCloseQty({
+          const result = store.transaction(() => applyCloseQty({
             row,
             qty: Dec.from(row.qty),
             price,
@@ -528,10 +1037,31 @@ export function createPaperEngine(opts: {
             recvTs: null,
             now,
             plans: parsePlans(row.take_profits_json).map((plan) => ({ ...plan, filled: true })),
-          })));
+          }));
+          closed.push(result);
+          events.push(emit("position.closed", row.symbol, {
+            positionId: result.id,
+            closeReason: result.closeReason,
+            closePrice: result.closePrice,
+            realizedPnl: result.realizedPnl,
+          }, now));
         }
       }
     }
+    return { stillOpen, closed, funding, events };
+  }
+
+  async function evaluate(now = Date.now()) {
+    await requireHealthyFeed();
+    const symbols = [...new Set([
+      ...store.listOpen().map((row) => row.symbol),
+      ...store.listAlerts("armed").map((row) => row.symbol),
+      ...store.listOrders("pending").map((row) => row.symbol),
+    ])];
+    const tickers = await tickerMap(symbols, now);
+    const alerts = fireArmedAlerts(tickers, now);
+    const orders = fillPendingLimits(tickers, now);
+    const marked = await markOpenPositions(tickers, now);
     const account = rewriteEquity(now);
     return {
       mode: "paper" as const,
@@ -544,9 +1074,14 @@ export function createPaperEngine(opts: {
         marginBalance: account.marginBalance,
         totalMm: account.totalMm,
       },
-      positions: stillOpen,
-      closed,
-      funding,
+      positions: marked.stillOpen,
+      closed: marked.closed,
+      funding: marked.funding,
+      alerts: alerts.fired,
+      filled: orders.filled,
+      rejected: orders.rejected,
+      invalidated: orders.invalidated,
+      events: [...alerts.events, ...orders.events, ...marked.events],
     };
   }
 
@@ -559,132 +1094,184 @@ export function createPaperEngine(opts: {
       return store.listPositions(status).map(viewPosition);
     },
 
-    mark,
+    alerts(status: AlertStatus | "all" = "armed"): AlertView[] {
+      return store.listAlerts(status).map(viewAlert);
+    },
+
+    orders(status: OrderStatus | "all" = "pending"): OrderView[] {
+      return store.listOrders(status).map(viewOrder);
+    },
+
+    events(limit = 50): EventView[] {
+      return store.listEvents(limit).map(viewEvent);
+    },
+
+    mark: evaluate,
+    evaluate,
+
+    async setAlert(request: AlertRequest, now = Date.now()) {
+      await requireHealthyFeed();
+      const symbol = requireKnownSymbol(request.symbol);
+      const op = parseAlertOp(request.op);
+      const spec = requireInstrument(symbol, instruments);
+      if (!request.price?.trim()) {
+        throw new PaperReject("invalid_alert_price", "alert", { price: request.price });
+      }
+      const price = snapPrice(Dec.from(request.price.trim()), spec);
+      const ticker = await requireTicker(symbol, now);
+      requireLast(ticker);
+      try {
+        const id = store.insertAlert({
+          symbol,
+          op,
+          price: price.toText(),
+          note: request.note?.trim() ? request.note.trim() : null,
+          createdTs: now,
+        });
+        const armed = store.getAlert(id)!;
+        const last = snapPrice(requireLast(ticker), spec);
+        if (alertHit(op, last, price)) {
+          store.fireAlert(id, now, last.toText());
+          const event = emit("alert.fired", symbol, {
+            alertId: id,
+            op,
+            price: price.toText(),
+            last: last.toText(),
+            note: armed.note,
+            immediate: true,
+          }, now);
+          return {
+            mode: "paper" as const,
+            alert: viewAlert(store.getAlert(id)!),
+            event,
+          };
+        }
+        return { mode: "paper" as const, alert: viewAlert(armed) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("UNIQUE") || message.includes("unique")) {
+          throw new PaperReject("duplicate_alert", "alert", { symbol, op, price: price.toText() });
+        }
+        throw error;
+      }
+    },
+
+    cancelAlert(id: number) {
+      const row = store.getAlert(id);
+      if (!row) throw new PaperReject("not_found", "id", { id });
+      if (row.status !== "armed") {
+        throw new PaperReject("alert_not_armed", "status", { id, status: row.status });
+      }
+      store.cancelAlert(id);
+      return { mode: "paper" as const, alert: viewAlert(store.getAlert(id)!) };
+    },
+
+    async limit(request: LimitRequest, now = Date.now()) {
+      await requireHealthyFeed();
+      const symbol = requireKnownSymbol(request.symbol);
+      if (!request.limitPrice?.trim()) {
+        throw new PaperReject("missing_limit_price", "limit", { symbol });
+      }
+      await evaluate(now);
+      assertFlatSymbol(symbol);
+      const ticker = await requireTicker(symbol, now);
+      const spec = requireInstrument(symbol, instruments);
+      const last = snapPrice(requireLast(ticker), spec);
+      const limitPrice = snapPrice(Dec.from(request.limitPrice.trim()), spec);
+      const side = parseSide(request.side);
+      const postOnly = parsePostOnly(request.postOnly);
+      if (postOnly && !limitPostOnlyOk(side, last, limitPrice)) {
+        throw new PaperReject("limit_crossed", "limit", {
+          side,
+          last: last.toText(),
+          limitPrice: limitPrice.toText(),
+          postOnly: true,
+        });
+      }
+      const plan = await planOpen(request, limitPrice, ticker, makerFeeRate(), "limit");
+      const oco = parseOco(request.oco);
+      const invalidate = snapPrice(
+        Dec.from((request.invalidatePrice ?? plan.stopLoss.toText()).trim()),
+        spec,
+      );
+      assertInvalidateSide(side, plan.entry, invalidate);
+      if (oco && limitInvalidated(side, last, invalidate)) {
+        throw new PaperReject("already_invalidated", "oco", {
+          side,
+          last: last.toText(),
+          invalidate: invalidate.toText(),
+          limitPrice: plan.entry.toText(),
+        });
+      }
+      const id = store.insertOrder({
+        symbol: plan.symbol,
+        side: plan.side,
+        postOnly,
+        limitPrice: plan.entry.toText(),
+        qty: plan.qty.toText(),
+        riskPct: plan.riskPct.toText(),
+        stopLoss: plan.stopLoss.toText(),
+        takeProfit: plan.takeProfit,
+        riskQuote: plan.riskQuote.toText(),
+        rewardQuote: plan.rewardQuote.toText(),
+        rr: plan.rr.toText(),
+        timeframes: JSON.stringify(plan.timeframes),
+        mtfJson: JSON.stringify(plan.mtf),
+        leverage: plan.leverage.toText(),
+        takeProfitsJson: JSON.stringify(plan.plans),
+        note: plan.note,
+        createdTs: now,
+        oco,
+        invalidatePrice: invalidate.toText(),
+      });
+      let order = store.getOrder(id)!;
+      let position: PositionView | undefined;
+      let event: EventView | undefined;
+      if (!postOnly && limitFillHit(side, last, plan.entry)) {
+        try {
+          const filled = fillPendingOrder(order, ticker, now);
+          order = store.getOrder(id)!;
+          position = filled.position;
+          event = filled.event;
+        } catch (error) {
+          if (!(error instanceof PaperReject)) throw error;
+          store.rejectOrder(id, error.error, now);
+          order = store.getOrder(id)!;
+          event = emit("order.rejected", symbol, {
+            orderId: id,
+            reason: error.error,
+            gate: error.gate,
+            last: last.toText(),
+          }, now);
+        }
+      }
+      return {
+        mode: "paper" as const,
+        order: viewOrder(order),
+        ...(position ? { position } : {}),
+        ...(event ? { event } : {}),
+      };
+    },
+
+    cancelOrder(id: number, now = Date.now()) {
+      const row = store.getOrder(id);
+      if (!row) throw new PaperReject("not_found", "id", { id });
+      if (row.status !== "pending") {
+        throw new PaperReject("order_not_pending", "status", { id, status: row.status });
+      }
+      store.cancelOrder(id, now);
+      const event = emit("order.cancelled", row.symbol, { orderId: id }, now);
+      return { mode: "paper" as const, order: viewOrder(store.getOrder(id)!), event };
+    },
 
     async open(request: OpenRequest, now = Date.now()) {
       await requireHealthyFeed();
-      const symbol = request.symbol.trim().toUpperCase();
-      if (!symbolSet.has(symbol)) {
-        throw new PaperReject("unknown_symbol", "symbol", { symbol, allowed: universe.symbols });
-      }
-      if (!request.stopLoss?.trim()) {
-        throw new PaperReject("missing_stop_loss", "sl_side", { symbol });
-      }
-      const side = parseSide(request.side);
-      const timeframes = normalizeTimeframes(request.timeframes ?? []);
-      const mtf = await snapshotMtf(symbol, timeframes);
-      await mark(now);
-      if (store.openIdOnSymbol(symbol) != null) {
-        throw new PaperReject("duplicate_symbol", "duplicate_symbol", { symbol });
-      }
-      const account = store.getAccount();
-      const spec = requireInstrument(symbol, instruments);
-      const riskPct = requireBandPct(account, request.riskPct);
-      const leverage = snapLeverage(requireLeverage(account, request.leverage), spec);
+      const symbol = requireKnownSymbol(request.symbol);
+      await evaluate(now);
+      assertFlatSymbol(symbol);
       const ticker = await requireTicker(symbol, now);
-      const entry = snapPrice(requireLast(ticker), spec);
-      const stopLoss = snapPrice(Dec.from(request.stopLoss.trim()), spec);
-      const snappedTps = request.takeProfits?.map((plan) => ({
-        ...plan,
-        price: snapPrice(Dec.from(String(plan.price)), spec).toText(),
-      }));
-      const snappedTp = request.takeProfit
-        ? snapPrice(Dec.from(request.takeProfit), spec).toText()
-        : undefined;
-      const plans = parseTakeProfits(side, entry, snappedTp, snappedTps);
-      const takeProfit = furthestTakeProfit(plans);
-      assertSlTpSide(side, entry, stopLoss, Dec.from(takeProfit));
-      const sized = sizeFromRisk({
-        equity: Dec.from(account.equity),
-        riskPct,
-        side,
-        entry,
-        stopLoss,
-        takeProfit: Dec.from(takeProfit),
-      });
-      const qty = floorQty(sized.qty, spec);
-      assertMarketQty(spec, qty, entry);
-      const riskQuote = sized.stopDist.mul(qty);
-      const rewardQuote = sized.rewardDist.mul(qty);
-      assertOptionalMinRr(account, sized.rr);
-      const feeRate = Dec.from(account.fee_rate ?? "0");
-      const openFee = feeOn(qty, entry, feeRate);
-      const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
-      const opens = store.listOpen();
-      const used = sumMargin(opens);
-      const marginMode = parseMarginMode(account.margin_mode);
-      const availBase = marginMode === "cross"
-        ? Dec.from(account.cash).add(sumUnrealized(opens))
-        : Dec.from(account.cash);
-      if (availBase.sub(used).sub(margin).sub(openFee).isNeg()) {
-        throw new PaperReject("insufficient_margin", "leverage", {
-          cash: account.cash,
-          margin: margin.toText(),
-          openFee: openFee.toText(),
-          marginUsed: used.toText(),
-          marginMode,
-        });
-      }
-      const mmRate = Dec.from(account.mm_rate ?? "0");
-      let liq = Dec.zero();
-      if (marginMode === "isolated") {
-        const rawLiq = liqPrice(side, entry, leverage, mmRate);
-        liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
-      } else {
-        const rawCross = estimateCrossLiq({
-          side,
-          qty,
-          entry,
-          leverage,
-          mmRate,
-          feeRate,
-          cash: Dec.from(account.cash),
-          othersUnrealized: sumUnrealized(opens),
-          othersMm: sumMm(opens, mmRate, feeRate),
-        });
-        liq = rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
-      }
-      const opened = store.transaction(() => {
-        store.updateAccount(Dec.from(store.getAccount().cash).sub(openFee).toText(), account.equity, now);
-        const id = store.insertPosition({
-          symbol,
-          side,
-          qty: qty.toText(),
-          riskPct: sized.riskPct.toText(),
-          entryPrice: entry.toText(),
-          stopLoss: stopLoss.toText(),
-          takeProfit,
-          riskQuote: riskQuote.toText(),
-          rewardQuote: rewardQuote.toText(),
-          rr: sized.rr.toText(),
-          timeframes: JSON.stringify(timeframes),
-          mtfJson: JSON.stringify(mtf),
-          openedTs: now,
-          unrealizedPnl: "0",
-          markPrice: entry.toText(),
-          fillRecvTs: ticker.recvTs ?? now,
-          note: request.note?.trim() ? request.note.trim() : null,
-          leverage: leverage.toText(),
-          qtyInitial: qty.toText(),
-          margin: margin.toText(),
-          liqPrice: liq.toText(),
-          takeProfitsJson: JSON.stringify(plans),
-          openFee: openFee.toText(),
-        });
-        store.insertFill({
-          positionId: id,
-          kind: "open",
-          symbol,
-          side,
-          qty: qty.toText(),
-          price: entry.toText(),
-          source: "last",
-          recvTs: ticker.recvTs,
-          ts: now,
-        });
-        rewriteEquity(now);
-        return store.getPosition(id)!;
-      });
+      const plan = await planOpen(request, requireLast(ticker), ticker, takerFeeRate(), "last");
+      const opened = commitOpen(plan, now);
       return { mode: "paper" as const, position: viewPosition(opened) };
     },
 
@@ -709,6 +1296,12 @@ export function createPaperEngine(opts: {
         now,
         plans: parsePlans(row.take_profits_json),
       }));
+      emit("position.closed", row.symbol, {
+        positionId: closed.id,
+        closeReason: closed.closeReason,
+        closePrice: closed.closePrice,
+        realizedPnl: closed.realizedPnl,
+      }, now);
       return {
         mode: "paper" as const,
         position: {

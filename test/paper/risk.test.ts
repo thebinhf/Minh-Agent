@@ -27,6 +27,7 @@ function account(partial: Partial<PaperAccountRow> = {}): PaperAccountRow {
     default_risk_pct: "0.02",
     min_rr: null,
     fee_rate: "0",
+    maker_fee_rate: "0",
     leverage_min: "1",
     leverage_max: "25",
     default_leverage: "1",

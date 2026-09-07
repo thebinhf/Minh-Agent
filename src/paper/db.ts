@@ -2,17 +2,23 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
+  AlertOp,
+  AlertStatus,
+  OrderStatus,
   PaperAccountSeed,
   PaperAccountRow,
+  PaperAlertRow,
   PaperCloseReason,
+  PaperEventRow,
   PaperFillKind,
   PaperFillSource,
+  PaperOrderRow,
   PaperPositionRow,
   PaperSide,
   PaperStatus,
 } from "./types";
 
-export const PAPER_SCHEMA_VERSION = "2";
+export const PAPER_SCHEMA_VERSION = "4";
 
 export type PaperDb = ReturnType<typeof openPaperDb>;
 
@@ -46,6 +52,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
       default_risk_pct TEXT NOT NULL,
       min_rr TEXT,
       fee_rate TEXT NOT NULL DEFAULT '0',
+      maker_fee_rate TEXT NOT NULL DEFAULT '0.0002',
       leverage_min TEXT NOT NULL DEFAULT '1',
       leverage_max TEXT NOT NULL DEFAULT '25',
       default_leverage TEXT NOT NULL DEFAULT '1',
@@ -64,6 +71,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
   const accountCols = tableColumns(db, "paper_accounts");
   const accountAdds: Array<[string, string]> = [
     ["fee_rate", "TEXT NOT NULL DEFAULT '0'"],
+    ["maker_fee_rate", "TEXT NOT NULL DEFAULT '0.0002'"],
     ["leverage_min", "TEXT NOT NULL DEFAULT '1'"],
     ["leverage_max", "TEXT NOT NULL DEFAULT '25'"],
     ["default_leverage", "TEXT NOT NULL DEFAULT '1'"],
@@ -76,6 +84,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
 
   rebuildPositionsIfNeeded(db);
   rebuildFillsIfNeeded(db);
+  ensurePaperOrders(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS paper_funding (
@@ -91,6 +100,34 @@ function migrate(db: Database, seed: PaperAccountSeed) {
       funding_time INTEGER NOT NULL,
       ts INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS paper_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES paper_accounts(id),
+      symbol TEXT NOT NULL,
+      op TEXT NOT NULL CHECK (op IN ('above', 'below')),
+      price TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('armed', 'fired', 'cancelled')),
+      once INTEGER NOT NULL DEFAULT 1,
+      note TEXT,
+      created_ts INTEGER NOT NULL,
+      fired_ts INTEGER,
+      fired_last TEXT,
+      channel TEXT NOT NULL DEFAULT 'log'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_alerts_armed_unique
+      ON paper_alerts(symbol, op, price) WHERE status = 'armed';
+    CREATE INDEX IF NOT EXISTS idx_paper_alerts_status
+      ON paper_alerts(status, symbol);
+
+    CREATE TABLE IF NOT EXISTS paper_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      symbol TEXT,
+      payload_json TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_paper_events_ts ON paper_events(ts DESC);
   `);
 
   const now = Date.now();
@@ -98,9 +135,9 @@ function migrate(db: Database, seed: PaperAccountSeed) {
     `INSERT OR IGNORE INTO paper_accounts (
       id, name, quote, cash, equity, starting_cash,
       risk_pct_min, risk_pct_max, default_risk_pct, min_rr,
-      fee_rate, leverage_min, leverage_max, default_leverage, mm_rate,
+      fee_rate, maker_fee_rate, leverage_min, leverage_max, default_leverage, mm_rate,
       created_ts, updated_ts
-    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     seed.name,
     seed.quote,
@@ -112,6 +149,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
     seed.defaultRiskPct,
     seed.minRr,
     seed.feeRate,
+    seed.makerFeeRate,
     seed.leverageMin,
     seed.leverageMax,
     seed.defaultLeverage,
@@ -173,7 +211,7 @@ function rebuildFillsIfNeeded(db: Database) {
   const ddl = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='paper_fills'").get() as
     | { sql: string }
     | undefined;
-  if (ddl?.sql.includes("'liq'")) return;
+  if (ddl?.sql.includes("'limit'")) return;
   db.exec("ALTER TABLE paper_fills RENAME TO paper_fills_v1");
   db.exec(fillsDdl());
   db.exec(`
@@ -239,11 +277,85 @@ function fillsDdl(): string {
       side TEXT NOT NULL,
       qty TEXT NOT NULL,
       price TEXT NOT NULL,
-      source TEXT NOT NULL CHECK (source IN ('last', 'sl', 'tp', 'liq')),
+      source TEXT NOT NULL CHECK (source IN ('last', 'sl', 'tp', 'liq', 'limit')),
       recv_ts INTEGER,
       ts INTEGER NOT NULL
     );
   `;
+}
+
+function ordersDdl(): string {
+  return `
+    CREATE TABLE IF NOT EXISTS paper_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES paper_accounts(id),
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL CHECK (side IN ('long', 'short')),
+      type TEXT NOT NULL CHECK (type IN ('limit')),
+      tif TEXT NOT NULL CHECK (tif IN ('gtc')),
+      post_only INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'filled', 'cancelled', 'rejected', 'invalidated')),
+      limit_price TEXT NOT NULL,
+      qty TEXT NOT NULL,
+      risk_pct TEXT NOT NULL,
+      stop_loss TEXT NOT NULL,
+      take_profit TEXT NOT NULL,
+      risk_quote TEXT NOT NULL,
+      reward_quote TEXT NOT NULL,
+      rr TEXT NOT NULL,
+      timeframes TEXT NOT NULL,
+      mtf_json TEXT,
+      leverage TEXT NOT NULL,
+      take_profits_json TEXT NOT NULL,
+      note TEXT,
+      created_ts INTEGER NOT NULL,
+      updated_ts INTEGER NOT NULL,
+      filled_ts INTEGER,
+      filled_position_id INTEGER,
+      reject_reason TEXT,
+      oco INTEGER NOT NULL DEFAULT 1,
+      invalidate_price TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_orders_one_pending_symbol
+      ON paper_orders(symbol) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS idx_paper_orders_status
+      ON paper_orders(status, symbol);
+  `;
+}
+
+function ensurePaperOrders(db: Database) {
+  const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_orders'").get();
+  if (!exists) {
+    db.exec(ordersDdl());
+    return;
+  }
+  const cols = tableColumns(db, "paper_orders");
+  if (!cols.has("oco")) db.exec("ALTER TABLE paper_orders ADD COLUMN oco INTEGER NOT NULL DEFAULT 1");
+  if (!cols.has("invalidate_price")) {
+    db.exec("ALTER TABLE paper_orders ADD COLUMN invalidate_price TEXT");
+    db.exec("UPDATE paper_orders SET invalidate_price = stop_loss WHERE invalidate_price IS NULL");
+  }
+  const ddl = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='paper_orders'").get() as
+    | { sql: string }
+    | undefined;
+  if (ddl?.sql.includes("'invalidated'")) return;
+  db.exec("ALTER TABLE paper_orders RENAME TO paper_orders_v1");
+  db.exec(ordersDdl());
+  db.exec(`
+    INSERT INTO paper_orders (
+      id, account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
+      stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
+      take_profits_json, note, created_ts, updated_ts, filled_ts, filled_position_id, reject_reason,
+      oco, invalidate_price
+    )
+    SELECT
+      id, account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
+      stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
+      take_profits_json, note, created_ts, updated_ts, filled_ts, filled_position_id, reject_reason,
+      COALESCE(oco, 1), COALESCE(invalidate_price, stop_loss)
+    FROM paper_orders_v1
+  `);
+  db.exec("DROP TABLE paper_orders_v1");
 }
 
 function wrap(db: Database) {
@@ -255,7 +367,7 @@ function wrap(db: Database) {
     `UPDATE paper_accounts SET min_rr = ?, updated_ts = ? WHERE id = 1`,
   );
   const updatePhase2Stmt = db.prepare(
-    `UPDATE paper_accounts SET fee_rate = ?, leverage_min = ?, leverage_max = ?,
+    `UPDATE paper_accounts SET fee_rate = ?, maker_fee_rate = ?, leverage_min = ?, leverage_max = ?,
       default_leverage = ?, mm_rate = ?, updated_ts = ? WHERE id = 1`,
   );
   const updateMarginModeStmt = db.prepare(
@@ -270,7 +382,7 @@ function wrap(db: Database) {
       take_profits_json, last_funding_ts, open_fee, close_fee
     ) VALUES (
       1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?,
-      NULL, NULL, NULL, NULL, ?, ?, 'last', ?, ?,
+      NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, NULL, ?, '0'
     )`,
   );
@@ -335,6 +447,72 @@ function wrap(db: Database) {
     ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
+  const insertAlertStmt = db.prepare(
+    `INSERT INTO paper_alerts (
+      account_id, symbol, op, price, status, once, note, created_ts, channel
+    ) VALUES (1, ?, ?, ?, 'armed', 1, ?, ?, 'log')`,
+  );
+  const getAlertStmt = db.prepare("SELECT * FROM paper_alerts WHERE id = ?");
+  const listAlertsStmt = db.prepare(
+    `SELECT * FROM paper_alerts
+     WHERE (? = 'all' OR status = ?)
+     ORDER BY id`,
+  );
+  const armedCountStmt = db.prepare(
+    `SELECT COUNT(*) AS n FROM paper_alerts WHERE status = 'armed'`,
+  );
+  const fireAlertStmt = db.prepare(
+    `UPDATE paper_alerts SET status = 'fired', fired_ts = ?, fired_last = ? WHERE id = ? AND status = 'armed'`,
+  );
+  const cancelAlertStmt = db.prepare(
+    `UPDATE paper_alerts SET status = 'cancelled' WHERE id = ? AND status = 'armed'`,
+  );
+
+  const insertOrderStmt = db.prepare(
+    `INSERT INTO paper_orders (
+      account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
+      stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
+      take_profits_json, note, created_ts, updated_ts, oco, invalidate_price
+    ) VALUES (
+      1, ?, ?, 'limit', 'gtc', ?, 'pending', ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?
+    )`,
+  );
+  const getOrderStmt = db.prepare("SELECT * FROM paper_orders WHERE id = ?");
+  const listOrdersStmt = db.prepare(
+    `SELECT * FROM paper_orders
+     WHERE (? = 'all' OR status = ?)
+     ORDER BY id`,
+  );
+  const pendingOnSymbolStmt = db.prepare(
+    `SELECT id FROM paper_orders WHERE status = 'pending' AND symbol = ? LIMIT 1`,
+  );
+  const pendingCountStmt = db.prepare(
+    `SELECT COUNT(*) AS n FROM paper_orders WHERE status = 'pending'`,
+  );
+  const fillOrderStmt = db.prepare(
+    `UPDATE paper_orders SET
+      status = 'filled', filled_ts = ?, filled_position_id = ?, updated_ts = ?
+     WHERE id = ? AND status = 'pending'`,
+  );
+  const cancelOrderStmt = db.prepare(
+    `UPDATE paper_orders SET status = 'cancelled', updated_ts = ? WHERE id = ? AND status = 'pending'`,
+  );
+  const rejectOrderStmt = db.prepare(
+    `UPDATE paper_orders SET status = 'rejected', reject_reason = ?, updated_ts = ? WHERE id = ? AND status = 'pending'`,
+  );
+  const invalidateOrderStmt = db.prepare(
+    `UPDATE paper_orders SET status = 'invalidated', reject_reason = 'invalidated', updated_ts = ? WHERE id = ? AND status = 'pending'`,
+  );
+
+  const insertEventStmt = db.prepare(
+    `INSERT INTO paper_events (kind, symbol, payload_json, ts) VALUES (?, ?, ?, ?)`,
+  );
+  const listEventsStmt = db.prepare(
+    `SELECT * FROM paper_events ORDER BY id DESC LIMIT ?`,
+  );
+
   return {
     raw: db,
     close() {
@@ -353,13 +531,16 @@ function wrap(db: Database) {
     },
     setPhase2(fields: {
       feeRate: string;
+      makerFeeRate?: string;
       leverageMin: string;
       leverageMax: string;
       defaultLeverage: string;
       mmRate: string;
     }, ts = Date.now()) {
+      const account = getAccountStmt.get() as PaperAccountRow;
       updatePhase2Stmt.run(
         fields.feeRate,
+        fields.makerFeeRate ?? account.maker_fee_rate ?? "0",
         fields.leverageMin,
         fields.leverageMax,
         fields.defaultLeverage,
@@ -389,6 +570,7 @@ function wrap(db: Database) {
       openedTs: number;
       unrealizedPnl: string;
       markPrice: string;
+      fillSource: PaperFillSource;
       fillRecvTs: number;
       note: string | null;
       leverage: string;
@@ -414,6 +596,7 @@ function wrap(db: Database) {
         row.openedTs,
         row.unrealizedPnl,
         row.markPrice,
+        row.fillSource,
         row.fillRecvTs,
         row.note,
         row.leverage,
@@ -535,6 +718,105 @@ function wrap(db: Database) {
         row.fundingTime,
         row.ts,
       );
+    },
+
+    insertAlert(row: { symbol: string; op: AlertOp; price: string; note: string | null; createdTs: number }): number {
+      const result = insertAlertStmt.run(row.symbol, row.op, row.price, row.note, row.createdTs);
+      return Number(result.lastInsertRowid);
+    },
+    getAlert(id: number): PaperAlertRow | null {
+      return (getAlertStmt.get(id) as PaperAlertRow | null) ?? null;
+    },
+    listAlerts(status: AlertStatus | "all"): PaperAlertRow[] {
+      return listAlertsStmt.all(status, status) as PaperAlertRow[];
+    },
+    countArmedAlerts(): number {
+      return Number((armedCountStmt.get() as { n: number }).n);
+    },
+    fireAlert(id: number, ts: number, last: string) {
+      return fireAlertStmt.run(ts, last, id).changes;
+    },
+    cancelAlert(id: number) {
+      return cancelAlertStmt.run(id).changes;
+    },
+
+    insertOrder(row: {
+      symbol: string;
+      side: PaperSide;
+      postOnly: boolean;
+      limitPrice: string;
+      qty: string;
+      riskPct: string;
+      stopLoss: string;
+      takeProfit: string;
+      riskQuote: string;
+      rewardQuote: string;
+      rr: string;
+      timeframes: string;
+      mtfJson: string | null;
+      leverage: string;
+      takeProfitsJson: string;
+      note: string | null;
+      createdTs: number;
+      oco: boolean;
+      invalidatePrice: string;
+    }): number {
+      const result = insertOrderStmt.run(
+        row.symbol,
+        row.side,
+        row.postOnly ? 1 : 0,
+        row.limitPrice,
+        row.qty,
+        row.riskPct,
+        row.stopLoss,
+        row.takeProfit,
+        row.riskQuote,
+        row.rewardQuote,
+        row.rr,
+        row.timeframes,
+        row.mtfJson,
+        row.leverage,
+        row.takeProfitsJson,
+        row.note,
+        row.createdTs,
+        row.createdTs,
+        row.oco ? 1 : 0,
+        row.invalidatePrice,
+      );
+      return Number(result.lastInsertRowid);
+    },
+    getOrder(id: number): PaperOrderRow | null {
+      return (getOrderStmt.get(id) as PaperOrderRow | null) ?? null;
+    },
+    listOrders(status: OrderStatus | "all"): PaperOrderRow[] {
+      return listOrdersStmt.all(status, status) as PaperOrderRow[];
+    },
+    pendingOrderIdOnSymbol(symbol: string): number | null {
+      const row = pendingOnSymbolStmt.get(symbol) as { id: number } | null;
+      return row?.id ?? null;
+    },
+    countPendingOrders(): number {
+      return Number((pendingCountStmt.get() as { n: number }).n);
+    },
+    fillOrder(id: number, positionId: number, ts: number) {
+      return fillOrderStmt.run(ts, positionId, ts, id).changes;
+    },
+    cancelOrder(id: number, ts: number) {
+      return cancelOrderStmt.run(ts, id).changes;
+    },
+    rejectOrder(id: number, reason: string, ts: number) {
+      return rejectOrderStmt.run(reason, ts, id).changes;
+    },
+    invalidateOrder(id: number, ts: number) {
+      return invalidateOrderStmt.run(ts, id).changes;
+    },
+
+    insertEvent(row: { kind: string; symbol: string | null; payloadJson: string; ts: number }): number {
+      const result = insertEventStmt.run(row.kind, row.symbol, row.payloadJson, row.ts);
+      return Number(result.lastInsertRowid);
+    },
+    listEvents(limit = 50): PaperEventRow[] {
+      return listEventsStmt.all(Math.min(Math.max(limit, 1), 500)) as PaperEventRow[];
     },
   };
 }

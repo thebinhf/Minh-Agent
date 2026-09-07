@@ -47,6 +47,7 @@ const ACCOUNT = {
   default_risk_pct: "0.02",
   min_rr: null,
   fee_rate: "0.00055",
+  maker_fee_rate: "0.0002",
   leverage_min: "1",
   leverage_max: "25",
   default_leverage: "1",

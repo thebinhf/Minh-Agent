@@ -3,7 +3,10 @@ export type PaperStatus = "open" | "closed";
 export type PaperMarginMode = "isolated" | "cross";
 export type PaperCloseReason = "sl" | "tp" | "manual" | "liq";
 export type PaperFillKind = "open" | "close";
-export type PaperFillSource = "last" | "sl" | "tp" | "liq";
+export type PaperFillSource = "last" | "sl" | "tp" | "liq" | "limit";
+export type AlertOp = "above" | "below";
+export type AlertStatus = "armed" | "fired" | "cancelled";
+export type OrderStatus = "pending" | "filled" | "cancelled" | "rejected" | "invalidated";
 
 export type TakeProfitPlan = {
   price: string;
@@ -20,6 +23,7 @@ export type PaperAccountSeed = {
   defaultRiskPct: string;
   minRr: string | null;
   feeRate: string;
+  makerFeeRate: string;
   leverageMin: string;
   leverageMax: string;
   defaultLeverage: string;
@@ -33,6 +37,7 @@ export type PaperConfig = {
   dbPath: string;
   feedUrl: string;
   staleMs: number;
+  tickMs: number;
   account: PaperAccountSeed;
 };
 
@@ -60,6 +65,7 @@ export type PaperFeedHealth = {
 export type PaperFeed = {
   health(): Promise<PaperFeedHealth>;
   ticker(symbol: string): Promise<PaperTicker | null>;
+  tickers(): Promise<PaperTicker[]>;
   lastKline(symbol: string, interval: string): Promise<PaperKlineSnap | null>;
 };
 
@@ -75,6 +81,7 @@ export type PaperAccountRow = {
   default_risk_pct: string;
   min_rr: string | null;
   fee_rate: string;
+  maker_fee_rate: string;
   leverage_min: string;
   leverage_max: string;
   default_leverage: string;
@@ -120,6 +127,60 @@ export type PaperPositionRow = {
   close_fee: string;
 };
 
+export type PaperAlertRow = {
+  id: number;
+  account_id: number;
+  symbol: string;
+  op: AlertOp;
+  price: string;
+  status: AlertStatus;
+  once: number;
+  note: string | null;
+  created_ts: number;
+  fired_ts: number | null;
+  fired_last: string | null;
+  channel: string;
+};
+
+export type PaperOrderRow = {
+  id: number;
+  account_id: number;
+  symbol: string;
+  side: PaperSide;
+  type: "limit";
+  tif: "gtc";
+  post_only: number;
+  status: OrderStatus;
+  limit_price: string;
+  qty: string;
+  risk_pct: string;
+  stop_loss: string;
+  take_profit: string;
+  risk_quote: string;
+  reward_quote: string;
+  rr: string;
+  timeframes: string;
+  mtf_json: string | null;
+  leverage: string;
+  take_profits_json: string;
+  note: string | null;
+  created_ts: number;
+  updated_ts: number;
+  filled_ts: number | null;
+  filled_position_id: number | null;
+  reject_reason: string | null;
+  oco: number;
+  invalidate_price: string;
+};
+
+export type PaperEventRow = {
+  id: number;
+  kind: string;
+  symbol: string | null;
+  payload_json: string;
+  ts: number;
+};
+
 export type OpenRequest = {
   symbol: string;
   side: string;
@@ -129,6 +190,20 @@ export type OpenRequest = {
   timeframes: string[];
   riskPct?: string;
   leverage?: string;
+  note?: string;
+};
+
+export type LimitRequest = OpenRequest & {
+  limitPrice: string;
+  postOnly?: boolean;
+  oco?: boolean;
+  invalidatePrice?: string;
+};
+
+export type AlertRequest = {
+  symbol: string;
+  op: string;
+  price: string;
   note?: string;
 };
 
@@ -167,6 +242,57 @@ export type PositionView = {
   lastFundingTs: number | null;
 };
 
+export type AlertView = {
+  id: number;
+  symbol: string;
+  op: AlertOp;
+  price: string;
+  status: AlertStatus;
+  once: boolean;
+  note: string | null;
+  createdTs: number;
+  firedTs: number | null;
+  firedLast: string | null;
+  channel: string;
+};
+
+export type OrderView = {
+  id: number;
+  symbol: string;
+  side: PaperSide;
+  type: "limit";
+  tif: "gtc";
+  postOnly: boolean;
+  status: OrderStatus;
+  limitPrice: string;
+  qty: string;
+  riskPct: string;
+  stopLoss: string;
+  takeProfit: string;
+  riskQuote: string;
+  rewardQuote: string;
+  rr: string;
+  timeframes: string[];
+  leverage: string;
+  takeProfits: TakeProfitPlan[];
+  note: string | null;
+  createdTs: number;
+  updatedTs: number;
+  filledTs: number | null;
+  filledPositionId: number | null;
+  rejectReason: string | null;
+  oco: boolean;
+  invalidatePrice: string;
+};
+
+export type EventView = {
+  id: number;
+  kind: string;
+  symbol: string | null;
+  payload: Record<string, unknown>;
+  ts: number;
+};
+
 export type AccountView = {
   mode: "paper";
   id: number;
@@ -181,6 +307,7 @@ export type AccountView = {
   defaultRiskPct: string;
   minRr: string | null;
   feeRate: string;
+  makerFeeRate: string;
   leverageMin: string;
   leverageMax: string;
   defaultLeverage: string;
@@ -191,6 +318,8 @@ export type AccountView = {
   totalMm: string;
   availableCash: string;
   openPositions: number;
+  pendingOrders: number;
+  armedAlerts: number;
   updatedTs: number;
 };
 

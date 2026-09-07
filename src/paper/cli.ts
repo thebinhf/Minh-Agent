@@ -4,13 +4,20 @@ import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine } from "./engine";
 import { PaperReject, PaperSafetyError, PaperUsageError } from "./errors";
 import { httpFeed } from "./feed";
-import type { PaperStatus } from "./types";
+import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
   bun run paper account
   bun run paper positions [--status open|closed|all]
   bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
   bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
+  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco]
+  bun run paper orders [--status pending|filled|cancelled|rejected|invalidated|all]
+  bun run paper cancel ID
+  bun run paper alert set SYMBOL --above|--below PRICE [--note TEXT]
+  bun run paper alert list [--status armed|fired|cancelled|all]
+  bun run paper alert cancel ID
+  bun run paper events [--limit N]
   bun run paper close ID
   bun run paper mark
 
@@ -18,6 +25,11 @@ Paper simulation only — no API keys, no real orders.
 Fills and marks come from the local feed at 127.0.0.1:43180.
 --tf is required (comma-separated, at least two feed intervals).
 --tp or --tps is required. --tps is PRICE:qtyPct pairs that must sum to 1.
+limit --price is the resting entry. Default post-only (reject if last already through).
+Pass --cross to fill immediately when last is already through the limit.
+OCO is on by default: last through --sl (or --invalidate) cancels the pending before fill.
+Pass --no-oco to rest even if invalidation prints.
+alert fires once when last prints through the level. No mid-watch PnL spam.
 `;
 
 export type PaperCliCommand =
@@ -35,6 +47,28 @@ export type PaperCliCommand =
       leverage?: string;
       note?: string;
     }
+  | {
+      name: "limit";
+      symbol: string;
+      side: string;
+      limitPrice: string;
+      stopLoss: string;
+      takeProfit?: string;
+      takeProfits?: Array<{ price: string; qtyPct: string }>;
+      timeframes: string[];
+      riskPct?: string;
+      leverage?: string;
+      note?: string;
+      postOnly: boolean;
+      oco: boolean;
+      invalidatePrice?: string;
+    }
+  | { name: "orders"; status: OrderStatus | "all" }
+  | { name: "cancel"; id: number }
+  | { name: "alert-set"; symbol: string; op: "above" | "below"; price: string; note?: string }
+  | { name: "alert-list"; status: AlertStatus | "all" }
+  | { name: "alert-cancel"; id: number }
+  | { name: "events"; limit: number }
   | { name: "close"; id: number }
   | { name: "mark" };
 
@@ -62,6 +96,42 @@ function hasHelp(argv: string[]): boolean {
   return argv.includes("--help") || argv.includes("-h");
 }
 
+function positionalSymbol(rest: string[]): string | undefined {
+  return rest.find((arg) => !arg.startsWith("-"));
+}
+
+function parseOpenish(rest: string[]): {
+  symbol: string;
+  side: string;
+  stopLoss: string;
+  takeProfit?: string;
+  takeProfits?: Array<{ price: string; qtyPct: string }>;
+  timeframes: string[];
+  riskPct?: string;
+  leverage?: string;
+  note?: string;
+} {
+  const symbol = positionalSymbol(rest);
+  const side = flag(rest, "--side");
+  const sl = flag(rest, "--sl");
+  const tp = flag(rest, "--tp");
+  const tps = flag(rest, "--tps");
+  const tf = flag(rest, "--tf");
+  const leverage = flag(rest, "--leverage");
+  if (!symbol || !side || !sl || !tf || (!tp && !tps)) throw new PaperUsageError(PAPER_USAGE);
+  return {
+    symbol,
+    side,
+    stopLoss: sl,
+    ...(tp ? { takeProfit: tp } : {}),
+    ...(tps ? { takeProfits: parseTps(tps) } : {}),
+    timeframes: tf.split(",").map((item) => item.trim()).filter(Boolean),
+    riskPct: flag(rest, "--risk-pct"),
+    ...(leverage ? { leverage } : {}),
+    note: flag(rest, "--note"),
+  };
+}
+
 export function parsePaperArgs(argv: string[]): PaperCliCommand {
   if (argv.length === 0 || hasHelp(argv)) {
     throw new PaperUsageError(PAPER_USAGE);
@@ -81,26 +151,69 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
     if (!Number.isInteger(id) || id <= 0) throw new PaperUsageError(PAPER_USAGE);
     return { name: "close", id };
   }
+  if (command === "cancel") {
+    const id = Number(rest[0]);
+    if (!Number.isInteger(id) || id <= 0) throw new PaperUsageError(PAPER_USAGE);
+    return { name: "cancel", id };
+  }
+  if (command === "orders") {
+    const status = flag(rest, "--status") ?? "pending";
+    if (
+      status !== "pending" && status !== "filled" && status !== "cancelled"
+      && status !== "rejected" && status !== "invalidated" && status !== "all"
+    ) {
+      throw new PaperUsageError(PAPER_USAGE);
+    }
+    return { name: "orders", status };
+  }
+  if (command === "events") {
+    const limitRaw = flag(rest, "--limit");
+    const limit = limitRaw ? Number(limitRaw) : 50;
+    if (!Number.isInteger(limit) || limit <= 0) throw new PaperUsageError(PAPER_USAGE);
+    return { name: "events", limit };
+  }
+  if (command === "alert") {
+    const [sub, ...alertRest] = rest;
+    if (sub === "list") {
+      const status = flag(alertRest, "--status") ?? "armed";
+      if (status !== "armed" && status !== "fired" && status !== "cancelled" && status !== "all") {
+        throw new PaperUsageError(PAPER_USAGE);
+      }
+      return { name: "alert-list", status };
+    }
+    if (sub === "cancel") {
+      const id = Number(alertRest[0]);
+      if (!Number.isInteger(id) || id <= 0) throw new PaperUsageError(PAPER_USAGE);
+      return { name: "alert-cancel", id };
+    }
+    if (sub === "set") {
+      const symbol = positionalSymbol(alertRest);
+      const above = flag(alertRest, "--above");
+      const below = flag(alertRest, "--below");
+      if (!symbol || (!above && !below) || (above && below)) throw new PaperUsageError(PAPER_USAGE);
+      return {
+        name: "alert-set",
+        symbol,
+        op: above ? "above" : "below",
+        price: (above ?? below)!,
+        note: flag(alertRest, "--note"),
+      };
+    }
+    throw new PaperUsageError(PAPER_USAGE);
+  }
   if (command === "open") {
-    const symbol = rest.find((arg) => !arg.startsWith("-"));
-    const side = flag(rest, "--side");
-    const sl = flag(rest, "--sl");
-    const tp = flag(rest, "--tp");
-    const tps = flag(rest, "--tps");
-    const tf = flag(rest, "--tf");
-    const leverage = flag(rest, "--leverage");
-    if (!symbol || !side || !sl || !tf || (!tp && !tps)) throw new PaperUsageError(PAPER_USAGE);
+    return { name: "open", ...parseOpenish(rest) };
+  }
+  if (command === "limit") {
+    const price = flag(rest, "--price");
+    if (!price) throw new PaperUsageError(PAPER_USAGE);
     return {
-      name: "open",
-      symbol,
-      side,
-      stopLoss: sl,
-      ...(tp ? { takeProfit: tp } : {}),
-      ...(tps ? { takeProfits: parseTps(tps) } : {}),
-      timeframes: tf.split(",").map((item) => item.trim()).filter(Boolean),
-      riskPct: flag(rest, "--risk-pct"),
-      ...(leverage ? { leverage } : {}),
-      note: flag(rest, "--note"),
+      name: "limit",
+      ...parseOpenish(rest),
+      limitPrice: price,
+      postOnly: !rest.includes("--cross"),
+      oco: !rest.includes("--no-oco"),
+      invalidatePrice: flag(rest, "--invalidate"),
     };
   }
   throw new PaperUsageError(PAPER_USAGE);
@@ -111,8 +224,44 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
   if (command.name === "positions") {
     return { mode: "paper", positions: engine.positions(command.status) };
   }
+  if (command.name === "orders") {
+    return { mode: "paper", orders: engine.orders(command.status) };
+  }
+  if (command.name === "alert-list") {
+    return { mode: "paper", alerts: engine.alerts(command.status) };
+  }
+  if (command.name === "events") {
+    return { mode: "paper", events: engine.events(command.limit) };
+  }
   if (command.name === "mark") return engine.mark();
   if (command.name === "close") return engine.close(command.id);
+  if (command.name === "cancel") return engine.cancelOrder(command.id);
+  if (command.name === "alert-cancel") return engine.cancelAlert(command.id);
+  if (command.name === "alert-set") {
+    return engine.setAlert({
+      symbol: command.symbol,
+      op: command.op,
+      price: command.price,
+      note: command.note,
+    });
+  }
+  if (command.name === "limit") {
+    return engine.limit({
+      symbol: command.symbol,
+      side: command.side,
+      limitPrice: command.limitPrice,
+      stopLoss: command.stopLoss,
+      takeProfit: command.takeProfit,
+      takeProfits: command.takeProfits,
+      timeframes: command.timeframes,
+      riskPct: command.riskPct,
+      leverage: command.leverage,
+      note: command.note,
+      postOnly: command.postOnly,
+      oco: command.oco,
+      invalidatePrice: command.invalidatePrice,
+    });
+  }
   return engine.open({
     symbol: command.symbol,
     side: command.side,
