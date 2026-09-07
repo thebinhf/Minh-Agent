@@ -5,7 +5,8 @@ export function startPruner(config: TrackerConfig, store: TrackerDb) {
   const run = () => {
     const result = store.prune(Date.now(), config.retention);
     console.log(
-      `[bybit-ws] prune ticker=${result.tickerDeleted} book=${result.bookDeleted} kline=${result.klineDeleted}`,
+      `[minh:bb] prune ticker=${result.tickerDeleted} book=${result.bookDeleted} kline=${result.klineDeleted}` +
+        (result.vacuumed ? " vacuum=1" : ""),
     );
   };
 

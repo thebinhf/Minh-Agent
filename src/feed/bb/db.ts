@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import type { BybitKline, OrderBookState, TickerState } from "./types";
 import { serializeBook } from "./merge";
 
-export const SCHEMA_VERSION = "1";
+export const SCHEMA_VERSION = "2";
 
 export type TrackerDb = ReturnType<typeof openDb>;
 
@@ -101,8 +101,6 @@ function migrate(db: Database) {
       recv_ts INTEGER NOT NULL,
       PRIMARY KEY (symbol, interval, start_ts)
     );
-    CREATE INDEX IF NOT EXISTS idx_klines_lookup
-      ON klines(symbol, interval, start_ts DESC);
 
     CREATE TABLE IF NOT EXISTS connection_health (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -128,6 +126,7 @@ function migrate(db: Database) {
     VALUES (1, 0, 0);
   `);
 
+  db.exec("DROP INDEX IF EXISTS idx_klines_lookup;");
   setMeta(db, "schema_version", SCHEMA_VERSION);
 }
 
@@ -136,6 +135,47 @@ function setMeta(db: Database, key: string, value: string) {
     `INSERT INTO meta (key, value, updated_ts) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_ts = excluded.updated_ts`,
   ).run(key, value, Date.now());
+}
+
+function pragmaNum(db: Database, name: string): number {
+  const row = db.prepare(`PRAGMA ${name}`).get() as Record<string, number> | undefined;
+  if (!row) return 0;
+  return Number(row[name] ?? Object.values(row)[0]) || 0;
+}
+
+/** 0 disables history snapshots. Latest ticker/book rows still upsert. */
+export function snapshotDue(everyMs: number, lastTs: number | undefined, now: number): boolean {
+  if (!Number.isFinite(everyMs) || everyMs <= 0) return false;
+  return lastTs == null || now - lastTs >= everyMs;
+}
+
+export type ReclaimResult = {
+  pageCount: number;
+  freelistCount: number;
+  vacuumed: boolean;
+};
+
+/** Truncate WAL. VACUUM only when free pages are a real fraction of the file. */
+export function reclaimSqlite(
+  db: Database,
+  now = Date.now(),
+  vacuumMinIntervalMs = 3_600_000,
+): ReclaimResult {
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  const pageCount = pragmaNum(db, "page_count");
+  const freelistCount = pragmaNum(db, "freelist_count");
+  const lastVacuum = Number(
+    (db.prepare("SELECT value FROM meta WHERE key = 'last_vacuum_ts'").get() as { value: string } | undefined)?.value ?? 0,
+  );
+  const ratio = pageCount > 0 ? freelistCount / pageCount : 0;
+  let vacuumed = false;
+  if (ratio >= 0.15 && now - lastVacuum >= vacuumMinIntervalMs) {
+    db.exec("VACUUM;");
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    setMeta(db, "last_vacuum_ts", String(now));
+    vacuumed = true;
+  }
+  return { pageCount, freelistCount, vacuumed };
 }
 
 function wrap(db: Database) {
@@ -466,7 +506,12 @@ function wrap(db: Database) {
       args.push(limit);
       return db.prepare(sql).all(...args);
     },
-    prune(now: number, retention: { tickerSnapshotsHours: number; orderbookSnapshotsHours: number; klinesDays: number }) {
+    prune(now: number, retention: {
+      tickerSnapshotsHours: number;
+      orderbookSnapshotsHours: number;
+      klinesDays: number;
+      vacuumMinIntervalMs?: number;
+    }) {
       const tickerCut = now - retention.tickerSnapshotsHours * 3600_000;
       const bookCut = now - retention.orderbookSnapshotsHours * 3600_000;
       const klineCut = now - retention.klinesDays * 86400_000;
@@ -474,7 +519,8 @@ function wrap(db: Database) {
       const bookDeleted = db.prepare("DELETE FROM orderbook_snapshots WHERE recv_ts < ?").run(bookCut).changes;
       const klineDeleted = db.prepare("DELETE FROM klines WHERE start_ts < ? AND confirm = 1").run(klineCut).changes;
       setMeta(db, "last_prune_ts", String(now));
-      return { tickerDeleted, bookDeleted, klineDeleted };
+      const reclaim = reclaimSqlite(db, now, retention.vacuumMinIntervalMs ?? 3_600_000);
+      return { tickerDeleted, bookDeleted, klineDeleted, ...reclaim };
     },
   };
 }

@@ -45,7 +45,9 @@ export type TrackerConfig = {
     pruneIntervalMs: number;
   };
   snapshot: {
+    /** 0 = do not write ticker_snapshots (ticker_latest still upserts). */
     tickerEveryMs: number;
+    /** 0 = do not write orderbook_snapshots (orderbook_latest still upserts). */
     orderbookEveryMs: number;
   };
   recovery: RecoveryConfig;

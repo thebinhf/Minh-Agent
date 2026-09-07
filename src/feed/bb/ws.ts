@@ -1,4 +1,4 @@
-import type { TrackerDb } from "./db";
+import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
 import { fillKlineGaps } from "./rest";
@@ -279,8 +279,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       const type = msg.type === "delta" ? "delta" : "snapshot";
       const next = mergeTicker(tickers.get(parsed.symbol) ?? null, type, data, { cs: msg.cs, ts: msg.ts });
       tickers.set(parsed.symbol, next);
-      const due = now - (lastTickerSnap.get(parsed.symbol) ?? 0) >= config.snapshot.tickerEveryMs;
-      const snap = type === "snapshot" || due;
+      const snap = snapshotDue(config.snapshot.tickerEveryMs, lastTickerSnap.get(parsed.symbol), now);
       if (snap) lastTickerSnap.set(parsed.symbol, now);
       store.saveTicker(next, now, snap);
       return;
@@ -293,8 +292,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       const next = applyOrderbook(books.get(parsed.symbol) ?? null, type, data);
       if (!next?.ready) return;
       books.set(parsed.symbol, next);
-      const due = now - (lastBookSnap.get(parsed.symbol) ?? 0) >= config.snapshot.orderbookEveryMs;
-      const snap = type === "snapshot" || data.u === 1 || due;
+      const snap = snapshotDue(config.snapshot.orderbookEveryMs, lastBookSnap.get(parsed.symbol), now);
       if (snap) lastBookSnap.set(parsed.symbol, now);
       store.saveOrderbook(next, parsed.depth, type, now, msg.ts, snap);
       return;
