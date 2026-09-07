@@ -11,8 +11,8 @@ export const PAPER_USAGE = `Usage:
   bun run paper positions [--status open|closed|all]
   bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
   bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
-  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross]
-  bun run paper orders [--status pending|filled|cancelled|rejected|all]
+  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco]
+  bun run paper orders [--status pending|filled|cancelled|rejected|invalidated|all]
   bun run paper cancel ID
   bun run paper alert set SYMBOL --above|--below PRICE [--note TEXT]
   bun run paper alert list [--status armed|fired|cancelled|all]
@@ -27,6 +27,8 @@ Fills and marks come from the local feed at 127.0.0.1:43180.
 --tp or --tps is required. --tps is PRICE:qtyPct pairs that must sum to 1.
 limit --price is the resting entry. Default post-only (reject if last already through).
 Pass --cross to fill immediately when last is already through the limit.
+OCO is on by default: last through --sl (or --invalidate) cancels the pending before fill.
+Pass --no-oco to rest even if invalidation prints.
 alert fires once when last prints through the level. No mid-watch PnL spam.
 `;
 
@@ -58,6 +60,8 @@ export type PaperCliCommand =
       leverage?: string;
       note?: string;
       postOnly: boolean;
+      oco: boolean;
+      invalidatePrice?: string;
     }
   | { name: "orders"; status: OrderStatus | "all" }
   | { name: "cancel"; id: number }
@@ -156,7 +160,7 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
     const status = flag(rest, "--status") ?? "pending";
     if (
       status !== "pending" && status !== "filled" && status !== "cancelled"
-      && status !== "rejected" && status !== "all"
+      && status !== "rejected" && status !== "invalidated" && status !== "all"
     ) {
       throw new PaperUsageError(PAPER_USAGE);
     }
@@ -208,6 +212,8 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
       ...parseOpenish(rest),
       limitPrice: price,
       postOnly: !rest.includes("--cross"),
+      oco: !rest.includes("--no-oco"),
+      invalidatePrice: flag(rest, "--invalidate"),
     };
   }
   throw new PaperUsageError(PAPER_USAGE);
@@ -252,6 +258,8 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
       leverage: command.leverage,
       note: command.note,
       postOnly: command.postOnly,
+      oco: command.oco,
+      invalidatePrice: command.invalidatePrice,
     });
   }
   return engine.open({

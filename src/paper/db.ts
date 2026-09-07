@@ -18,7 +18,7 @@ import type {
   PaperStatus,
 } from "./types";
 
-export const PAPER_SCHEMA_VERSION = "3";
+export const PAPER_SCHEMA_VERSION = "4";
 
 export type PaperDb = ReturnType<typeof openPaperDb>;
 
@@ -84,6 +84,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
 
   rebuildPositionsIfNeeded(db);
   rebuildFillsIfNeeded(db);
+  ensurePaperOrders(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS paper_funding (
@@ -118,39 +119,6 @@ function migrate(db: Database, seed: PaperAccountSeed) {
       ON paper_alerts(symbol, op, price) WHERE status = 'armed';
     CREATE INDEX IF NOT EXISTS idx_paper_alerts_status
       ON paper_alerts(status, symbol);
-
-    CREATE TABLE IF NOT EXISTS paper_orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      account_id INTEGER NOT NULL REFERENCES paper_accounts(id),
-      symbol TEXT NOT NULL,
-      side TEXT NOT NULL CHECK (side IN ('long', 'short')),
-      type TEXT NOT NULL CHECK (type IN ('limit')),
-      tif TEXT NOT NULL CHECK (tif IN ('gtc')),
-      post_only INTEGER NOT NULL DEFAULT 1,
-      status TEXT NOT NULL CHECK (status IN ('pending', 'filled', 'cancelled', 'rejected')),
-      limit_price TEXT NOT NULL,
-      qty TEXT NOT NULL,
-      risk_pct TEXT NOT NULL,
-      stop_loss TEXT NOT NULL,
-      take_profit TEXT NOT NULL,
-      risk_quote TEXT NOT NULL,
-      reward_quote TEXT NOT NULL,
-      rr TEXT NOT NULL,
-      timeframes TEXT NOT NULL,
-      mtf_json TEXT,
-      leverage TEXT NOT NULL,
-      take_profits_json TEXT NOT NULL,
-      note TEXT,
-      created_ts INTEGER NOT NULL,
-      updated_ts INTEGER NOT NULL,
-      filled_ts INTEGER,
-      filled_position_id INTEGER,
-      reject_reason TEXT
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_orders_one_pending_symbol
-      ON paper_orders(symbol) WHERE status = 'pending';
-    CREATE INDEX IF NOT EXISTS idx_paper_orders_status
-      ON paper_orders(status, symbol);
 
     CREATE TABLE IF NOT EXISTS paper_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,6 +284,80 @@ function fillsDdl(): string {
   `;
 }
 
+function ordersDdl(): string {
+  return `
+    CREATE TABLE IF NOT EXISTS paper_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES paper_accounts(id),
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL CHECK (side IN ('long', 'short')),
+      type TEXT NOT NULL CHECK (type IN ('limit')),
+      tif TEXT NOT NULL CHECK (tif IN ('gtc')),
+      post_only INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'filled', 'cancelled', 'rejected', 'invalidated')),
+      limit_price TEXT NOT NULL,
+      qty TEXT NOT NULL,
+      risk_pct TEXT NOT NULL,
+      stop_loss TEXT NOT NULL,
+      take_profit TEXT NOT NULL,
+      risk_quote TEXT NOT NULL,
+      reward_quote TEXT NOT NULL,
+      rr TEXT NOT NULL,
+      timeframes TEXT NOT NULL,
+      mtf_json TEXT,
+      leverage TEXT NOT NULL,
+      take_profits_json TEXT NOT NULL,
+      note TEXT,
+      created_ts INTEGER NOT NULL,
+      updated_ts INTEGER NOT NULL,
+      filled_ts INTEGER,
+      filled_position_id INTEGER,
+      reject_reason TEXT,
+      oco INTEGER NOT NULL DEFAULT 1,
+      invalidate_price TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_orders_one_pending_symbol
+      ON paper_orders(symbol) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS idx_paper_orders_status
+      ON paper_orders(status, symbol);
+  `;
+}
+
+function ensurePaperOrders(db: Database) {
+  const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_orders'").get();
+  if (!exists) {
+    db.exec(ordersDdl());
+    return;
+  }
+  const cols = tableColumns(db, "paper_orders");
+  if (!cols.has("oco")) db.exec("ALTER TABLE paper_orders ADD COLUMN oco INTEGER NOT NULL DEFAULT 1");
+  if (!cols.has("invalidate_price")) {
+    db.exec("ALTER TABLE paper_orders ADD COLUMN invalidate_price TEXT");
+    db.exec("UPDATE paper_orders SET invalidate_price = stop_loss WHERE invalidate_price IS NULL");
+  }
+  const ddl = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='paper_orders'").get() as
+    | { sql: string }
+    | undefined;
+  if (ddl?.sql.includes("'invalidated'")) return;
+  db.exec("ALTER TABLE paper_orders RENAME TO paper_orders_v1");
+  db.exec(ordersDdl());
+  db.exec(`
+    INSERT INTO paper_orders (
+      id, account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
+      stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
+      take_profits_json, note, created_ts, updated_ts, filled_ts, filled_position_id, reject_reason,
+      oco, invalidate_price
+    )
+    SELECT
+      id, account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
+      stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
+      take_profits_json, note, created_ts, updated_ts, filled_ts, filled_position_id, reject_reason,
+      COALESCE(oco, 1), COALESCE(invalidate_price, stop_loss)
+    FROM paper_orders_v1
+  `);
+  db.exec("DROP TABLE paper_orders_v1");
+}
+
 function wrap(db: Database) {
   const getAccountStmt = db.prepare("SELECT * FROM paper_accounts WHERE id = 1");
   const updateAccountStmt = db.prepare(
@@ -430,11 +472,11 @@ function wrap(db: Database) {
     `INSERT INTO paper_orders (
       account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
       stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
-      take_profits_json, note, created_ts, updated_ts
+      take_profits_json, note, created_ts, updated_ts, oco, invalidate_price
     ) VALUES (
       1, ?, ?, 'limit', 'gtc', ?, 'pending', ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?
     )`,
   );
   const getOrderStmt = db.prepare("SELECT * FROM paper_orders WHERE id = ?");
@@ -459,6 +501,9 @@ function wrap(db: Database) {
   );
   const rejectOrderStmt = db.prepare(
     `UPDATE paper_orders SET status = 'rejected', reject_reason = ?, updated_ts = ? WHERE id = ? AND status = 'pending'`,
+  );
+  const invalidateOrderStmt = db.prepare(
+    `UPDATE paper_orders SET status = 'invalidated', reject_reason = 'invalidated', updated_ts = ? WHERE id = ? AND status = 'pending'`,
   );
 
   const insertEventStmt = db.prepare(
@@ -713,6 +758,8 @@ function wrap(db: Database) {
       takeProfitsJson: string;
       note: string | null;
       createdTs: number;
+      oco: boolean;
+      invalidatePrice: string;
     }): number {
       const result = insertOrderStmt.run(
         row.symbol,
@@ -733,6 +780,8 @@ function wrap(db: Database) {
         row.note,
         row.createdTs,
         row.createdTs,
+        row.oco ? 1 : 0,
+        row.invalidatePrice,
       );
       return Number(result.lastInsertRowid);
     },
@@ -757,6 +806,9 @@ function wrap(db: Database) {
     },
     rejectOrder(id: number, reason: string, ts: number) {
       return rejectOrderStmt.run(reason, ts, id).changes;
+    },
+    invalidateOrder(id: number, ts: number) {
+      return invalidateOrderStmt.run(ts, id).changes;
     },
 
     insertEvent(row: { kind: string; symbol: string | null; payloadJson: string; ts: number }): number {

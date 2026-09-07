@@ -37,9 +37,12 @@ import {
 } from "./venue";
 import {
   alertHit,
+  assertInvalidateSide,
   limitFillHit,
+  limitInvalidated,
   limitPostOnlyOk,
   parseAlertOp,
+  parseOco,
   parsePostOnly,
 } from "./watch";
 import type {
@@ -197,6 +200,8 @@ export function viewOrder(row: PaperOrderRow): OrderView {
     filledTs: row.filled_ts,
     filledPositionId: row.filled_position_id,
     rejectReason: row.reject_reason,
+    oco: row.oco !== 0,
+    invalidatePrice: row.invalidate_price ?? row.stop_loss,
   };
 }
 
@@ -819,9 +824,10 @@ export function createPaperEngine(opts: {
   function fillPendingLimits(
     tickers: Map<string, PaperTicker>,
     now: number,
-  ): { filled: OrderView[]; rejected: OrderView[]; events: EventView[] } {
+  ): { filled: OrderView[]; rejected: OrderView[]; invalidated: OrderView[]; events: EventView[] } {
     const filled: OrderView[] = [];
     const rejected: OrderView[] = [];
+    const invalidated: OrderView[] = [];
     const events: EventView[] = [];
     for (const row of store.listOrders("pending")) {
       const ticker = tickers.get(row.symbol);
@@ -830,6 +836,19 @@ export function createPaperEngine(opts: {
       try {
         last = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
       } catch {
+        continue;
+      }
+      const invalidate = Dec.from(row.invalidate_price || row.stop_loss);
+      if ((row.oco == null || row.oco !== 0) && limitInvalidated(row.side, last, invalidate)) {
+        if (store.invalidateOrder(row.id, now) === 0) continue;
+        const view = viewOrder(store.getOrder(row.id)!);
+        invalidated.push(view);
+        events.push(emit("order.invalidated", row.symbol, {
+          orderId: row.id,
+          invalidate: invalidate.toText(),
+          stopLoss: row.stop_loss,
+          last: last.toText(),
+        }, now));
         continue;
       }
       if (!limitFillHit(row.side, last, Dec.from(row.limit_price))) continue;
@@ -850,7 +869,7 @@ export function createPaperEngine(opts: {
         }, now));
       }
     }
-    return { filled, rejected, events };
+    return { filled, rejected, invalidated, events };
   }
 
   async function markOpenPositions(
@@ -1061,6 +1080,7 @@ export function createPaperEngine(opts: {
       alerts: alerts.fired,
       filled: orders.filled,
       rejected: orders.rejected,
+      invalidated: orders.invalidated,
       events: [...alerts.events, ...orders.events, ...marked.events],
     };
   }
@@ -1169,6 +1189,20 @@ export function createPaperEngine(opts: {
         });
       }
       const plan = await planOpen(request, limitPrice, ticker, makerFeeRate(), "limit");
+      const oco = parseOco(request.oco);
+      const invalidate = snapPrice(
+        Dec.from((request.invalidatePrice ?? plan.stopLoss.toText()).trim()),
+        spec,
+      );
+      assertInvalidateSide(side, plan.entry, invalidate);
+      if (oco && limitInvalidated(side, last, invalidate)) {
+        throw new PaperReject("already_invalidated", "oco", {
+          side,
+          last: last.toText(),
+          invalidate: invalidate.toText(),
+          limitPrice: plan.entry.toText(),
+        });
+      }
       const id = store.insertOrder({
         symbol: plan.symbol,
         side: plan.side,
@@ -1187,6 +1221,8 @@ export function createPaperEngine(opts: {
         takeProfitsJson: JSON.stringify(plan.plans),
         note: plan.note,
         createdTs: now,
+        oco,
+        invalidatePrice: invalidate.toText(),
       });
       let order = store.getOrder(id)!;
       let position: PositionView | undefined;

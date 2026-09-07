@@ -677,8 +677,9 @@ When the daemon starts (`bun run start` → `startPaper`), paper evaluates every
 Each tick, in order:
 
 1. Fire armed **alerts** whose last print is through the level.
-2. Fill **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage).
-3. Mark open positions (funding → SL → liq → TP → MTM). Newly filled positions are included so a gap can SL in the same tick.
+2. **OCO-invalidate** pending limits whose last print is through `--invalidate` / `--sl`.
+3. Fill remaining **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage).
+4. Mark open positions (funding → SL → liq → TP → MTM). Newly filled positions are included so a gap can SL in the same tick.
 
 `POST /paper/mark` / `bun run paper mark` runs the same `evaluate()`. Feed unhealthy → explicit mark still rejects; the daemon tick swallows `PaperReject` and waits.
 
@@ -724,7 +725,10 @@ Do **not** store pending in `paper_positions`. A position exists only after fill
 | `tif` | `gtc` |
 | `post_only` | Default **true**. Long must rest `limit < last`; short `limit > last`. At-or-through last → `limit_crossed` (does not take liquidity). |
 | `--cross` / `postOnly: false` | Allow immediate fill if last is already through |
-| `status` | `pending` \| `filled` \| `cancelled` \| `rejected` |
+| `oco` | Default **true**. Pending dies if last prints through invalidation **before** fill. Same-print gap: invalidation wins (do not fill-then-SL). |
+| `--invalidate PRICE` | Optional. Default = `--sl`. Must sit on the stop side of the limit. |
+| `--no-oco` / `oco: false` | Rest even if structure prints through. |
+| `status` | `pending` \| `filled` \| `cancelled` \| `rejected` \| `invalidated` |
 | `qty` | **Locked at submit** from risk % using **limit price** as entry |
 | SL / TP / MTF | Same gates as market open, evaluated against **limit**, not last |
 
@@ -744,6 +748,8 @@ On fill: insert `paper_positions` with `fill_source = limit`, charge **maker** f
 ```text
 bun run paper limit BTCUSDT --side long --price 117500 \
   --sl 116200 --tp 120800 --tf 240,60,15 --risk-pct 0.02
+# optional tighter invalidation: --invalidate 116800
+# disable OCO: --no-oco
 bun run paper orders
 bun run paper cancel ID
 ```
@@ -751,12 +757,12 @@ bun run paper cancel ID
 | Method | Path |
 | --- | --- |
 | `GET` | `/paper/orders?status=pending` |
-| `POST` | `/paper/orders` `{ symbol, side, limitPrice, stopLoss, takeProfit, timeframes, postOnly? }` |
+| `POST` | `/paper/orders` `{ symbol, side, limitPrice, stopLoss, takeProfit, timeframes, postOnly?, oco?, invalidatePrice? }` |
 | `POST` | `/paper/orders/:id/cancel` |
 
 ### 11.4 Events
 
-Append-only `paper_events`. Kinds: `alert.fired`, `order.filled`, `order.rejected`, `order.cancelled`, `position.closed`.
+Append-only `paper_events`. Kinds: `alert.fired`, `order.filled`, `order.rejected`, `order.cancelled`, `order.invalidated`, `position.closed`.
 
 ```text
 bun run paper events [--limit 50]
@@ -767,4 +773,4 @@ Daemon logs a line only when `evaluate().events.length > 0`.
 
 ### 11.5 Still banned
 
-No Telegram/push (log + SQLite is the channel). No OCO. No scale-in. No live orders. No browser UI. No mid-watch PnL spam.
+No Telegram/push (log + SQLite is the channel). No scale-in. No live orders. No browser UI. No mid-watch PnL spam.

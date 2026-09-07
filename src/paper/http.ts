@@ -156,7 +156,7 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
             const statusRaw = url.searchParams.get("status") ?? "pending";
             const status: OrderStatus | "all" =
               statusRaw === "filled" || statusRaw === "cancelled" || statusRaw === "rejected"
-                || statusRaw === "all" || statusRaw === "pending"
+                || statusRaw === "invalidated" || statusRaw === "all" || statusRaw === "pending"
                 ? statusRaw
                 : "pending";
             return json({ mode: "paper", orders: engine.orders(status) });
@@ -167,6 +167,10 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
               ...openBody(body),
               limitPrice: String(body.limitPrice ?? ""),
               postOnly: body.postOnly !== false && body.postOnly !== "false" && body.postOnly !== 0,
+              oco: body.oco !== false && body.oco !== "false" && body.oco !== 0,
+              invalidatePrice: body.invalidatePrice == null || body.invalidatePrice === ""
+                ? undefined
+                : String(body.invalidatePrice),
             });
             return json(created, 201);
           }

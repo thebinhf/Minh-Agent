@@ -3,9 +3,12 @@ import { Dec } from "../../src/paper/decimal";
 import { PaperReject } from "../../src/paper/errors";
 import {
   alertHit,
+  assertInvalidateSide,
   limitFillHit,
+  limitInvalidated,
   limitPostOnlyOk,
   parseAlertOp,
+  parseOco,
   parsePostOnly,
 } from "../../src/paper/watch";
 
@@ -29,5 +32,16 @@ describe("alert / limit helpers", () => {
     expect(limitFillHit("short", Dec.from("64000"), Dec.from("64000"))).toBe(true);
     expect(parsePostOnly(undefined)).toBe(true);
     expect(parsePostOnly(false)).toBe(false);
+  });
+
+  test("OCO invalidation sits on the stop side and hits inclusive of the level", () => {
+    expect(parseOco(undefined)).toBe(true);
+    expect(parseOco(false)).toBe(false);
+    assertInvalidateSide("long", Dec.from("62000"), Dec.from("60000"));
+    assertInvalidateSide("short", Dec.from("64000"), Dec.from("66000"));
+    expect(() => assertInvalidateSide("long", Dec.from("62000"), Dec.from("62000"))).toThrow(PaperReject);
+    expect(limitInvalidated("long", Dec.from("60000"), Dec.from("60000"))).toBe(true);
+    expect(limitInvalidated("long", Dec.from("60001"), Dec.from("60000"))).toBe(false);
+    expect(limitInvalidated("short", Dec.from("66000"), Dec.from("66000"))).toBe(true);
   });
 });

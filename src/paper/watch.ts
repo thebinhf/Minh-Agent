@@ -10,6 +10,7 @@ export const EVENT_KINDS = [
   "order.filled",
   "order.rejected",
   "order.cancelled",
+  "order.invalidated",
   "position.closed",
 ] as const;
 
@@ -41,4 +42,32 @@ export function limitPostOnlyOk(side: PaperSide, last: Dec, limit: Dec): boolean
 
 export function parsePostOnly(raw: boolean | undefined): boolean {
   return raw !== false;
+}
+
+/** OCO is on unless the operator explicitly disables it. */
+export function parseOco(raw: boolean | undefined): boolean {
+  return raw !== false;
+}
+
+/** Invalidation must sit on the stop side of the limit (same geometry as SL). */
+export function assertInvalidateSide(side: PaperSide, limit: Dec, invalidate: Dec): void {
+  if (side === "long" && !invalidate.lt(limit)) {
+    throw new PaperReject("invalidate_side", "oco", {
+      side,
+      limit: limit.toText(),
+      invalidate: invalidate.toText(),
+    });
+  }
+  if (side === "short" && !invalidate.gt(limit)) {
+    throw new PaperReject("invalidate_side", "oco", {
+      side,
+      limit: limit.toText(),
+      invalidate: invalidate.toText(),
+    });
+  }
+}
+
+/** Pending long dies when last <= invalidate; short when last >= invalidate. */
+export function limitInvalidated(side: PaperSide, last: Dec, invalidate: Dec): boolean {
+  return side === "long" ? last.lte(invalidate) : last.gte(invalidate);
 }

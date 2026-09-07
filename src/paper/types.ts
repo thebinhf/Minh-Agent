@@ -6,7 +6,7 @@ export type PaperFillKind = "open" | "close";
 export type PaperFillSource = "last" | "sl" | "tp" | "liq" | "limit";
 export type AlertOp = "above" | "below";
 export type AlertStatus = "armed" | "fired" | "cancelled";
-export type OrderStatus = "pending" | "filled" | "cancelled" | "rejected";
+export type OrderStatus = "pending" | "filled" | "cancelled" | "rejected" | "invalidated";
 
 export type TakeProfitPlan = {
   price: string;
@@ -169,6 +169,8 @@ export type PaperOrderRow = {
   filled_ts: number | null;
   filled_position_id: number | null;
   reject_reason: string | null;
+  oco: number;
+  invalidate_price: string;
 };
 
 export type PaperEventRow = {
@@ -194,6 +196,8 @@ export type OpenRequest = {
 export type LimitRequest = OpenRequest & {
   limitPrice: string;
   postOnly?: boolean;
+  oco?: boolean;
+  invalidatePrice?: string;
 };
 
 export type AlertRequest = {
@@ -277,6 +281,8 @@ export type OrderView = {
   filledTs: number | null;
   filledPositionId: number | null;
   rejectReason: string | null;
+  oco: boolean;
+  invalidatePrice: string;
 };
 
 export type EventView = {

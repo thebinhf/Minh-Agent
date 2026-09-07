@@ -19,7 +19,11 @@ describe("paper CLI parser", () => {
     expect(parsePaperArgs([
       "limit", "BTCUSDT", "--side", "long", "--price", "62000", "--sl", "60000",
       "--tp", "66000", "--tf", "240,60,15", "--cross",
-    ])).toMatchObject({ name: "limit", limitPrice: "62000", postOnly: false });
+    ])).toMatchObject({ name: "limit", limitPrice: "62000", postOnly: false, oco: true });
+    expect(parsePaperArgs([
+      "limit", "BTCUSDT", "--side", "long", "--price", "62000", "--sl", "60000",
+      "--tp", "66000", "--tf", "60,15", "--invalidate", "61000", "--no-oco",
+    ])).toMatchObject({ name: "limit", oco: false, invalidatePrice: "61000" });
     expect(parsePaperArgs(["cancel", "8"])).toEqual({ name: "cancel", id: 8 });
     expect(parsePaperArgs([
       "open", "btcusdt", "--side", "long", "--sl", "60000", "--tp", "66000",
