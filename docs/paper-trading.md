@@ -224,7 +224,7 @@ If both could hit in one print (gap), **SL wins**. Close the row, write `paper_f
 
 Mark order (Phase 2): **funding → SL → liq (only if leverage > 1) → unfilled TPs nearest-first → MTM**.
 
-Mark and SL/TP checks are **on demand** (CLI/HTTP). No background notifier, no mid-watch messages.
+Mark and SL/TP checks run on `paper mark` / `POST /paper/mark` **and** on the daemon tick loop (Phase 3). Tick emits **events once** when state changes (alert fired, limit filled, SL/TP/liq). It does **not** post periodic PnL. Mid-watch chat spam stays banned.
 
 ## 5. Risk engine
 
@@ -508,7 +508,7 @@ Do not paraphrase, weaken, or implement around these. They override any later co
 | No keys | If `BYBIT_API_KEY`, `BYBIT_API_SECRET`, or similar are set, paper **refuses to start** and prints that paper never uses keys. Do not read them “just in case”. |
 | Separate DB | `PAPER_DB_PATH` ≠ `BYBIT_DB_PATH`. Paper opens the feed DB readonly or uses HTTP. |
 | Separate HTTP | Paper does not add methods to the feed server (today GET-only on `:43180`). |
-| No mid-watch spam | No interval bot that posts marks to chat. `paper mark` is pull-only. |
+| No mid-watch spam | No interval bot that posts marks / PnL to chat. Tick may log **events once** (`alert.fired`, `order.filled`, `position.closed`). |
 | No auto-live bridge | No command or route that places a Bybit order from a paper id. Live bridge is a **separate ticket** (locked item 3). |
 
 Startup banner: `paper simulation only — no API keys, no real orders`.
@@ -662,4 +662,109 @@ No API keys, no `/v5/order`, no paper→live bridge, no changes to feed WS/brief
 
 ---
 
-**Phase M + 2.** Success is `src/paper/` + `bun run paper` + `127.0.0.1:43181/paper/*` matching this spec. Live orders are still forbidden.
+**Phase M + 2 + 3.** Success is `src/paper/` + `bun run paper` + `127.0.0.1:43181/paper/*` matching this spec. Live orders are still forbidden.
+
+## 11. Phase 3 — alerts, limit pending, tick
+
+Locked. Paper stays simulated. No keys, no `/v5/order`, no paper→live, no feed WS/brief changes, no browser UI, no Telegram.
+
+Event-once is **not** mid-watch spam. A tick that prints nothing is the correct idle behavior.
+
+### 11.1 Tick loop
+
+When the daemon starts (`bun run start` → `startPaper`), paper evaluates every `tickMs` (default `400`, env `PAPER_TICK_MS`). CLI one-shots do **not** tick; they persist into the same SQLite file the daemon reads.
+
+Each tick, in order:
+
+1. Fire armed **alerts** whose last print is through the level.
+2. Fill **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage).
+3. Mark open positions (funding → SL → liq → TP → MTM). Newly filled positions are included so a gap can SL in the same tick.
+
+`POST /paper/mark` / `bun run paper mark` runs the same `evaluate()`. Feed unhealthy → explicit mark still rejects; the daemon tick swallows `PaperReject` and waits.
+
+Tickers are batched (`GET /tickers`) then filled in per-symbol. A stale symbol is skipped; other symbols still evaluate.
+
+### 11.2 Alerts
+
+Table `paper_alerts` in the paper DB (not the feed file).
+
+| Field | Lock |
+| --- | --- |
+| `symbol` | Feed universe |
+| `op` | `above` \| `below` |
+| `price` | Snapped to `tickSize` |
+| `status` | `armed` \| `fired` \| `cancelled` |
+| `once` | Always true in this phase — fire once, then `fired` |
+| `channel` | `log` only (stdout `[minh:paper] alert.fired` + `paper_events`) |
+
+Hit: `above` ⇒ `last >= price`; `below` ⇒ `last <= price`. Equal counts. Stale ticker does not fire.
+
+Duplicate armed `(symbol, op, price)` → `duplicate_alert`. If last is already through on submit, the row is inserted then immediately `fired` (event includes `immediate: true`).
+
+```text
+bun run paper alert set BTCUSDT --above 118000
+bun run paper alert set ETHUSDT --below 4200 --note "HTF demand"
+bun run paper alert list
+bun run paper alert cancel ID
+```
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/paper/alerts?status=armed` |
+| `POST` | `/paper/alerts` `{ symbol, op, price, note? }` |
+| `POST` | `/paper/alerts/:id/cancel` |
+
+### 11.3 Limit pending (vị thế trước)
+
+Do **not** store pending in `paper_positions`. A position exists only after fill. Table `paper_orders`.
+
+| Field | Lock |
+| --- | --- |
+| `type` | `limit` |
+| `tif` | `gtc` |
+| `post_only` | Default **true**. Long must rest `limit < last`; short `limit > last`. At-or-through last → `limit_crossed` (does not take liquidity). |
+| `--cross` / `postOnly: false` | Allow immediate fill if last is already through |
+| `status` | `pending` \| `filled` \| `cancelled` \| `rejected` |
+| `qty` | **Locked at submit** from risk % using **limit price** as entry |
+| SL / TP / MTF | Same gates as market open, evaluated against **limit**, not last |
+
+Fill (0 slippage):
+
+| Side | Fill when | Price |
+| --- | --- | --- |
+| long | `lastPrice <= limit` | the limit |
+| short | `lastPrice >= limit` | the limit |
+
+On fill: insert `paper_positions` with `fill_source = limit`, charge **maker** fee (`account.maker_fee_rate`, product default `0.0002`), re-check margin. If margin fails at fill → `rejected` + `order.rejected`, no position.
+
+`duplicate_symbol` covers **open position or pending order** on that symbol.
+
+`bun run paper open` stays market (`fill_source = last`, taker `fee_rate`). Limit is a new path.
+
+```text
+bun run paper limit BTCUSDT --side long --price 117500 \
+  --sl 116200 --tp 120800 --tf 240,60,15 --risk-pct 0.02
+bun run paper orders
+bun run paper cancel ID
+```
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/paper/orders?status=pending` |
+| `POST` | `/paper/orders` `{ symbol, side, limitPrice, stopLoss, takeProfit, timeframes, postOnly? }` |
+| `POST` | `/paper/orders/:id/cancel` |
+
+### 11.4 Events
+
+Append-only `paper_events`. Kinds: `alert.fired`, `order.filled`, `order.rejected`, `order.cancelled`, `position.closed`.
+
+```text
+bun run paper events [--limit 50]
+GET /paper/events?limit=50
+```
+
+Daemon logs a line only when `evaluate().events.length > 0`.
+
+### 11.5 Still banned
+
+No Telegram/push (log + SQLite is the channel). No OCO. No scale-in. No live orders. No browser UI. No mid-watch PnL spam.

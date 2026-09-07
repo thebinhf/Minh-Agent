@@ -23,6 +23,7 @@ src/index.ts
   → src/paper
        → paper SQLite ledger (separate file)
        → risk engine (account 1–10% band, R:R from SL/TP, MTF tags, Phase 2 fee/funding/lev)
+       → alerts + limit pending + tick evaluate (Phase 3)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 

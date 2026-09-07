@@ -18,6 +18,17 @@ function asConfirm(value: unknown): boolean | null {
   return Boolean(value);
 }
 
+function mapTicker(row: Record<string, unknown>, fallbackSymbol: string): PaperTicker {
+  return {
+    symbol: String(row.symbol ?? fallbackSymbol),
+    lastPrice: asText(row.lastPrice ?? row.last_price),
+    markPrice: asText(row.markPrice ?? row.mark_price),
+    recvTs: asTs(row.recvTs ?? row.recv_ts),
+    fundingRate: asText(row.fundingRate ?? row.funding_rate),
+    nextFundingTime: asTs(row.nextFundingTime ?? row.next_funding_time),
+  };
+}
+
 /** Read-only client for the local public feed on :43180. Never calls Bybit. */
 export function httpFeed(feedUrl: string): PaperFeed {
   const base = feedUrl.replace(/\/$/, "");
@@ -41,14 +52,14 @@ export function httpFeed(feedUrl: string): PaperFeed {
       const body = (await res.json()) as { tickers?: Array<Record<string, unknown>> };
       const row = body.tickers?.[0];
       if (!row) return null;
-      return {
-        symbol: String(row.symbol ?? symbol),
-        lastPrice: asText(row.lastPrice ?? row.last_price),
-        markPrice: asText(row.markPrice ?? row.mark_price),
-        recvTs: asTs(row.recvTs ?? row.recv_ts),
-        fundingRate: asText(row.fundingRate ?? row.funding_rate),
-        nextFundingTime: asTs(row.nextFundingTime ?? row.next_funding_time),
-      };
+      return mapTicker(row, symbol);
+    },
+
+    async tickers(): Promise<PaperTicker[]> {
+      const res = await fetch(`${base}/tickers`);
+      if (!res.ok) return [];
+      const body = (await res.json()) as { tickers?: Array<Record<string, unknown>> };
+      return (body.tickers ?? []).map((row) => mapTicker(row, String(row.symbol ?? "")));
     },
 
     async lastKline(symbol: string, interval: string): Promise<PaperKlineSnap | null> {
