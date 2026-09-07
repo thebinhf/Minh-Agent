@@ -4,6 +4,7 @@ import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine } from "./engine";
 import { PaperReject, PaperSafetyError, PaperUsageError } from "./errors";
 import { httpFeed } from "./feed";
+import { bindPaperNotify } from "./notify";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
@@ -30,6 +31,7 @@ Pass --cross to fill immediately when last is already through the limit.
 OCO is on by default: last through --sl (or --invalidate) cancels the pending before fill.
 Pass --no-oco to rest even if invalidation prints.
 alert fires once when last prints through the level. No mid-watch PnL spam.
+Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 `;
 
 export type PaperCliCommand =
@@ -287,6 +289,7 @@ export async function createPaperCliEngine() {
     feed,
     config: paper,
     universe: { symbols: feedCfg.symbols, intervals: feedCfg.klineIntervals },
+    onEvent: bindPaperNotify(paper.notify),
   });
   return { engine, store, paper };
 }
