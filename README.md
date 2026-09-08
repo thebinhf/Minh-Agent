@@ -18,6 +18,7 @@ bun run query market BTCUSDT 15 --bucket 10
 bun run paper account  # simulated equity (requires local feed prices to mutate)
 bun run paper alert set BTCUSDT --below 117500
 bun run paper limit BTCUSDT --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
+bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 bun run backfill --probe
 bun run backfill --days 14   # 15/60/240 into SQLite; does not start WS
 ```

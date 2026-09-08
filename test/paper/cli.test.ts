@@ -26,6 +26,11 @@ describe("paper CLI parser", () => {
     ])).toMatchObject({ name: "limit", oco: false, invalidatePrice: "61000" });
     expect(parsePaperArgs(["cancel", "8"])).toEqual({ name: "cancel", id: 8 });
     expect(parsePaperArgs([
+      "replay", "BTCUSDT", "--from", "2026-08-01", "--to", "2026-08-08",
+      "--side", "long", "--price", "62000", "--sl", "60000", "--tp", "66000",
+      "--tf", "240,60,15",
+    ])).toMatchObject({ name: "replay", interval: "15", fromTs: Date.parse("2026-08-01") });
+    expect(parsePaperArgs([
       "open", "btcusdt", "--side", "long", "--sl", "60000", "--tp", "66000",
       "--tf", "240,60,15", "--risk-pct", "0.03", "--note", "htf bias",
     ])).toEqual({

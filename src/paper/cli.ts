@@ -4,7 +4,9 @@ import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine } from "./engine";
 import { PaperReject, PaperSafetyError, PaperUsageError } from "./errors";
 import { httpFeed } from "./feed";
+import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
+import { runReplayFromFeed } from "./replay";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
@@ -21,6 +23,7 @@ export const PAPER_USAGE = `Usage:
   bun run paper events [--limit N]
   bun run paper close ID
   bun run paper mark
+  bun run paper replay SYMBOL --from TIME --to TIME --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--interval 15] [--funding-rate RATE] [--cross] [--invalidate PRICE] [--no-oco]
 
 Paper simulation only — no API keys, no real orders.
 Fills and marks come from the local feed at 127.0.0.1:43180.
@@ -32,6 +35,7 @@ OCO is on by default: last through --sl (or --invalidate) cancels the pending be
 Pass --no-oco to rest even if invalidation prints.
 alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
+replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 `;
 
 export type PaperCliCommand =
@@ -72,7 +76,27 @@ export type PaperCliCommand =
   | { name: "alert-cancel"; id: number }
   | { name: "events"; limit: number }
   | { name: "close"; id: number }
-  | { name: "mark" };
+  | { name: "mark" }
+  | {
+      name: "replay";
+      symbol: string;
+      side: string;
+      stopLoss: string;
+      takeProfit?: string;
+      takeProfits?: Array<{ price: string; qtyPct: string }>;
+      timeframes: string[];
+      riskPct?: string;
+      leverage?: string;
+      note?: string;
+      limitPrice: string;
+      postOnly: boolean;
+      oco: boolean;
+      invalidatePrice?: string;
+      fromTs: number;
+      toTs: number;
+      interval: string;
+      fundingRate?: string;
+    };
 
 function parseTps(raw: string): Array<{ price: string; qtyPct: string }> {
   return raw.split(",").map((part) => {
@@ -218,6 +242,32 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
       invalidatePrice: flag(rest, "--invalidate"),
     };
   }
+  if (command === "replay") {
+    const price = flag(rest, "--price");
+    const fromRaw = flag(rest, "--from");
+    const toRaw = flag(rest, "--to");
+    if (!price || !fromRaw || !toRaw) throw new PaperUsageError(PAPER_USAGE);
+    let fromTs: number;
+    let toTs: number;
+    try {
+      fromTs = parseTimeArg(fromRaw);
+      toTs = parseTimeArg(toRaw);
+    } catch {
+      throw new PaperUsageError(PAPER_USAGE);
+    }
+    return {
+      name: "replay",
+      ...parseOpenish(rest),
+      limitPrice: price,
+      postOnly: !rest.includes("--cross"),
+      oco: !rest.includes("--no-oco"),
+      invalidatePrice: flag(rest, "--invalidate"),
+      fromTs,
+      toTs,
+      interval: flag(rest, "--interval") ?? "15",
+      fundingRate: flag(rest, "--funding-rate"),
+    };
+  }
   throw new PaperUsageError(PAPER_USAGE);
 }
 
@@ -304,6 +354,25 @@ async function main(): Promise<void> {
       process.exit(2);
     }
     throw error;
+  }
+
+  if (command.name === "replay") {
+    try {
+      const body = await runReplayFromFeed(command);
+      console.log(JSON.stringify(body, null, 2));
+    } catch (error) {
+      if (error instanceof PaperSafetyError) {
+        console.error(`[minh:paper] ${error.message}`);
+        process.exit(1);
+      }
+      if (error instanceof PaperReject) {
+        console.log(JSON.stringify(error.toJSON(), null, 2));
+        process.exit(1);
+      }
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    return;
   }
 
   let runtime;
