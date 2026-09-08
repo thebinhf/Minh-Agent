@@ -173,4 +173,28 @@ describe("paper HTTP", () => {
       svc.stop();
     }
   });
+
+  test("status and arm over HTTP", async () => {
+    const svc = await serve(mockFeed({ lastPrice: "63000", markPrice: "63000" }));
+    try {
+      const armed = await fetch(`${svc.url}/paper/arm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...OPEN_LONG, limitPrice: "62000" }),
+      });
+      expect(armed.status).toBe(201);
+      const body = await armed.json() as { arm: boolean; order: { status: string }; alert: { op: string } };
+      expect(body.arm).toBe(true);
+      expect(body.order.status).toBe("pending");
+      expect(body.alert.op).toBe("below");
+      const status = await (await fetch(`${svc.url}/paper/status`)).json() as {
+        pending: unknown[];
+        alerts: unknown[];
+      };
+      expect(status.pending).toHaveLength(1);
+      expect(status.alerts).toHaveLength(1);
+    } finally {
+      svc.stop();
+    }
+  });
 });

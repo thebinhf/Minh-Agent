@@ -118,6 +118,39 @@ describe("paper replay", () => {
     expect(result.position?.closePrice).toBe("60000");
   });
 
+  test("same-bar high after fill does not take TP; next bar still can", async () => {
+    const dir = tempDir("minh-replay-");
+    const config = await paperConfig(dir);
+    const skipped = await runReplay({
+      config,
+      universe: UNIVERSE,
+      dbPath: join(dir, "replay-skip.sqlite"),
+      series: series([
+        bar(0, "64000", "64100", "63500", "63800"),
+        bar(1, "63800", "66500", "61900", "62500"),
+      ]),
+      request: LIMIT,
+    });
+    expect(skipped.order?.status).toBe("filled");
+    expect(skipped.position?.status).toBe("open");
+    expect(skipped.events.map((event) => event.kind)).not.toContain("position.closed");
+
+    const taken = await runReplay({
+      config,
+      universe: UNIVERSE,
+      dbPath: join(dir, "replay-next.sqlite"),
+      series: series([
+        bar(0, "64000", "64100", "63500", "63800"),
+        bar(1, "63800", "66500", "61900", "62500"),
+        bar(2, "62500", "66100", "62400", "65800"),
+      ]),
+      request: LIMIT,
+    });
+    expect(taken.position?.status).toBe("closed");
+    expect(taken.position?.closeReason).toBe("tp");
+    expect(taken.position?.closePrice).toBe("66000");
+  });
+
   test("optional funding settles on the 8h boundary from bar time", async () => {
     const dir = tempDir("minh-replay-");
     const config = await paperConfig(dir);

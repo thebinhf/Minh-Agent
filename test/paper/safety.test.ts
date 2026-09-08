@@ -44,6 +44,7 @@ describe("paper safety", () => {
       "src/paper/watch.ts",
       "src/paper/notify.ts",
       "src/paper/replay.ts",
+      "src/paper/ops.ts",
       "src/paper/db.ts",
     ];
     for (const file of files) {

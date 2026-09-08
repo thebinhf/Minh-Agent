@@ -810,7 +810,7 @@ Replay the **same** paper engine over local klines. Operator still picks the zon
 | --- | --- |
 | Input | One limit ARM (`--price/--sl/--tp/--tf`) + `--from` / `--to` |
 | Data | Feed SQLite klines (run `bun run backfill` first). Readonly. |
-| Walk | `--interval` default `15`. Long prints open→low→high→close so OCO/SL beat TP on the same bar |
+| Walk | `--interval` default `15`. Long prints open→low→high→close so OCO/SL beat TP on the same bar. After a **fill**, remaining prints on that bar are skipped (no same-bar TP) |
 | Engine | Same evaluate order: OCO → fill at limit → fee → funding → SL/liq/TP |
 | Ledger | `paper-replay.sqlite` next to the live file. Never the live paper DB |
 | Funding | Optional `--funding-rate` (cache has no funding tape). Settles every 8h UTC |
@@ -819,5 +819,24 @@ Replay the **same** paper engine over local klines. Operator still picks the zon
 ```text
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
   --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
+```
+
+---
+
+## 14. Phase 6 — operator surface
+
+Desk commands. Still no live orders, no mid-watch PnL, no auto S/D.
+
+| Command | Shape |
+| --- | --- |
+| `paper status` / `GET /paper/status` | account + pending + open + armed alerts + last 10 events |
+| `paper arm` / `POST /paper/arm` | limit (OCO default) then alert. Long → `below` at `--price`; short → `above`. `--alert-price` optional. Duplicate alert is skipped, limit still rests |
+| `paper day [--day YYYY-MM-DD]` / `GET /paper/day?day=` | UTC window: fill / OCO / close counts + `realizedPnl`. Thin report, not a dashboard |
+
+```text
+bun run paper arm BTCUSDT --side long --price 117500 \
+  --sl 116200 --tp 120800 --tf 240,60,15 --risk-pct 0.02
+bun run paper status
+bun run paper day
 ```
 
