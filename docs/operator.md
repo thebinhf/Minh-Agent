@@ -44,6 +44,18 @@ bun run paper orders --status pending
 bun run paper cancel ID
 ```
 
+## REPLAY
+
+Same ARM, on **backfilled** klines. Does not touch the live paper ledger. Slippage 0.
+
+```text
+bun run backfill --symbol BTCUSDT --days 30
+bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
+  --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
+```
+
+Optional `--interval 15` (walk), `--funding-rate` if you want 8h settlements (kline cache has no funding tape). Auto S/D stays in MAP — replay only receives the zone.
+
 ## Ban
 
 - Scan on a timer while waiting

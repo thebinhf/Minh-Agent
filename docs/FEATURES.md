@@ -19,6 +19,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Paper limit entry | Live | `bun run paper limit … --price`. Rests until last prints through; fill at the limit. Default post-only + OCO (invalidation cancels pending before fill). |
 | SQLite storage | Live | Feed: ticker tape off by default; book snaps on timer only; drop redundant kline index; prune checkpoints WAL and VACUUMs when freelist ≥15%. |
 | Paper event notify | Live | Optional `PAPER_NOTIFY=telegram|webhook` on `alert.fired` / `order.filled` / `order.invalidated` / `position.closed`. Default log. No PnL spam. |
+| Paper replay | Live | `bun run paper replay SYMBOL --from --to` walks local klines through the same limit/OCO/fee/funding engine. Slippage 0. Separate `*-replay.sqlite`. No auto S/D. |
 | Orderbook snapshot gate | Live | Clear RAM on connect; ignore deltas until snapshot/`u=1` |
 | Subscribe + REST retry | Live | Chunked subscribe (10) + exponential retry |
 
@@ -38,5 +39,5 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
-| [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2–4: risk, fees, alerts/limit/OCO, optional event notify) |
+| [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2–5: risk, fees, alerts/limit/OCO, notify, kline replay) |
 | [operator.md](operator.md) | Minh Agent loop: MAP on HTF close, ARM alert+limit, EVENT-only (no 30m scan) |

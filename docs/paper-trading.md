@@ -799,3 +799,25 @@ PAPER_NOTIFY_URL=https://ntfy.sh/minh-paper
 ```
 
 Telegram is **not** a Bybit key. `assertNoApiKeys` still only refuses `BYBIT_*` key env.
+
+---
+
+## 13. Phase 5 — kline replay
+
+Replay the **same** paper engine over local klines. Operator still picks the zone. No auto S/D, no live orders, slippage **0**.
+
+| Lock | Rule |
+| --- | --- |
+| Input | One limit ARM (`--price/--sl/--tp/--tf`) + `--from` / `--to` |
+| Data | Feed SQLite klines (run `bun run backfill` first). Readonly. |
+| Walk | `--interval` default `15`. Long prints open→low→high→close so OCO/SL beat TP on the same bar |
+| Engine | Same evaluate order: OCO → fill at limit → fee → funding → SL/liq/TP |
+| Ledger | `paper-replay.sqlite` next to the live file. Never the live paper DB |
+| Funding | Optional `--funding-rate` (cache has no funding tape). Settles every 8h UTC |
+| Slippage | Always `0`. Depth/orderbook not used |
+
+```text
+bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
+  --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
+```
+
