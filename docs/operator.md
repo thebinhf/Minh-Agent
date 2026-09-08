@@ -36,7 +36,7 @@ Account seed: risk 2%, `minRr` **2** (config, not an engine constant). Engine st
 
 Do not poll `/brief` every 30 minutes. Tick already evaluates alerts/limits/SL-TP.
 
-Optional ping (PR #15): `PAPER_NOTIFY=telegram` or `webhook`. Same four kinds. Log-only if unset.
+Optional ping: `PAPER_NOTIFY=telegram` or `webhook`. Same four kinds. Log-only if unset.
 
 ```text
 bun run paper events --limit 20
