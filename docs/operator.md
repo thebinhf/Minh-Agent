@@ -7,7 +7,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 | State | When | Minh-Agent | Agent output |
 | --- | --- | --- | --- |
 | **MAP** | 1H/4H candle close | `GET /brief?symbol=` or `bun run brief SYMBOL` | 5 lines: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE** |
-| **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper alert` + `paper limit` (post-only, OCO) | Then **quiet** |
+| **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
 | **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /chart?interval=15` (scalp: also `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
 
 ## MAP
@@ -23,10 +23,11 @@ Depth/heatmap only when price is **at the zone**, not on a timer.
 ## ARM
 
 ```text
-bun run paper alert set BTCUSDT --below 117500 --note "4H demand"
-bun run paper limit BTCUSDT --side long --price 117500 \
+bun run paper arm BTCUSDT --side long --price 117500 \
   --sl 116200 --tp 120800 --tf 240,60,15 --risk-pct 0.02
 ```
+
+Long → alert `--below` at `--price`. Short → `--above`. Override with `--alert-price`. Then **quiet**.
 
 Supply / short: `--above` + `--side short`. Invalidation = structure break (`--sl`; OCO cancels pending if last prints through before fill). `--no-oco` only if you mean it.
 
@@ -39,8 +40,9 @@ Do not poll `/brief` every 30 minutes. Tick already evaluates alerts/limits/SL-T
 Optional ping: `PAPER_NOTIFY=telegram` or `webhook`. Same four kinds. Log-only if unset.
 
 ```text
+bun run paper status
+bun run paper day
 bun run paper events --limit 20
-bun run paper orders --status pending
 bun run paper cancel ID
 ```
 

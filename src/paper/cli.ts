@@ -6,6 +6,7 @@ import { PaperReject, PaperSafetyError, PaperUsageError } from "./errors";
 import { httpFeed } from "./feed";
 import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
+import { paperArm, paperDay, paperStatus } from "./ops";
 import { runReplayFromFeed } from "./replay";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
@@ -15,6 +16,9 @@ export const PAPER_USAGE = `Usage:
   bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
   bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
   bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco]
+  bun run paper arm SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--alert-price PRICE]
+  bun run paper status
+  bun run paper day [--day YYYY-MM-DD]
   bun run paper orders [--status pending|filled|cancelled|rejected|invalidated|all]
   bun run paper cancel ID
   bun run paper alert set SYMBOL --above|--below PRICE [--note TEXT]
@@ -36,6 +40,7 @@ Pass --no-oco to rest even if invalidation prints.
 alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
+arm = limit + alert (long → below limit, short → above). status is one JSON. day is UTC session fills/OCO/closes.
 `;
 
 export type PaperCliCommand =
@@ -77,6 +82,25 @@ export type PaperCliCommand =
   | { name: "events"; limit: number }
   | { name: "close"; id: number }
   | { name: "mark" }
+  | { name: "status" }
+  | { name: "day"; day?: string }
+  | {
+      name: "arm";
+      symbol: string;
+      side: string;
+      limitPrice: string;
+      stopLoss: string;
+      takeProfit?: string;
+      takeProfits?: Array<{ price: string; qtyPct: string }>;
+      timeframes: string[];
+      riskPct?: string;
+      leverage?: string;
+      note?: string;
+      postOnly: boolean;
+      oco: boolean;
+      invalidatePrice?: string;
+      alertPrice?: string;
+    }
   | {
       name: "replay";
       symbol: string;
@@ -172,6 +196,10 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
     return { name: "positions", status };
   }
   if (command === "mark") return { name: "mark" };
+  if (command === "status") return { name: "status" };
+  if (command === "day") {
+    return { name: "day", day: flag(rest, "--day") };
+  }
   if (command === "close") {
     const id = Number(rest[0]);
     if (!Number.isInteger(id) || id <= 0) throw new PaperUsageError(PAPER_USAGE);
@@ -242,6 +270,19 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
       invalidatePrice: flag(rest, "--invalidate"),
     };
   }
+  if (command === "arm") {
+    const price = flag(rest, "--price");
+    if (!price) throw new PaperUsageError(PAPER_USAGE);
+    return {
+      name: "arm",
+      ...parseOpenish(rest),
+      limitPrice: price,
+      postOnly: !rest.includes("--cross"),
+      oco: !rest.includes("--no-oco"),
+      invalidatePrice: flag(rest, "--invalidate"),
+      alertPrice: flag(rest, "--alert-price"),
+    };
+  }
   if (command === "replay") {
     const price = flag(rest, "--price");
     const fromRaw = flag(rest, "--from");
@@ -286,6 +327,8 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
     return { mode: "paper", events: engine.events(command.limit) };
   }
   if (command.name === "mark") return engine.mark();
+  if (command.name === "status") return paperStatus(engine);
+  if (command.name === "day") return paperDay(engine, command.day);
   if (command.name === "close") return engine.close(command.id);
   if (command.name === "cancel") return engine.cancelOrder(command.id);
   if (command.name === "alert-cancel") return engine.cancelAlert(command.id);
@@ -312,6 +355,24 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
       postOnly: command.postOnly,
       oco: command.oco,
       invalidatePrice: command.invalidatePrice,
+    });
+  }
+  if (command.name === "arm") {
+    return paperArm(engine, {
+      symbol: command.symbol,
+      side: command.side,
+      limitPrice: command.limitPrice,
+      stopLoss: command.stopLoss,
+      takeProfit: command.takeProfit,
+      takeProfits: command.takeProfits,
+      timeframes: command.timeframes,
+      riskPct: command.riskPct,
+      leverage: command.leverage,
+      note: command.note,
+      postOnly: command.postOnly,
+      oco: command.oco,
+      invalidatePrice: command.invalidatePrice,
+      alertPrice: command.alertPrice,
     });
   }
   return engine.open({

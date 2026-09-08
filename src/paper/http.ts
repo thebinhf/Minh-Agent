@@ -1,5 +1,6 @@
 import { PaperReject } from "./errors";
 import type { PaperEngine } from "./engine";
+import { paperArm, paperDay, paperStatus } from "./ops";
 import type { AlertStatus, OrderStatus, PaperConfig, PaperFeed, TakeProfitPlan } from "./types";
 
 function json(data: unknown, status = 200): Response {
@@ -188,6 +189,35 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
           const limitRaw = url.searchParams.get("limit");
           const limit = limitRaw ? Number(limitRaw) : 50;
           return json({ mode: "paper", events: engine.events(Number.isFinite(limit) ? limit : 50) });
+        }
+
+        if (path === "/paper/status") {
+          if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+          return json(paperStatus(engine));
+        }
+
+        if (path === "/paper/day") {
+          if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+          return json(paperDay(engine, url.searchParams.get("day") ?? undefined));
+        }
+
+        if (path === "/paper/arm") {
+          if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+          const body = (await req.json()) as Record<string, unknown>;
+          const armed = await paperArm(engine, {
+            ...openBody(body),
+            limitPrice: String(body.limitPrice ?? ""),
+            postOnly: body.postOnly !== false && body.postOnly !== "false" && body.postOnly !== 0,
+            oco: body.oco !== false && body.oco !== "false" && body.oco !== 0,
+            invalidatePrice: body.invalidatePrice == null || body.invalidatePrice === ""
+              ? undefined
+              : String(body.invalidatePrice),
+            alertPrice: body.alertPrice == null || body.alertPrice === ""
+              ? undefined
+              : String(body.alertPrice),
+            alertOp: body.alertOp == null || body.alertOp === "" ? undefined : String(body.alertOp),
+          });
+          return json(armed, 201);
         }
 
         return json({ error: "not found" }, 404);

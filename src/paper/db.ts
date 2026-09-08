@@ -513,6 +513,9 @@ function wrap(db: Database) {
   const listEventsStmt = db.prepare(
     `SELECT * FROM paper_events ORDER BY id DESC LIMIT ?`,
   );
+  const listEventsRangeStmt = db.prepare(
+    `SELECT * FROM paper_events WHERE ts >= ? AND ts < ? ORDER BY id DESC LIMIT ?`,
+  );
 
   return {
     raw: db,
@@ -818,6 +821,9 @@ function wrap(db: Database) {
     },
     listEvents(limit = 50): PaperEventRow[] {
       return listEventsStmt.all(Math.min(Math.max(limit, 1), 500)) as PaperEventRow[];
+    },
+    listEventsRange(fromTs: number, toTs: number, limit = 500): PaperEventRow[] {
+      return listEventsRangeStmt.all(fromTs, toTs, Math.min(Math.max(limit, 1), 2000)) as PaperEventRow[];
     },
   };
 }

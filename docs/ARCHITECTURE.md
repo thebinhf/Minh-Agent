@@ -24,6 +24,9 @@ src/index.ts
        → paper SQLite ledger (separate file)
        → risk engine (account 1–10% band, R:R from SL/TP, MTF tags, Phase 2 fee/funding/lev)
        → alerts + limit pending + tick evaluate (Phase 3)
+       → optional notify on event-once kinds (Phase 4)
+       → kline replay into paper-replay.sqlite (Phase 5)
+       → status / arm / day operator surface (Phase 6)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 

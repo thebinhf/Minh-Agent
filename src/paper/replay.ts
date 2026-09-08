@@ -256,6 +256,7 @@ export async function runReplay(opts: {
       events.push(...marked.events);
       ticks += 1;
       feed.bumpFunding(ts);
+      if (marked.filled.length > 0) break;
     }
   }
 

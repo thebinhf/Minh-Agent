@@ -1109,6 +1109,10 @@ export function createPaperEngine(opts: {
       return store.listEvents(limit).map(viewEvent);
     },
 
+    eventsBetween(fromTs: number, toTs: number, limit = 500): EventView[] {
+      return store.listEventsRange(fromTs, toTs, limit).map(viewEvent);
+    },
+
     mark: evaluate,
     evaluate,
 
