@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { loadPaperConfig } from "../../src/paper/config";
 import { Dec } from "../../src/paper/decimal";
 import { PaperReject } from "../../src/paper/errors";
 import {
@@ -98,6 +99,12 @@ describe("risk engine", () => {
     expect(src).not.toMatch(/const\s+RISK_PCT/);
     expect(src).not.toMatch(/0\.02/);
     expect(src).not.toMatch(/MIN_RR/);
+  });
+
+  test("operator config seeds minRr 2 — engine still has no MIN_RR constant", async () => {
+    const cfg = await loadPaperConfig();
+    expect(cfg.account.minRr).toBe("2");
+    expect(cfg.account.defaultRiskPct).toBe("0.02");
   });
 
   test("MTF normalizes unique intervals and keeps HTF→LTF order", () => {

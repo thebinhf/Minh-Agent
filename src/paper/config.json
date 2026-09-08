@@ -12,7 +12,7 @@
     "riskPctMin": "0.01",
     "riskPctMax": "0.10",
     "defaultRiskPct": "0.02",
-    "minRr": null,
+    "minRr": "2",
     "feeRate": "0.00055",
     "makerFeeRate": "0.0002",
     "leverageMin": "1",

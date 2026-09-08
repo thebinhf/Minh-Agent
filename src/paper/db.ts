@@ -161,9 +161,9 @@ function migrate(db: Database, seed: PaperAccountSeed) {
 
   db.prepare(
     `UPDATE paper_accounts SET
-      risk_pct_min = ?, risk_pct_max = ?, default_risk_pct = ?, margin_mode = ?, updated_ts = ?
+      risk_pct_min = ?, risk_pct_max = ?, default_risk_pct = ?, min_rr = ?, margin_mode = ?, updated_ts = ?
      WHERE id = 1`,
-  ).run(seed.riskPctMin, seed.riskPctMax, seed.defaultRiskPct, seed.marginMode, now);
+  ).run(seed.riskPctMin, seed.riskPctMax, seed.defaultRiskPct, seed.minRr, seed.marginMode, now);
 
   db.prepare(
     `INSERT INTO paper_meta (key, value, updated_ts) VALUES (?, ?, ?)
