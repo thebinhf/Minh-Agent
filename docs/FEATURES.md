@@ -38,3 +38,4 @@ Verify against `src/` before treating older PRs as product scope.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
 | [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2: 1–10% risk, fees, funding, multi-TP, leverage, isolated/cross) |
+| [operator.md](operator.md) | Minh Agent loop: MAP on HTF close, ARM alert+limit, EVENT-only (no 30m scan) |

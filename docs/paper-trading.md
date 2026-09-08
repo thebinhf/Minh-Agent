@@ -89,7 +89,7 @@ One row for MVP (`id = 1`, name `minh-paper`).
 | `risk_pct_min` | TEXT NOT NULL | Band floor — default `0.01`. Config, not a source constant. |
 | `risk_pct_max` | TEXT NOT NULL | Band cap — default `0.10`. Config, not a source constant. |
 | `default_risk_pct` | TEXT NOT NULL | Used when an open omits `riskPct`; must sit inside `[min, max]`. |
-| `min_rr` | TEXT | Optional floor (reward / risk). **NULL = no RR gate.** Do not default this to `2` in code. |
+| `min_rr` | TEXT | Optional floor (reward / risk). **NULL = no RR gate.** Do not default this to `2` in source. Operator seed in `config.json` is `"2"`. |
 | `fee_rate` | TEXT NOT NULL | Taker fee on notional. Product default `0.00055`. Tests may seed `0`. |
 | `leverage_min` / `leverage_max` / `default_leverage` | TEXT NOT NULL | Band + default. Product `1` / `25` / `1`. |
 | `mm_rate` | TEXT NOT NULL | Maintenance-margin rate for isolated liq. Product default `0.005`. |
@@ -353,7 +353,7 @@ bun run paper mark
   "riskPctMin": "0.01",
   "riskPctMax": "0.10",
   "defaultRiskPct": "0.02",
-  "minRr": null,
+  "minRr": "2",
   "feeRate": "0.00055",
   "leverageMin": "1",
   "leverageMax": "25",

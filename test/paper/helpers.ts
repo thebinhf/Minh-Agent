@@ -26,6 +26,7 @@ export async function paperConfig(dir: string, extra: Partial<PaperConfig> = {})
     tickMs: extra.tickMs ?? 0,
     account: extra.account ?? {
       ...base.account,
+      minRr: null,
       feeRate: "0",
       makerFeeRate: "0",
       defaultLeverage: "1",
