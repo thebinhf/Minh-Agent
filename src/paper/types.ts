@@ -31,6 +31,16 @@ export type PaperAccountSeed = {
   marginMode: PaperMarginMode;
 };
 
+export type NotifyChannel = "log" | "telegram" | "webhook" | "off";
+
+export type NotifyConfig = {
+  channel: NotifyChannel;
+  kinds: Array<"alert.fired" | "order.filled" | "order.invalidated" | "position.closed">;
+  telegramBotToken?: string;
+  telegramChatId?: string;
+  webhookUrl?: string;
+};
+
 export type PaperConfig = {
   httpHost: string;
   httpPort: number;
@@ -39,6 +49,7 @@ export type PaperConfig = {
   staleMs: number;
   tickMs: number;
   account: PaperAccountSeed;
+  notify: NotifyConfig;
 };
 
 export type PaperTicker = {

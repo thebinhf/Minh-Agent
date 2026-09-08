@@ -5,6 +5,10 @@
   "feedUrl": "http://127.0.0.1:43180",
   "staleMs": 15000,
   "tickMs": 400,
+  "notify": {
+    "channel": "log",
+    "kinds": ["alert.fired", "order.filled", "order.invalidated", "position.closed"]
+  },
   "account": {
     "name": "minh-paper",
     "quote": "USDT",

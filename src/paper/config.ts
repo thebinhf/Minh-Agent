@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { PaperSafetyError } from "./errors";
-import type { PaperAccountSeed, PaperConfig } from "./types";
+import { normalizeNotifyKinds, parseNotifyChannel } from "./notify";
+import type { NotifyConfig, PaperAccountSeed, PaperConfig } from "./types";
 
 const DEFAULT_CONFIG_PATH = resolve(import.meta.dir, "config.json");
 
@@ -76,6 +77,16 @@ function normalizeAccount(raw: PaperAccountSeed): PaperAccountSeed {
   };
 }
 
+function normalizeNotify(raw: Partial<NotifyConfig> | undefined): NotifyConfig {
+  return {
+    channel: parseNotifyChannel(strEnv("PAPER_NOTIFY") ?? raw?.channel),
+    kinds: normalizeNotifyKinds(raw?.kinds),
+    telegramBotToken: strEnv("PAPER_TELEGRAM_BOT_TOKEN") ?? raw?.telegramBotToken,
+    telegramChatId: strEnv("PAPER_TELEGRAM_CHAT_ID") ?? raw?.telegramChatId,
+    webhookUrl: strEnv("PAPER_NOTIFY_URL") ?? raw?.webhookUrl,
+  };
+}
+
 export async function loadPaperConfig(
   configPath = process.env.PAPER_CONFIG ?? DEFAULT_CONFIG_PATH,
 ): Promise<PaperConfig> {
@@ -93,5 +104,6 @@ export async function loadPaperConfig(
     staleMs: intEnv("PAPER_STALE_MS") ?? base.staleMs,
     tickMs: intEnv("PAPER_TICK_MS") ?? base.tickMs ?? 400,
     account: normalizeAccount(base.account),
+    notify: normalizeNotify(base.notify),
   };
 }

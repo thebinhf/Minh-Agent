@@ -286,8 +286,9 @@ export function createPaperEngine(opts: {
   config: PaperConfig;
   universe: PaperUniverse;
   instruments?: InstrumentCatalog;
+  onEvent?: (event: EventView) => void;
 }) {
-  const { store, feed, config, universe } = opts;
+  const { store, feed, config, universe, onEvent } = opts;
   const instruments = opts.instruments ?? defaultCatalog();
   const symbolSet = new Set(universe.symbols.map((s) => s.toUpperCase()));
   const intervalSet = new Set(universe.intervals.map(String));
@@ -381,7 +382,9 @@ export function createPaperEngine(opts: {
       payloadJson: JSON.stringify(payload),
       ts: now,
     });
-    return { id, kind, symbol, payload, ts: now };
+    const view = { id, kind, symbol, payload, ts: now };
+    onEvent?.(view);
+    return view;
   }
 
   function requireKnownSymbol(raw: string): string {

@@ -5,6 +5,7 @@ import { createPaperEngine, type PaperEngine } from "./engine";
 import { PaperReject } from "./errors";
 import { httpFeed } from "./feed";
 import { startPaperHttp } from "./http";
+import { bindPaperNotify, describeNotify } from "./notify";
 import type { PaperConfig, PaperFeed } from "./types";
 import type { PaperUniverse } from "./engine";
 
@@ -27,7 +28,13 @@ export async function startPaper(opts?: {
   const store = openPaperDb(config.dbPath, config.account);
   const feed = opts?.feed ?? httpFeed(config.feedUrl);
   const universe = opts?.universe ?? { symbols: feedCfg.symbols, intervals: feedCfg.klineIntervals };
-  const engine = createPaperEngine({ store, feed, config, universe });
+  const engine = createPaperEngine({
+    store,
+    feed,
+    config,
+    universe,
+    onEvent: bindPaperNotify(config.notify),
+  });
   const http = startPaperHttp(config, engine, feed);
   const tick = opts?.tick !== false;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -47,6 +54,7 @@ export async function startPaper(opts?: {
 
   console.log(`[minh:paper] http://${config.httpHost}:${http.port} db=${config.dbPath}`);
   console.log("[minh:paper] paper simulation only — no API keys, no real orders");
+  console.log(`[minh:paper] notify ${describeNotify(config.notify)}`);
   if (tick) {
     console.log(`[minh:paper] tick ${config.tickMs}ms — alerts/limits/SL-TP; events only, no PnL spam`);
   }

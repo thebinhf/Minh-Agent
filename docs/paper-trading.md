@@ -508,7 +508,7 @@ Do not paraphrase, weaken, or implement around these. They override any later co
 | No keys | If `BYBIT_API_KEY`, `BYBIT_API_SECRET`, or similar are set, paper **refuses to start** and prints that paper never uses keys. Do not read them “just in case”. |
 | Separate DB | `PAPER_DB_PATH` ≠ `BYBIT_DB_PATH`. Paper opens the feed DB readonly or uses HTTP. |
 | Separate HTTP | Paper does not add methods to the feed server (today GET-only on `:43180`). |
-| No mid-watch spam | No interval bot that posts marks / PnL to chat. Tick may log **events once** (`alert.fired`, `order.filled`, `position.closed`). |
+| No mid-watch spam | No interval bot that posts marks / PnL to chat. Tick may log **events once** (`alert.fired`, `order.filled`, `order.invalidated`, `position.closed`). Optional Telegram/webhook on those same kinds (`PAPER_NOTIFY`). |
 | No auto-live bridge | No command or route that places a Bybit order from a paper id. Live bridge is a **separate ticket** (locked item 3). |
 
 Startup banner: `paper simulation only — no API keys, no real orders`.
@@ -773,4 +773,29 @@ Daemon logs a line only when `evaluate().events.length > 0`.
 
 ### 11.5 Still banned
 
-No Telegram/push (log + SQLite is the channel). No scale-in. No live orders. No browser UI. No mid-watch PnL spam.
+No scale-in. No live orders. No browser UI. No mid-watch PnL spam.
+
+---
+
+## 12. Phase 4 — event notify
+
+Optional extra channel on top of log + `paper_events`. Default remains **log**. Still no mid-watch PnL, no live orders, no Bybit keys.
+
+| Lock | Rule |
+| --- | --- |
+| Kinds | `alert.fired`, `order.filled`, `order.invalidated`, `position.closed` only |
+| Not sent | `order.cancelled`, `order.rejected`, funding, MTM, idle ticks |
+| Channel | `log` (default) \| `telegram` \| `webhook` \| `off` |
+| Secrets | env only: `PAPER_TELEGRAM_BOT_TOKEN`, `PAPER_TELEGRAM_CHAT_ID`, `PAPER_NOTIFY_URL` |
+| Failure | Never block a fill. 4xx → log once, no retry. 5xx / 429 / timeout / network → up to 3 attempts with equal-jitter exponential backoff (400ms × 2ⁿ, cap 4s; honor `Retry-After` / Telegram `retry_after`, still capped). Then log `[minh:paper] notify failed kind=…`. Missing token/URL → warn once, stay log-only. Logs redact bot token and webhook basic-auth. |
+
+```text
+PAPER_NOTIFY=telegram
+PAPER_TELEGRAM_BOT_TOKEN=…
+PAPER_TELEGRAM_CHAT_ID=…
+# or
+PAPER_NOTIFY=webhook
+PAPER_NOTIFY_URL=https://ntfy.sh/minh-paper
+```
+
+Telegram is **not** a Bybit key. `assertNoApiKeys` still only refuses `BYBIT_*` key env.

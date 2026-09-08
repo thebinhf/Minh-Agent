@@ -15,9 +15,10 @@ Verify against `src/` before treating older PRs as product scope.
 | Snapshot brief | Live | `bun run brief` / `GET /brief` — one local JSON (ticker + 15/60/240) for Minh |
 | Chart / depth / heatmap views | Live | `GET /chart` stitches kline OHLCV; `GET /depth` is the live L50 ladder; `GET /heatmap` grids snapshots (+ live book); `GET /market` is one payload. No browser UI. |
 | Paper trading | Live | `src/paper/` — virtual USDT ledger sized like Bybit linear (lot/tick/notional), 1–10% risk, MTF tags, Phase 2 fees/funding/multi-TP/leverage, isolated or cross. Phase 3: price alerts, GTC limit pending (post-only default), daemon tick evaluates alerts/limits/SL-TP. CLI + `127.0.0.1:43181`. No keys, no real orders. See [paper-trading.md](paper-trading.md). |
-| Paper alerts | Live | `bun run paper alert set SYMBOL --above|--below PRICE`. Fire-once. Log + `paper_events` only — no chat spam. |
+| Paper alerts | Live | `bun run paper alert set SYMBOL --above|--below PRICE`. Fire-once. Log + `paper_events`; optional Telegram/webhook via `PAPER_NOTIFY`. No chat spam. |
 | Paper limit entry | Live | `bun run paper limit … --price`. Rests until last prints through; fill at the limit. Default post-only + OCO (invalidation cancels pending before fill). |
 | SQLite storage | Live | Feed: ticker tape off by default; book snaps on timer only; drop redundant kline index; prune checkpoints WAL and VACUUMs when freelist ≥15%. |
+| Paper event notify | Live | Optional `PAPER_NOTIFY=telegram|webhook` on `alert.fired` / `order.filled` / `order.invalidated` / `position.closed`. Default log. No PnL spam. |
 | Orderbook snapshot gate | Live | Clear RAM on connect; ignore deltas until snapshot/`u=1` |
 | Subscribe + REST retry | Live | Chunked subscribe (10) + exponential retry |
 
@@ -37,5 +38,5 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
-| [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2: 1–10% risk, fees, funding, multi-TP, leverage, isolated/cross) |
+| [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2–4: risk, fees, alerts/limit/OCO, optional event notify) |
 | [operator.md](operator.md) | Minh Agent loop: MAP on HTF close, ARM alert+limit, EVENT-only (no 30m scan) |
