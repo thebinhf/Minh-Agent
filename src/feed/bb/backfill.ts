@@ -1,7 +1,7 @@
 import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { decodeDumpBytes, inferDumpMeta, parseKlineDump } from "./dump";
-import { parseTimeArg } from "./recovery";
+import { intervalToMs, normalizeKlineInterval, parseTimeArg } from "./recovery";
 import { fillKlineHistory, probeRestHosts, type RestFetch } from "./rest";
 import { PA_KLINE_INTERVALS, type TrackerConfig } from "./types";
 
@@ -20,7 +20,7 @@ export type BackfillOptions = {
 
 function usage(): never {
   console.log(`Usage:
-  bun run backfill [--from rest] [--symbol BTCUSDT,ETHUSDT] [--interval 15,60,240] [--days N]
+  bun run backfill [--from rest] [--symbol BTCUSDT,ETHUSDT] [--interval 15,60,240,D] [--days N]
   bun run backfill --from ./klines.json --symbol BTCUSDT --interval 15
   bun run backfill --from https://public.bybit.com/kline_for_metatrader4/BTCUSDT/2025/BTCUSDT_15_2025-01-01_2025-01-31.csv.gz
   bun run backfill --probe
@@ -30,7 +30,8 @@ Public linear klines only. No API keys. Live WS is not started.
   --from rest|PATH|URL   rest = live public REST (default keyword, not a filename).
                          PATH or http(s) URL = JSON/CSV dump import (gzip ok)
   --symbol LIST          default: config symbols
-  --interval LIST        default: 15,60,240
+  --interval LIST        Bybit v5 kline ids: minutes (1,3,5,15,30,60,120,240,360,720)
+                         or named D (daily), W (weekly), M (monthly). default: 15,60,240
   --days N               lookback from --end (default: retention.klinesDays)
   --start TIME           Unix epoch ms (13-digit, e.g. 1725600000000), ISO-8601, or YYYY-MM-DD
   --end TIME             same formats as --start (default: now)
@@ -61,8 +62,12 @@ export function parseBackfillArgs(
 
   const from = flag(argv, "--from") ?? "rest";
   const symbols = csvArg(flag(argv, "--symbol") ?? flag(argv, "--symbols")) ?? config.symbols;
-  const intervals = csvArg(flag(argv, "--interval") ?? flag(argv, "--intervals"))
-    ?? [...PA_KLINE_INTERVALS];
+  const intervals = (csvArg(flag(argv, "--interval") ?? flag(argv, "--intervals"))
+    ?? [...PA_KLINE_INTERVALS]).map((item) => {
+      const interval = normalizeKlineInterval(item);
+      intervalToMs(interval);
+      return interval;
+    });
   const end = flag(argv, "--end") ? parseTimeArg(flag(argv, "--end")!) : now;
   const startRaw = flag(argv, "--start");
   const daysRaw = flag(argv, "--days");

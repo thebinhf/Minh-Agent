@@ -22,6 +22,7 @@ bun run paper status
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 bun run backfill --probe
 bun run backfill --days 14   # 15/60/240 into SQLite; does not start WS
+bun run backfill --interval D,W --days 365
 ```
 
 ## Docs

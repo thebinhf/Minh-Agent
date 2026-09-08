@@ -33,6 +33,23 @@ describe("parseRestKlineList", () => {
     });
     expect(candles[1]?.confirm).toBe(true);
   });
+
+  test("maps daily D candles with a 1-day duration", () => {
+    const start = Date.UTC(2025, 0, 1);
+    const now = Date.UTC(2025, 0, 2);
+    const candles = parseRestKlineList(
+      [[String(start), "1", "2", "0.5", "1.5", "9", "8"]],
+      "d",
+      now,
+    );
+    expect(candles).toHaveLength(1);
+    expect(candles[0]).toMatchObject({
+      start,
+      end: start + 86_400_000,
+      interval: "D",
+      confirm: true,
+    });
+  });
 });
 
 describe("fillKlineGaps", () => {
@@ -225,5 +242,41 @@ describe("REST host failover", () => {
     });
     expect(result.candles).toBe(1);
     expect(saved).toEqual([1_200_000]);
+  });
+
+  test("fillKlineHistory requests named interval D on the public kline API", async () => {
+    resetRestHostCache();
+    const config = {
+      restEndpoint: "https://api.bybit.com",
+      restFallbacks: [] as string[],
+      symbols: ["BTCUSDT"],
+      klineIntervals: ["15"],
+      retention: { klinesDays: 1 },
+      recovery: { ...DEFAULT_RECOVERY, restRetries: 1, restRetryDelayMs: 1, restTimeoutMs: 200 },
+    } as TrackerConfig;
+    const urls: string[] = [];
+    const result = await fillKlineHistory(config, {
+      saveKline() {},
+    }, {
+      symbols: ["BTCUSDT"],
+      intervals: ["d"],
+      start: 1_000_000,
+      end: 2_000_000,
+      now: 2_000_000,
+      fetchImpl: async (url) => {
+        urls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            retCode: 0,
+            result: { list: [["1500000", "1", "2", "0.5", "1.5", "9", "8"]] },
+          }),
+        };
+      },
+    });
+    expect(result.candles).toBe(1);
+    expect(urls[0]).toContain("interval=D");
+    resetRestHostCache();
   });
 });

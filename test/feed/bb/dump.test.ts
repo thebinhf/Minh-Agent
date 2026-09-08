@@ -11,6 +11,14 @@ describe("inferDumpMeta", () => {
       symbol: "ETHUSDT",
       interval: "60",
     });
+    expect(inferDumpMeta("BTCUSDT_D_2025-01-01_2025-12-31.csv.gz")).toEqual({
+      symbol: "BTCUSDT",
+      interval: "D",
+    });
+    expect(inferDumpMeta("ETHUSDT_W_2025-01-01_2025-12-31.csv")).toEqual({
+      symbol: "ETHUSDT",
+      interval: "W",
+    });
   });
 });
 
@@ -47,6 +55,21 @@ describe("parseKlineDump", () => {
     );
     expect(parsed.candles[0]?.interval).toBe("60");
     expect(parsed.candles[0]?.start).toBe(1_735_689_600_000);
+  });
+
+  test("maps daily D candles and canonicalizes the interval", () => {
+    const start = Date.UTC(2025, 0, 1);
+    const parsed = parseKlineDump(
+      JSON.stringify([[String(start), "1", "2", "0.5", "1.5", "4", "5"]]),
+      { interval: "d", now: Date.UTC(2025, 0, 2) },
+    );
+    expect(parsed.interval).toBe("D");
+    expect(parsed.candles[0]).toMatchObject({
+      interval: "D",
+      start,
+      end: start + 86_400_000,
+      confirm: true,
+    });
   });
 
   test("maps object rows", () => {

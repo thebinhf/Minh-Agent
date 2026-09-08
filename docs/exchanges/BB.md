@@ -13,7 +13,7 @@ Adapter path: `src/feed/bb/`.
 | Runtime | Bun + TypeScript + `bun:sqlite` |
 | Endpoint | `wss://stream.bybit.com/v5/public/linear` |
 | Symbols | BTCUSDT ETHUSDT SOLUSDT ENAUSDT BNBUSDT XRPUSDT DOGEUSDT AVAXUSDT LINKUSDT |
-| Kline intervals | 5, 15, 60, 240 |
+| Kline intervals | Live WS: 5, 15, 60, 240. REST/backfill also accept Bybit v5 `1`,`3`,`5`,`15`,`30`,`60`,`120`,`240`,`360`,`720`,`D`,`W`,`M` |
 | Orderbook | depth 50 for BTC / ETH / SOL |
 | Topics | `tickers.{symbol}`, `kline.{interval}.{symbol}`, `orderbook.50.{symbol}` |
 | HTTP | read-only `127.0.0.1:43180` |
@@ -29,7 +29,7 @@ Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50
 | --- | --- |
 | Stale pong | After `watchdogGraceMs` (30s), if no pong for `pongStaleMs` (60s), close the socket so reconnect/backoff runs. |
 | Gap-fill | After subscribe succeeds, REST `GET /v5/market/kline` backfills each symbol×interval from `MAX(start_ts)` (or `klinesDays` lookback). Failures are logged; WS stays up. Disable with `BYBIT_GAP_FILL=0`. |
-| Historical backfill | One-shot `bun run backfill` walks a full window (default 15/60/240) via REST failover or a JSON/CSV dump. Does not start WS. |
+| Historical backfill | One-shot `bun run backfill` walks a full window (default 15/60/240) via REST failover or a JSON/CSV dump. Interval list is Bybit v5 ids (minutes or `D`/`W`/`M`). Does not start WS. |
 | Orderbook | `books.clear()` on every connect. Deltas are ignored until a snapshot or `u=1`. |
 | Retry | Subscribe in chunks of 10 with ack timeout + 3 retries. REST kline uses the same retry helper. |
 
@@ -78,9 +78,11 @@ bun run query meta
 
 `--start` / `--end` on `query klines` are Unix epoch **milliseconds** (13-digit), ISO-8601, or `YYYY-MM-DD`. Seconds (10-digit) are not accepted. `--from` is a `backfill` flag (REST keyword or dump PATH/URL), not a query flag.
 
-### Historical klines for PA (15 / 60 / 240)
+### Historical klines for PA (15 / 60 / 240) and higher TFs (`D` / `W`)
 
 Live WS only writes candles while the process is up. Deeper history is a separate, one-shot job. It writes the same `klines` table; Minh never talks to a trading API.
+
+`--interval` is a comma-separated list of Bybit v5 public kline ids. Numeric values are minutes. Named values: `D` (daily), `W` (weekly), `M` (monthly). Defaults stay `15,60,240`. Mix is allowed (`5,15,30,60,120,240,360,720,D,W`).
 
 ```bash
 # Probe which public REST hosts answer from this machine
@@ -89,6 +91,8 @@ bun run backfill --probe
 # REST: try official host, then restFallbacks. Default intervals 15,60,240
 bun run backfill --days 14
 bun run backfill --symbol BTCUSDT,ETHUSDT --interval 15,60,240 --days 30
+bun run backfill --symbol BTCUSDT --interval 5,15,30,60,120,240,360,720 --days 14
+bun run backfill --symbol BTCUSDT --interval D,W --days 365
 
 # Offline / dump import (JSON REST envelope, tuple array, or MT4 CSV; gzip ok)
 bun run backfill --from ./btc-15.json --symbol BTCUSDT --interval 15
@@ -184,7 +188,7 @@ Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 | `BYBIT_HTTP_HOST` / `BYBIT_HTTP_PORT` | bind address (default `127.0.0.1:43180`) |
 | `BYBIT_DB_PATH` | SQLite file |
 | `BYBIT_SYMBOLS` | comma-separated symbols |
-| `BYBIT_KLINE_INTERVALS` | comma-separated intervals |
+| `BYBIT_KLINE_INTERVALS` | comma-separated live WS intervals (same Bybit v5 ids as backfill: minutes or `D`/`W`/`M`) |
 | `BYBIT_ORDERBOOK_SYMBOLS` | comma-separated L50 symbols |
 | `BYBIT_ORDERBOOK_DEPTH` | book depth |
 | `BYBIT_PING_INTERVAL_MS` | heartbeat interval |
