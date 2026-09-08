@@ -1,5 +1,5 @@
 import type { TrackerDb } from "./db";
-import { intervalToMs } from "./recovery";
+import { intervalToMs, normalizeKlineInterval } from "./recovery";
 import type { BookLevel } from "./types";
 
 export const DEFAULT_VIEW_SYMBOL = "BTCUSDT";
@@ -214,7 +214,7 @@ export function buildChart(
   } = {},
 ): ChartView {
   const symbol = normalizeSymbol(opts.symbol);
-  const interval = opts.interval?.trim() || DEFAULT_CHART_INTERVAL;
+  const interval = normalizeKlineInterval(opts.interval?.trim() || DEFAULT_CHART_INTERVAL);
   const intervalMs = intervalToMs(interval);
   const limit = Math.min(Math.max(opts.limit ?? DEFAULT_CHART_LIMIT, 1), CHART_MAX_LIMIT);
   const rows = store.listKlines({
@@ -474,7 +474,7 @@ export function buildMarket(
   } = {},
 ): MarketView {
   const symbol = normalizeSymbol(opts.symbol);
-  const interval = opts.interval?.trim() || DEFAULT_CHART_INTERVAL;
+  const interval = normalizeKlineInterval(opts.interval?.trim() || DEFAULT_CHART_INTERVAL);
   return {
     symbol,
     ts: opts.now ?? Date.now(),

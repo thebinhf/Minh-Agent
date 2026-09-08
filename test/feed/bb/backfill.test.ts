@@ -67,6 +67,36 @@ describe("parseBackfillArgs", () => {
       now: 9_000,
     });
   });
+
+  test("accepts Bybit named intervals D and W (and M)", () => {
+    const parsed = parseBackfillArgs(
+      ["--interval", "D,W,M", "--symbol", "BTCUSDT"],
+      config,
+      2_000_000,
+    );
+    expect(parsed).toMatchObject({
+      source: "rest",
+      symbols: ["BTCUSDT"],
+      intervals: ["D", "W", "M"],
+    });
+  });
+
+  test("normalizes lowercase named intervals and keeps minute ids", () => {
+    const parsed = parseBackfillArgs(
+      ["--interval", "5,15,d,w"],
+      config,
+      2_000_000,
+    );
+    expect(parsed).toMatchObject({
+      intervals: ["5", "15", "D", "W"],
+    });
+  });
+
+  test("rejects unknown interval tokens before REST", () => {
+    expect(() => parseBackfillArgs(["--interval", "15,Q"], config, 1)).toThrow(
+      "Unsupported kline interval: Q",
+    );
+  });
 });
 
 describe("runBackfill", () => {
@@ -131,6 +161,39 @@ describe("runBackfill", () => {
       expect(result.candles).toBe(1);
       expect(result.errors).toBe(0);
       expect(store.getLastKlineStart("BTCUSDT", "15")).toBe(1_500_000);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("REST backfill accepts daily interval D", async () => {
+    const { store } = tempDb();
+    const start = Date.UTC(2025, 0, 1);
+    try {
+      const result = await runBackfill(config, store, {
+        source: "rest",
+        symbols: ["BTCUSDT"],
+        intervals: ["D"],
+        start,
+        end: Date.UTC(2025, 0, 3),
+        now: Date.UTC(2025, 0, 3),
+        fetchImpl: async (url) => {
+          expect(url).toContain("interval=D");
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              retCode: 0,
+              result: { list: [[String(start), "1", "2", "0.5", "1.5", "9", "8"]] },
+            }),
+          };
+        },
+      });
+      expect(result.candles).toBe(1);
+      expect(result.errors).toBe(0);
+      expect(store.getLastKlineStart("BTCUSDT", "D")).toBe(start);
+      const rows = store.listKlines({ symbol: "BTCUSDT", interval: "D", limit: 10 });
+      expect(rows[0]).toMatchObject({ interval: "D", start_ts: start });
     } finally {
       store.close();
     }

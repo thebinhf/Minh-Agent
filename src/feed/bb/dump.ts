@@ -1,4 +1,4 @@
-import { intervalToMs, restCandleConfirm } from "./recovery";
+import { klineEndTs, normalizeKlineInterval, restCandleConfirm } from "./recovery";
 import { parseRestKlineList } from "./rest";
 import type { BybitKline } from "./types";
 
@@ -11,13 +11,13 @@ export type ParsedDump = DumpMeta & {
   candles: BybitKline[];
 };
 
-const MT4_NAME = /^([A-Z0-9]+)_(\d+)_/;
+const MT4_NAME = /^([A-Z0-9]+)_(\d+|[DWM])_/i;
 
 export function inferDumpMeta(name: string): DumpMeta {
   const base = name.split(/[\\/]/).pop() ?? name;
   const match = MT4_NAME.exec(base);
-  if (!match) return {};
-  return { symbol: match[1], interval: match[2] };
+  if (!match || !match[1] || !match[2]) return {};
+  return { symbol: match[1].toUpperCase(), interval: normalizeKlineInterval(match[2]) };
 }
 
 export function decodeDumpBytes(bytes: Uint8Array): string {
@@ -26,20 +26,25 @@ export function decodeDumpBytes(bytes: Uint8Array): string {
   return new TextDecoder().decode(raw);
 }
 
+function resolveDumpInterval(interval: string): string {
+  return interval.trim() ? normalizeKlineInterval(interval) : interval;
+}
+
 export function parseKlineDump(
   text: string,
   opts: { interval: string; now: number; symbol?: string },
 ): ParsedDump {
   const trimmed = text.trim();
-  if (!trimmed) return { symbol: opts.symbol, interval: opts.interval, candles: [] };
+  const interval = resolveDumpInterval(opts.interval);
+  if (!trimmed) return { symbol: opts.symbol, interval, candles: [] };
 
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return parseJsonDump(JSON.parse(trimmed) as unknown, opts);
+    return parseJsonDump(JSON.parse(trimmed) as unknown, { ...opts, interval });
   }
   return {
     symbol: opts.symbol,
-    interval: opts.interval,
-    candles: parseCsvDump(trimmed, opts.interval, opts.now),
+    interval,
+    candles: parseCsvDump(trimmed, interval, opts.now),
   };
 }
 
@@ -72,7 +77,9 @@ function parseJsonDump(
       : undefined;
     const list = result?.list ?? obj.list ?? obj.klines ?? obj.candles;
     const symbol = stringish(obj.symbol) ?? stringish(result?.symbol) ?? opts.symbol;
-    const interval = stringish(obj.interval) ?? stringish(result?.interval) ?? opts.interval;
+    const interval = resolveDumpInterval(
+      stringish(obj.interval) ?? stringish(result?.interval) ?? opts.interval,
+    );
     if (Array.isArray(list)) {
       if (list.length && Array.isArray(list[0])) {
         return { symbol, interval, candles: parseRestKlineList(list, interval, opts.now) };
@@ -85,7 +92,7 @@ function parseJsonDump(
 }
 
 function parseObjectRows(rows: unknown[], interval: string, now: number): BybitKline[] {
-  const intervalMs = intervalToMs(interval);
+  const resolved = normalizeKlineInterval(interval);
   const candles: BybitKline[] = [];
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
@@ -97,17 +104,18 @@ function parseObjectRows(rows: unknown[], interval: string, now: number): BybitK
     const low = rec.low ?? rec.Low;
     const close = rec.close ?? rec.Close;
     if (open == null || high == null || low == null || close == null) continue;
+    const end = klineEndTs(start, resolved);
     candles.push({
       start,
-      end: start + intervalMs,
-      interval,
+      end,
+      interval: resolved,
       open: String(open),
       high: String(high),
       low: String(low),
       close: String(close),
       volume: String(rec.volume ?? rec.Volume ?? "0"),
       turnover: String(rec.turnover ?? rec.Turnover ?? "0"),
-      confirm: restCandleConfirm(start, intervalMs, now),
+      confirm: restCandleConfirm(start, end - start, now),
       timestamp: start,
     });
   }
@@ -125,24 +133,25 @@ export function parseCsvDump(text: string, interval: string, now: number): Bybit
     start = 1;
   }
 
-  const intervalMs = intervalToMs(interval);
+  const resolved = normalizeKlineInterval(interval);
   const candles: BybitKline[] = [];
   for (const line of lines.slice(start)) {
     const cells = splitCsv(line);
     if (cells.length < 5) continue;
     const mapped = header ? mapHeaderRow(header, cells) : mapPositionalRow(cells);
     if (!mapped) continue;
+    const end = klineEndTs(mapped.start, resolved);
     candles.push({
       start: mapped.start,
-      end: mapped.start + intervalMs,
-      interval,
+      end,
+      interval: resolved,
       open: mapped.open,
       high: mapped.high,
       low: mapped.low,
       close: mapped.close,
       volume: mapped.volume,
       turnover: mapped.turnover,
-      confirm: restCandleConfirm(mapped.start, intervalMs, now),
+      confirm: restCandleConfirm(mapped.start, end - mapped.start, now),
       timestamp: mapped.start,
     });
   }

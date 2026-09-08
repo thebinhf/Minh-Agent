@@ -4,6 +4,8 @@ import {
   computeGapStart,
   intervalToMs,
   isPongStale,
+  klineEndTs,
+  normalizeKlineInterval,
   parseTimeArg,
   restCandleConfirm,
   withRetries,
@@ -91,7 +93,42 @@ describe("chunkTopics / retry", () => {
 describe("kline gap math", () => {
   test("intervalToMs maps Bybit minute ids", () => {
     expect(intervalToMs("5")).toBe(300_000);
+    expect(intervalToMs("15")).toBe(900_000);
+    expect(intervalToMs("30")).toBe(1_800_000);
+    expect(intervalToMs("60")).toBe(3_600_000);
+    expect(intervalToMs("120")).toBe(7_200_000);
     expect(intervalToMs("240")).toBe(14_400_000);
+    expect(intervalToMs("360")).toBe(21_600_000);
+    expect(intervalToMs("720")).toBe(43_200_000);
+  });
+
+  test("intervalToMs maps Bybit named D/W/M intervals", () => {
+    expect(intervalToMs("D")).toBe(86_400_000);
+    expect(intervalToMs("W")).toBe(7 * 86_400_000);
+    expect(intervalToMs("M")).toBe(30 * 86_400_000);
+    expect(intervalToMs("d")).toBe(86_400_000);
+    expect(intervalToMs("w")).toBe(7 * 86_400_000);
+  });
+
+  test("normalizeKlineInterval canonicalizes named tokens", () => {
+    expect(normalizeKlineInterval("d")).toBe("D");
+    expect(normalizeKlineInterval(" W ")).toBe("W");
+    expect(normalizeKlineInterval("15")).toBe("15");
+  });
+
+  test("klineEndTs uses a calendar month for M", () => {
+    const jan = Date.UTC(2025, 0, 1);
+    const feb = Date.UTC(2025, 1, 1);
+    expect(klineEndTs(jan, "D")).toBe(jan + 86_400_000);
+    expect(klineEndTs(jan, "W")).toBe(jan + 7 * 86_400_000);
+    expect(klineEndTs(jan, "M")).toBe(feb);
+    expect(klineEndTs(feb, "M")).toBe(Date.UTC(2025, 2, 1));
+  });
+
+  test("intervalToMs rejects unknown tokens", () => {
+    expect(() => intervalToMs("Q")).toThrow("Unsupported kline interval: Q");
+    expect(() => intervalToMs("1D")).toThrow("Unsupported kline interval: 1D");
+    expect(() => intervalToMs("")).toThrow("Unsupported kline interval");
   });
 
   test("computeGapStart uses lookback when the series is empty", () => {

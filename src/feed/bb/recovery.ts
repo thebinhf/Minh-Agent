@@ -68,12 +68,65 @@ export async function withRetries<T>(
   throw lastError;
 }
 
+const DAY_MS = 86_400_000;
+
+/** Bybit v5 named kline intervals (UTC calendar units, not minute counts). */
+const NAMED_INTERVAL_MS: Record<string, number> = {
+  D: DAY_MS,
+  W: 7 * DAY_MS,
+  /** Representative 30d step for gap math; candle close uses `klineEndTs`. */
+  M: 30 * DAY_MS,
+};
+
+/**
+ * Canonical Bybit v5 kline interval id: minute strings stay as-is (`15`),
+ * named tokens are uppercased (`d` → `D`).
+ */
+export function normalizeKlineInterval(interval: string): string {
+  const token = interval.trim();
+  if (!token) {
+    throw new Error(`Unsupported kline interval: ${interval}`);
+  }
+  const upper = token.toUpperCase();
+  if (upper in NAMED_INTERVAL_MS) return upper;
+  return token;
+}
+
+/**
+ * Duration in ms for a Bybit v5 kline interval.
+ * Numeric ids are minutes (`1`,`3`,`5`,`15`,`30`,`60`,`120`,`240`,`360`,`720`).
+ * Named ids: `D` = 1 UTC day, `W` = 7 UTC days, `M` ≈ 30 UTC days.
+ */
 export function intervalToMs(interval: string): number {
-  const minutes = Number(interval);
-  if (!Number.isFinite(minutes) || minutes <= 0) {
+  const token = normalizeKlineInterval(interval);
+  const named = NAMED_INTERVAL_MS[token];
+  if (named !== undefined) return named;
+  if (!/^\d+$/.test(token)) {
+    throw new Error(`Unsupported kline interval: ${interval}`);
+  }
+  const minutes = Number(token);
+  if (!Number.isInteger(minutes) || minutes <= 0) {
     throw new Error(`Unsupported kline interval: ${interval}`);
   }
   return minutes * 60_000;
+}
+
+/** Exclusive candle end. Monthly bars close at the next UTC calendar month. */
+export function klineEndTs(start: number, interval: string): number {
+  const token = normalizeKlineInterval(interval);
+  if (token === "M") {
+    const d = new Date(start);
+    return Date.UTC(
+      d.getUTCFullYear(),
+      d.getUTCMonth() + 1,
+      d.getUTCDate(),
+      d.getUTCHours(),
+      d.getUTCMinutes(),
+      d.getUTCSeconds(),
+      d.getUTCMilliseconds(),
+    );
+  }
+  return start + intervalToMs(token);
 }
 
 export function computeGapStart(

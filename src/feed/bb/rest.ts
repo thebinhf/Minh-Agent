@@ -1,7 +1,8 @@
 import type { TrackerDb } from "./db";
 import {
   computeGapStart,
-  intervalToMs,
+  klineEndTs,
+  normalizeKlineInterval,
   restCandleConfirm,
   withRetries,
 } from "./recovery";
@@ -56,24 +57,25 @@ export function parseRestKlineList(
   now: number,
 ): BybitKline[] {
   if (!Array.isArray(list)) return [];
-  const intervalMs = intervalToMs(interval);
+  const resolved = normalizeKlineInterval(interval);
   const candles: BybitKline[] = [];
   for (const row of list) {
     if (!Array.isArray(row) || row.length < 7) continue;
     const [startRaw, open, high, low, close, volume, turnover] = row as RestKlineRow;
     const start = Number(startRaw);
     if (!Number.isFinite(start)) continue;
+    const end = klineEndTs(start, resolved);
     candles.push({
       start,
-      end: start + intervalMs,
-      interval,
+      end,
+      interval: resolved,
       open: String(open),
       high: String(high),
       low: String(low),
       close: String(close),
       volume: String(volume),
       turnover: String(turnover),
-      confirm: restCandleConfirm(start, intervalMs, now),
+      confirm: restCandleConfirm(start, end - start, now),
       timestamp: start,
     });
   }
@@ -94,10 +96,11 @@ async function fetchLinearKlinesFromBase(
   },
 ): Promise<BybitKline[]> {
   const recovery = config.recovery;
+  const interval = normalizeKlineInterval(opts.interval);
   const url = new URL("/v5/market/kline", base);
   url.searchParams.set("category", "linear");
   url.searchParams.set("symbol", opts.symbol);
-  url.searchParams.set("interval", opts.interval);
+  url.searchParams.set("interval", interval);
   url.searchParams.set("start", String(opts.start));
   url.searchParams.set("end", String(opts.end));
   url.searchParams.set("limit", "1000");
@@ -124,7 +127,7 @@ async function fetchLinearKlinesFromBase(
       if (body.retCode !== 0) {
         throw new Error(`Bybit REST kline ${body.retCode}: ${body.retMsg ?? "error"}`);
       }
-      return parseRestKlineList(body.result?.list, opts.interval, opts.now);
+      return parseRestKlineList(body.result?.list, interval, opts.now);
     } finally {
       clearTimeout(timer);
       opts.signal?.removeEventListener("abort", onAbort);
