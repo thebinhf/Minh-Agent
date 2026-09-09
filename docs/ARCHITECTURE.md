@@ -21,7 +21,9 @@ src/index.ts
          GET /brief  (one snapshot JSON for Minh — ticker + 15/60/240)
          GET /map    (HTF MAP — ticker + 4H/1H + D if backfilled; no 15m)
          GET /confirm (EVENT — ticker + 20×15m or 5m; no depth)
+         GET /brief-pack  (tickers + kline lag + open paper desk; paper injected from composition root)
          GET /chart  GET /depth  GET /heatmap  GET /market
+         GET /health  (WS + per 15/60/240 kline lag)
   → src/paper
        → paper SQLite ledger (separate file)
        → risk engine (account 1–10% band, R:R from SL/TP, MTF tags, Phase 2 fee/funding/lev)
@@ -35,6 +37,7 @@ src/index.ts
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
 bun run map [SYMBOL ...] # HTF MAP snapshot; several names → { maps }; agent draws S/D
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
+bun run brief-pack [SYMBOL]  # same JSON as GET /brief-pack; all symbols if omitted
 bun run query chart|depth|heatmap|market
 bun run paper account    # simulated equity (no keys, no real orders)
 bun run backfill   # one-shot; does not start WS
@@ -48,6 +51,7 @@ bun run backfill   # one-shot; does not start WS
 | Path | Purpose |
 | --- | --- |
 | `src/index.ts` | Composition root |
+| `src/brief-pack.ts` | CLI for `GET /brief-pack` (feed SQLite + local paper SQLite) |
 | `src/feed/bb/` | Bybit public WS tracker (first live feature) |
 | `src/paper/` | Paper trading ledger + CLI + HTTP (simulation only) |
 | `test/feed/bb/` | Tracker unit tests |
@@ -60,8 +64,8 @@ bun run backfill   # one-shot; does not start WS
 
 | Layer | Path | Rule |
 | --- | --- | --- |
-| App | `src/` | Boot + wire only |
-| Feed | `src/feed/bb/` | Exchange I/O — public WS, SQLite, HTTP |
+| App | `src/index.ts`, `src/brief-pack.ts` | Boot + wire. `GET /brief-pack` injects `paperDesk` from the composition root so feed never imports paper. CLI opens both SQLite files. |
+| Feed | `src/feed/bb/` | Exchange I/O — public WS, SQLite, HTTP. Owns kline lag on `/health`. |
 | Paper | `src/paper/` | Simulated broker — own DB, own HTTP. Reads feed prices only. |
 
 Future features (strategy, agent, presence) belong under `src/` the same way — not as `apps/*` packages.

@@ -74,3 +74,4 @@ export { assertNoApiKeys, loadPaperConfig } from "./config";
 export { createPaperEngine } from "./engine";
 export { httpFeed } from "./feed";
 export { startPaperHttp } from "./http";
+export { paperDesk } from "./ops";

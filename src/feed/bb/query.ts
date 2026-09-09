@@ -1,11 +1,12 @@
 import { loadConfig } from "./config";
 import { openDb } from "./db";
+import { buildFeedHealth } from "./health";
 import { parseTimeArg } from "./recovery";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 
 function usage(): never {
   console.log(`Usage:
-  bun run query health
+  bun run query health          # same JSON as GET /health (WS + kline lag)
   bun run query meta
   bun run query tickers [SYMBOL]
   bun run query orderbooks [SYMBOL]
@@ -44,7 +45,7 @@ try {
 try {
   switch (command) {
     case "health":
-      console.log(JSON.stringify(store.getHealth(), null, 2));
+      console.log(JSON.stringify(buildFeedHealth(store, config), null, 2));
       break;
     case "meta":
       console.log(JSON.stringify(store.getMeta(), null, 2));

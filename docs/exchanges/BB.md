@@ -28,6 +28,7 @@ Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50
 | Step | Behavior |
 | --- | --- |
 | Stale pong | After `watchdogGraceMs` (30s), if no pong for `pongStaleMs` (60s), close the socket so reconnect/backoff runs. |
+| Kline lag | After subscribe, `GET /health` `klineLag` compares 15/60/240 `recv_ts` / `start_ts` to ticker freshness. Default `klineLagMs` = 180000 (3 min). Logs once when a series goes stale while ticker WS is still live, and once on recover. Not a price-watch ping. |
 | Gap-fill | After subscribe succeeds, REST `GET /v5/market/kline` backfills each symbol×interval from `MAX(start_ts)` (or `klinesDays` lookback). Failures are logged; WS stays up. Disable with `BYBIT_GAP_FILL=0`. |
 | Historical backfill | One-shot `bun run backfill` walks a full window (default 15/60/240) via REST failover or a JSON/CSV dump. Interval list is Bybit v5 ids (minutes or `D`/`W`/`M`). Does not start WS. |
 | Orderbook | `books.clear()` on every connect. Deltas are ignored until a snapshot or `u=1`. |
@@ -47,11 +48,12 @@ bun run start
 
 HTTP (read-only):
 
-- `GET /health`
+- `GET /health` — WS + ticker ages + `klineLag` (15/60/240 per symbol)
 - `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
 - `GET /map?symbol=BTCUSDT` — HTF MAP (ticker + 4H/1H + daily if backfilled; no 15m, no S/D)
 - `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` — same, `{ maps: [...] }` (cap 8)
 - `GET /confirm?symbol=BTCUSDT&interval=15` — EVENT LTF (ticker + 20×15m; scalp `interval=5`)
+- `GET /brief-pack` — tickers + kline lag + open paper desk (additive; not candles)
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
 - `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size
 - `GET /heatmap?symbol=BTCUSDT&limit=120&bucket=10` — liquidity grid from book snapshots (+ live book)
@@ -68,6 +70,8 @@ CLI against the same SQLite file:
 bun run brief BTCUSDT
 bun run map BTCUSDT
 bun run confirm BTCUSDT
+bun run brief-pack
+bun run brief-pack BTCUSDT
 bun run query health
 bun run query tickers BTCUSDT
 bun run query orderbooks ETHUSDT
@@ -111,6 +115,7 @@ Read what landed:
 | Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
 | HTF map | `bun run map SYMBOL ...` or `GET /map?symbol=` — ticker + 20×4h / 24×1h / 30×D. Several names: `?symbols=` → `{ maps }` (cap 8) |
 | LTF confirm | `bun run confirm SYMBOL` or `GET /confirm?symbol=&interval=15` — ticker + 20×15m (or 5) |
+| Brief pack | `bun run brief-pack [SYMBOL]` or `GET /brief-pack` — tickers + kline lag + open paper + `zones: []` |
 | Chart / depth / heatmap | `bun run query chart\|depth\|heatmap\|market` or `GET /chart` `/depth` `/heatmap` `/market` |
 | CLI | `bun run query klines SYMBOL INTERVAL --start TIME --end TIME --limit N` (cap 20000) |
 | HTTP | `GET /klines?symbol=BTCUSDT&interval=15&start=&end=&limit=1000` and `GET /kline-stats` |
@@ -145,6 +150,72 @@ Minh should read **one** local payload instead of stitching `/tickers` + `/kline
 - Kline rows: `start_ts`, `open`, `high`, `low`, `close`, `volume`, `turnover`, `confirm` (boolean).
 - Arrays are **oldest-first (newest last)**. The last row is the most recent candle and may be unconfirmed.
 - Read-only against local SQLite. No API keys, no private WS, no orders.
+
+## Health / kline lag
+
+`GET /health` (and `bun run query health`) keeps the existing WS fields. `ok` is still ticker/WS freshness (paper uses this). Kline lag is a nested object so MAP can see a stuck 15/60/240 series without treating SQLite as live.
+
+```json
+{
+  "ok": true,
+  "connected": true,
+  "tickers": [{ "symbol": "BTCUSDT", "lastPrice": "100", "ageMs": 120 }],
+  "klineLag": {
+    "ok": false,
+    "staleMs": 180000,
+    "intervals": ["15", "60", "240"],
+    "rows": [
+      {
+        "symbol": "BTCUSDT",
+        "interval": "15",
+        "startTs": 0,
+        "recvTs": 0,
+        "confirm": false,
+        "klineLagMs": 240000,
+        "tickerAgeMs": 120,
+        "tickerLive": true,
+        "formingStuck": true,
+        "stale": true
+      }
+    ]
+  }
+}
+```
+
+A row is `stale` only while the ticker is live (`tickerAgeMs` < 15s) **and** an existing 15/60/240 candle has not advanced for `klineLagMs` (old `recv_ts`, forming candle stuck, or confirmed bar that never opened the current interval). Missing klines (`startTs: null`) stay visible as nulls and do **not** trip the watchdog — that avoids boot spam before the first WS kline. Watchdog logs once on trip and once on recover — not a mid-range price watch.
+
+## Brief pack
+
+Additive MAP helper: tickers + kline lag + open paper desk. It does **not** replace `GET /map` (HTF candles) and is **not** a candle dump. CLI and HTTP share the same JSON. `/brief` is unchanged.
+
+```json
+{
+  "ts": 0,
+  "symbols": ["BTCUSDT"],
+  "tickers": [
+    {
+      "symbol": "BTCUSDT",
+      "lastPrice": null,
+      "price24hPcnt": null,
+      "fundingRate": null,
+      "nextFundingTime": null,
+      "openInterest": null,
+      "openInterestValue": null,
+      "recvTs": null
+    }
+  ],
+  "klineLag": { "ok": true, "staleMs": 180000, "intervals": ["15", "60", "240"], "rows": [] },
+  "paper": { "source": null, "positions": [], "pendingOrders": [], "armedAlerts": [] },
+  "zones": [],
+  "meta": { "db": "...", "klinesDays": 14, "paperSource": null }
+}
+```
+
+- Default: every configured feed symbol. `?symbol=` / CLI positional filters one pair.
+- Missing ticker / kline / paper → `null` / `[]`. Unknown symbol does not 404.
+- `klineLag` is the same object as `GET /health`.
+- `paper` is the **local** paper desk (open positions, pending limits, armed alerts). Same process: composition root injects `paperDesk` from the paper engine (no `:43181` hop). CLI: opens `PAPER_DB_PATH` if the file exists. Feed-only → `source: null` and empty arrays. Feed does not import `src/paper`.
+- `zones` is always `[]`. MAP zones are agent-drawn; this repo has no zones store and does not auto-detect S/D.
 
 ## Chart, depth, heatmap
 
@@ -203,6 +274,7 @@ Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 | `BYBIT_REST_FALLBACKS` | comma-separated extra REST bases; empty string disables fallbacks |
 | `BYBIT_KLINES_DAYS` | confirmed-kline retention (also the default `backfill --days`) |
 | `BYBIT_PONG_STALE_MS` | watchdog stale-pong threshold |
+| `BYBIT_KLINE_LAG_MS` | 15/60/240 kline-lag threshold while ticker is live (default 180000) |
 | `BYBIT_GAP_FILL` | `0` disables REST kline gap-fill |
 
 SQLite tables: `ticker_latest`, `ticker_snapshots` (opt-in), `orderbook_latest`, `orderbook_snapshots`, `klines`, `connection_health`, `meta`.

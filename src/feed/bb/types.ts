@@ -17,6 +17,8 @@ export type RecoveryConfig = {
   restRetryDelayMs: number;
   restTimeoutMs: number;
   gapFill: boolean;
+  /** Forming/confirmed PA klines (15/60/240) are stale after this many ms while ticker is live. */
+  klineLagMs: number;
 };
 
 /** Public linear intervals used for price-action history (not the live 5m stream). */

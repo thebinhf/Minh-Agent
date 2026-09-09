@@ -88,4 +88,60 @@ describe("sqlite storage", () => {
     expect(result.vacuumed).toBe(false);
     expect(result.pageCount).toBeGreaterThan(0);
   });
+
+  test("latestKlines returns the newest start_ts per symbol/interval", () => {
+    const { store } = tempDb();
+    try {
+      store.saveKline("BTCUSDT", {
+        start: 1_000,
+        end: 2_000,
+        interval: "15",
+        open: "1",
+        high: "1",
+        low: "1",
+        close: "1",
+        volume: "1",
+        turnover: "1",
+        confirm: true,
+        timestamp: 1,
+      }, 10);
+      store.saveKline("BTCUSDT", {
+        start: 2_000,
+        end: 3_000,
+        interval: "15",
+        open: "2",
+        high: "2",
+        low: "2",
+        close: "2",
+        volume: "1",
+        turnover: "1",
+        confirm: false,
+        timestamp: 2,
+      }, 20);
+      store.saveKline("ETHUSDT", {
+        start: 5_000,
+        end: 6_000,
+        interval: "60",
+        open: "3",
+        high: "3",
+        low: "3",
+        close: "3",
+        volume: "1",
+        turnover: "1",
+        confirm: true,
+        timestamp: 3,
+      }, 30);
+      const all = store.latestKlines(["15", "60"]);
+      expect(all).toEqual([
+        expect.objectContaining({ symbol: "BTCUSDT", interval: "15", start_ts: 2_000, confirm: 0, recv_ts: 20 }),
+        expect.objectContaining({ symbol: "ETHUSDT", interval: "60", start_ts: 5_000, confirm: 1, recv_ts: 30 }),
+      ]);
+      const btc = store.latestKlines(["15", "60"], "BTCUSDT");
+      expect(btc).toHaveLength(1);
+      expect(btc[0]?.start_ts).toBe(2_000);
+      expect(store.latestKlines([])).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
 });

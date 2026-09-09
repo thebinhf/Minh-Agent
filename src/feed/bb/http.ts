@@ -1,7 +1,9 @@
 import { buildBrief } from "./brief";
+import { buildBriefPack, resolvePaperDesk, type BriefPackPaperSource } from "./brief-pack";
 import { buildConfirm, parseConfirmInterval } from "./confirm";
 import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols } from "./map";
 import type { TrackerDb } from "./db";
+import { buildFeedHealth } from "./health";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 
@@ -64,11 +66,16 @@ function mapBook(row: Record<string, unknown>) {
   };
 }
 
-export function startHttp(config: TrackerConfig, store: TrackerDb) {
+export type FeedHttpExtras = {
+  /** Injected by the composition root. Feed does not import src/paper. */
+  paperDesk?: BriefPackPaperSource;
+};
+
+export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: FeedHttpExtras) {
   const server = Bun.serve({
     hostname: config.httpHost,
     port: config.httpPort,
-    fetch(req) {
+    async fetch(req) {
       if (req.method === "OPTIONS") {
         return new Response(null, {
           headers: {
@@ -85,28 +92,16 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
       const path = url.pathname;
 
       if (path === "/health") {
-        const health = store.getHealth() ?? {};
-        const now = Date.now();
-        const lastMessageTs = Number(health.last_message_ts ?? 0);
-        const lastPongTs = Number(health.last_pong_ts ?? 0);
-        const connected = Boolean(health.connected);
-        const lastMessageAgeMs = lastMessageTs ? now - lastMessageTs : null;
-        const tickers = (store.listTickers() as Record<string, unknown>[]).map((row) => ({
-          symbol: row.symbol,
-          lastPrice: row.last_price,
-          ageMs: now - Number(row.recv_ts),
+        return json(buildFeedHealth(store, config));
+      }
+
+      if (path === "/brief-pack") {
+        const paper = await resolvePaperDesk(extras?.paperDesk);
+        return json(buildBriefPack(store, {
+          config,
+          symbol: url.searchParams.get("symbol"),
+          paper,
         }));
-        return json({
-          ok: connected && lastMessageAgeMs !== null && lastMessageAgeMs < 15_000,
-          connected,
-          endpoint: health.endpoint,
-          subscribedTopics: health.subscribed_topics,
-          lastMessageAgeMs,
-          lastPongAgeMs: lastPongTs ? now - lastPongTs : null,
-          reconnectCount: health.reconnect_count,
-          lastError: health.last_error,
-          tickers,
-        });
       }
 
       if (path === "/tickers") {
