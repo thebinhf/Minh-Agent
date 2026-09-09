@@ -50,7 +50,8 @@ bun run backfill   # one-shot; does not start WS
 | `src/paper/` | Paper trading ledger + CLI + HTTP (simulation only) |
 | `test/feed/bb/` | Tracker unit tests |
 | `test/paper/` | Paper ledger / risk / HTTP tests |
-| `deploy/` | systemd unit for the Minh process |
+| `deploy/` | systemd unit + `pull-restart.sh` for the Minh process |
+| `.github/workflows/` | CI: typecheck + test (no daemon, no keys) |
 | `docs/` | Architecture and feature docs |
 
 ## Layers (target, from greenfield Minh)

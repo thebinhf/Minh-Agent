@@ -1,5 +1,7 @@
 # Minh (明)
 
+[![CI](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml)
+
 Bun trading agent: one process, features under `src/`, Bybit feed at `src/feed/bb/`.
 
 **Live features:** Bybit public linear WebSocket → local SQLite market cache, plus a **paper** simulation ledger. No API keys, no real orders.
@@ -33,6 +35,7 @@ bun run backfill --interval D,W --days 365
 - [docs/FEATURES.md](docs/FEATURES.md)
 - [docs/exchanges/BB.md](docs/exchanges/BB.md)
 - [docs/operator.md](docs/operator.md) — MAP / ARM / EVENT loop for Minh Agent (PA + S/D; no 30m scan)
+- [docs/ci.md](docs/ci.md) — GitHub Actions test gate; host restart via systemd
 - [docs/paper-trading.md](docs/paper-trading.md) — paper trading (ledger + CLI + HTTP; Phase 2 fees/funding/multi-TP/leverage)
 
 ## Checks

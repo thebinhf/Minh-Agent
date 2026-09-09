@@ -214,4 +214,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now bybit-tracker
 ```
 
+After a green CI merge on the host: [`deploy/pull-restart.sh`](../../deploy/pull-restart.sh) (`git pull --ff-only` + `systemctl restart`). GitHub Actions never SSH and never hold Bybit keys. See [ci.md](../ci.md).
+
 The process reconnects with exponential backoff and keeps WAL-mode SQLite updated for local readers.
