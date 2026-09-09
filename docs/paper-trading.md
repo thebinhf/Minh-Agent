@@ -44,7 +44,7 @@ src/index.ts                    # composition root (feed + paper)
        → public linear WS
        → SQLite market cache    # ticker_latest, klines, …
        → read-only HTTP 127.0.0.1:43180
-         GET /brief  GET /tickers  GET /health  …
+         GET /brief  GET /brief-pack  GET /tickers  GET /health  …
 
   → src/paper/                  # phase M impl
        → paper SQLite ledger    # paper_* tables only
@@ -55,7 +55,7 @@ src/index.ts                    # composition root (feed + paper)
 
 | Piece | Role | Rule |
 | --- | --- | --- |
-| `src/feed/bb` | Public market data | Read-only cache. Paper may **GET** `:43180` or open the feed DB **readonly**. Paper must not `INSERT`/`UPDATE` feed tables or add routes to `src/feed/bb/http.ts`. |
+| `src/feed/bb` | Public market data | Read-only cache. Paper may **GET** `:43180` or open the feed DB **readonly**. Paper must not `INSERT`/`UPDATE` feed tables. `/brief-pack` is feed-owned; the composition root injects a paper desk snapshot so feed HTTP does not import `src/paper` or call `:43181`. |
 | `src/paper/` | Simulated broker | Own DB file, own CLI, own HTTP. English identifiers; `paper` in every public name. |
 | Composition root | Wire only | Starts paper next to the tracker. Must not fold paper handlers into the feed fetch loop. |
 

@@ -15,6 +15,7 @@ bun run start          # feed :43180 + paper :43181
 bun run brief BTCUSDT  # one local JSON snapshot (ticker + 15/60/240)
 bun run map BTCUSDT ETHUSDT  # HTF MAP; several names → { maps: [...] }
 bun run confirm BTCUSDT # EVENT: ticker + 20×15m (scalp: --interval 5)
+bun run brief-pack     # tickers + kline lag + open paper desk (not candles)
 bun run query chart BTCUSDT 15
 bun run query depth BTCUSDT
 bun run query heatmap BTCUSDT --bucket 10
@@ -35,7 +36,7 @@ bun run backfill --interval D,W --days 365
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/FEATURES.md](docs/FEATURES.md)
 - [docs/exchanges/BB.md](docs/exchanges/BB.md)
-- [docs/operator.md](docs/operator.md) — MAP / ARM / EVENT loop for Minh Agent (PA + S/D; no 30m scan)
+- [docs/operator.md](docs/operator.md) — MAP (`/map` + `/brief-pack`) / ARM / EVENT (`/confirm`) for Minh Agent (PA + S/D; no 30m scan)
 - [docs/ci.md](docs/ci.md) — GitHub Actions test gate; host restart via systemd
 - [docs/paper-trading.md](docs/paper-trading.md) — paper trading (ledger + CLI + HTTP; Phase 2 fees/funding/multi-TP/leverage)
 

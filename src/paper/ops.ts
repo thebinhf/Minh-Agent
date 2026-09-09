@@ -30,6 +30,17 @@ export function paperStatus(engine: PaperEngine, eventLimit = 10) {
   };
 }
 
+/** Open desk for brief-pack. Local paper store only — no Bybit.
+ *  `source` is `http://127.0.0.1:43181` (daemon) or `sqlite:<path>` (CLI). */
+export function paperDesk(engine: PaperEngine, source: string | null = null) {
+  return {
+    source,
+    positions: engine.positions("open"),
+    pendingOrders: engine.orders("pending"),
+    armedAlerts: engine.alerts("armed"),
+  };
+}
+
 export function paperDay(engine: PaperEngine, day?: string, now = Date.now()) {
   const window = utcDayWindow(day, now);
   const events = engine.eventsBetween(window.fromTs, window.toTs);

@@ -16,6 +16,7 @@ export const DEFAULT_RECOVERY: RecoveryConfig = {
   restRetryDelayMs: 400,
   restTimeoutMs: 10_000,
   gapFill: true,
+  klineLagMs: 180_000,
 };
 
 const DEFAULT_CONFIG_PATH = resolve(import.meta.dir, "config.json");
@@ -78,6 +79,7 @@ export async function loadConfig(
       ...DEFAULT_RECOVERY,
       ...base.recovery,
       pongStaleMs: intEnv("BYBIT_PONG_STALE_MS") ?? base.recovery?.pongStaleMs ?? DEFAULT_RECOVERY.pongStaleMs,
+      klineLagMs: intEnv("BYBIT_KLINE_LAG_MS") ?? base.recovery?.klineLagMs ?? DEFAULT_RECOVERY.klineLagMs,
       gapFill: process.env.BYBIT_GAP_FILL === "0" ? false : (base.recovery?.gapFill ?? DEFAULT_RECOVERY.gapFill),
     },
   };

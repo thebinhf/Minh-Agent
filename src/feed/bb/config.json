@@ -47,6 +47,7 @@
     "restRetries": 3,
     "restRetryDelayMs": 400,
     "restTimeoutMs": 10000,
-    "gapFill": true
+    "gapFill": true,
+    "klineLagMs": 180000
   }
 }

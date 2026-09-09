@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { parsePaperArgs } from "../../src/paper/cli";
-import { paperArm, paperDay, paperStatus, utcDayWindow } from "../../src/paper/ops";
+import { paperArm, paperDay, paperDesk, paperStatus, utcDayWindow } from "../../src/paper/ops";
 import { mockFeed, OPEN_LONG, paperEngine } from "./helpers";
 
 const dirs: string[] = [];
@@ -34,6 +34,12 @@ describe("paper operator surface", () => {
     expect(status.pending).toHaveLength(1);
     expect(status.open).toHaveLength(0);
     expect(status.alerts).toHaveLength(1);
+
+    const desk = paperDesk(ctx.engine, "sqlite:/tmp/paper.sqlite");
+    expect(desk.source).toBe("sqlite:/tmp/paper.sqlite");
+    expect(desk.pendingOrders).toHaveLength(1);
+    expect(desk.armedAlerts).toHaveLength(1);
+    expect(desk.positions).toEqual([]);
   });
 
   test("day counts fills and OCO in the UTC window", async () => {
