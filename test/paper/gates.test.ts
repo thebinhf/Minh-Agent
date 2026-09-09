@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { PaperReject } from "../../src/paper/errors";
-import { GATE_FEED_UNHEALTHY, GATE_KLINE_LAG, tradingGates } from "../../src/paper/gates";
+import { GATE_FEED_UNHEALTHY, GATE_KLINE_LAG, cancelCodeForReject, tradingGates } from "../../src/paper/gates";
 import { mockFeed, OPEN_LONG, paperEngine } from "./helpers";
 
 const dirs: string[] = [];
@@ -35,6 +35,13 @@ describe("tradingGates helper", () => {
       tradingAllowed: false,
       reasons: [GATE_KLINE_LAG],
     });
+  });
+
+  test("cancelCodeForReject maps gate and min-RR errors", () => {
+    expect(cancelCodeForReject(GATE_KLINE_LAG)).toBe("gates_block");
+    expect(cancelCodeForReject(GATE_FEED_UNHEALTHY)).toBe("gates_block");
+    expect(cancelCodeForReject("rr_below_min")).toBe("rr_fail");
+    expect(cancelCodeForReject("stale_ticker")).toBeNull();
   });
 });
 

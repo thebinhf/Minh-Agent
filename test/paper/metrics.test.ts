@@ -232,4 +232,75 @@ describe("paper metrics", () => {
     expect(body.funnel.touched).toBe(1);
     expect(body.funnel.filled).toBe(1);
   });
+
+  test("arm after a standalone alert still counts funnel.touched", async () => {
+    const feed = mockFeed({ lastPrice: "63000", markPrice: "63000" });
+    const ctx = await paperEngine(feed);
+    dirs.push(ctx.dir);
+    const now = Date.now();
+    await ctx.engine.setAlert({
+      symbol: "BTCUSDT",
+      op: "below",
+      price: "62000",
+    }, now);
+    const armed = await paperArm(ctx.engine, {
+      ...OPEN_LONG,
+      limitPrice: "62000",
+      zoneId: "btc-4h-d-20260908-01",
+    }, now + 1);
+    expect(armed.alertSkipped).toBe("duplicate_alert");
+    expect(armed.alert?.zoneId).toBe("btc-4h-d-20260908-01");
+    feed.ticker = async (symbol) => ({
+      symbol,
+      lastPrice: "62000",
+      markPrice: "62000",
+      recvTs: now + 2,
+      fundingRate: null,
+      nextFundingTime: null,
+    });
+    await ctx.engine.mark(now + 2);
+    const body = paperMetrics(ctx.engine, 7, now + 3);
+    expect(body.funnel.detected).toBe(1);
+    expect(body.funnel.armed).toBe(1);
+    expect(body.funnel.touched).toBe(1);
+    expect(body.funnel.filled).toBe(1);
+  });
+
+  test("submit-time kline_lag increments cancelCodes.gates_block", async () => {
+    const ctx = await paperEngine(mockFeed({ klineLagOk: false }));
+    dirs.push(ctx.dir);
+    const now = Date.now();
+    try {
+      await ctx.engine.open({ ...OPEN_LONG, zoneId: "btc-4h-d-20260908-01" }, now);
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PaperReject);
+      expect((error as PaperReject).error).toBe("kline_lag");
+    }
+    const body = paperMetrics(ctx.engine, 7, now + 1);
+    expect(body.cancelCodes.gates_block).toBe(1);
+    expect(body.rejected).toBe(1);
+    expect(body.funnel.cancelled).toBe(0);
+    expect(body.funnel.detected).toBe(1);
+    expect(ctx.engine.orders("all")).toEqual([]);
+  });
+
+  test("submit-time rr_below_min increments cancelCodes.rr_fail", async () => {
+    const ctx = await paperEngine();
+    dirs.push(ctx.dir);
+    ctx.store.setMinRr("2");
+    const now = Date.now();
+    try {
+      await ctx.engine.open({ ...OPEN_LONG, zoneId: "btc-4h-d-20260908-01" }, now);
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PaperReject);
+      expect((error as PaperReject).error).toBe("rr_below_min");
+    }
+    const body = paperMetrics(ctx.engine, 7, now + 1);
+    expect(body.cancelCodes.rr_fail).toBe(1);
+    expect(body.rejected).toBe(1);
+    expect(body.funnel.cancelled).toBe(0);
+    expect(ctx.engine.positions("open")).toEqual([]);
+  });
 });

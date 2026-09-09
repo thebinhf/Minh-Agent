@@ -918,7 +918,7 @@ GET http://127.0.0.1:43180/zones?interval=60
 
 Detector (suggest, not a signal): ATR(14) SMA, impulse body ≥ 1 ATR leaving a ≤6-bar base, departure ≥ 0.3 ATR, entry at 30% from proximal, SL = distal + 0.25 ATR buffer, TP at RR ≥ 2 (measured move if larger). Drops `deep` and RR&lt;2. Cap 2 cards/symbol. `klineLag` is included so Minh can STAND ASIDE; `/zones` itself does not reject on gates.
 
-Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm copies it onto the limit **and** the alert.
+Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm copies it onto the limit **and** the alert. If the alert already exists (`duplicate_alert`), arm still stamps `zoneId` onto that armed row.
 
 ### 16.2 Funnel counters
 
@@ -946,7 +946,7 @@ Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm co
 | `cancelled` | `order.cancelled` + `order.invalidated` |
 | `exited` | `position.closed` |
 
-`noFillPct` is unchanged. Split: operator `paper cancel` → `ops_cancel`; OCO invalidate → `never_touched`. `gates_block` / `rr_fail` count rejects when those reasons fire. `deep_mitigate` / `htf_break` / `expired` stay 0 until a later tagger writes them.
+`noFillPct` is unchanged. Split: operator `paper cancel` → `ops_cancel`; OCO invalidate → `never_touched`. `gates_block` / `rr_fail` count submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` rejects (no order row) via `order.rejected`. `deep_mitigate` / `htf_break` / `expired` stay 0 until a later tagger writes them.
 
 Kill-switch `brief-pack.gates` / paper entry gates are unchanged: new open/limit/arm still reject on `kline_lag` / `feed_unhealthy`. `/zones` is read-only suggest.
 

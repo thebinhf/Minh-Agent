@@ -485,6 +485,9 @@ function wrap(db: Database) {
   const fireAlertStmt = db.prepare(
     `UPDATE paper_alerts SET status = 'fired', fired_ts = ?, fired_last = ? WHERE id = ? AND status = 'armed'`,
   );
+  const updateAlertZoneStmt = db.prepare(
+    `UPDATE paper_alerts SET zone_id = ? WHERE id = ? AND status = 'armed'`,
+  );
   const cancelAlertStmt = db.prepare(
     `UPDATE paper_alerts SET status = 'cancelled' WHERE id = ? AND status = 'armed'`,
   );
@@ -768,6 +771,9 @@ function wrap(db: Database) {
     },
     fireAlert(id: number, ts: number, last: string) {
       return fireAlertStmt.run(ts, last, id).changes;
+    },
+    updateAlertZoneId(id: number, zoneId: string) {
+      return updateAlertZoneStmt.run(zoneId, id).changes;
     },
     cancelAlert(id: number) {
       return cancelAlertStmt.run(id).changes;

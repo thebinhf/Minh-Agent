@@ -1,6 +1,6 @@
 import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
-import { parseZoneId, rejectIfEntryBlocked } from "./gates";
+import { cancelCodeForReject, parseZoneId, rejectIfEntryBlocked } from "./gates";
 import { paperMetrics } from "./metrics";
 import type { PaperDb } from "./db";
 import {
@@ -406,6 +406,23 @@ export function createPaperEngine(opts: {
     const view = { id, kind, symbol, payload: body, ts: now, zoneId: resolved };
     onEvent?.(view);
     return view;
+  }
+
+  function cancelCodeFields(error: PaperReject): { cancelCode: string } | Record<string, never> {
+    const cancelCode = cancelCodeForReject(error.error);
+    return cancelCode ? { cancelCode } : {};
+  }
+
+  /** Submit-time gate/RR rejects never insert an order; still record cancelCodes. */
+  function emitSubmitCancel(request: { symbol: string; zoneId?: string | null }, error: unknown, now: number): void {
+    if (!(error instanceof PaperReject)) return;
+    const cancelCode = cancelCodeForReject(error.error);
+    if (!cancelCode) return;
+    emit("order.rejected", request.symbol.trim().toUpperCase(), {
+      reason: error.error,
+      gate: error.gate,
+      cancelCode,
+    }, now, parseZoneId(request.zoneId));
   }
 
   function requireKnownSymbol(raw: string): string {
@@ -895,9 +912,7 @@ export function createPaperEngine(opts: {
           reason: error.error,
           gate: error.gate,
           last: last.toText(),
-          ...(error.error === "kline_lag" || error.error === "feed_unhealthy"
-            ? { cancelCode: "gates_block" }
-            : error.error === "rr_below_min" ? { cancelCode: "rr_fail" } : {}),
+          ...cancelCodeFields(error),
         }, now, row.zone_id ?? null));
       }
     }
@@ -1147,6 +1162,7 @@ export function createPaperEngine(opts: {
         eventsBetween: (fromTs, toTs, limit = 500) => store.listEventsRange(fromTs, toTs, limit).map(viewEvent),
         positions: (status) => store.listPositions(status).map(viewPosition),
         account: () => viewAccount(store),
+        orders: (status) => store.listOrders(status).map(viewOrder),
       }, days, now);
     },
 
@@ -1195,7 +1211,15 @@ export function createPaperEngine(opts: {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes("UNIQUE") || message.includes("unique")) {
-          throw new PaperReject("duplicate_alert", "alert", { symbol, op, price: price.toText() });
+          const existing = store.listAlerts("armed").find((row) => (
+            row.symbol === symbol && row.op === op && row.price === price.toText()
+          ));
+          throw new PaperReject("duplicate_alert", "alert", {
+            symbol,
+            op,
+            price: price.toText(),
+            ...(existing ? { alertId: existing.id } : {}),
+          });
         }
         throw error;
       }
@@ -1211,95 +1235,110 @@ export function createPaperEngine(opts: {
       return { mode: "paper" as const, alert: viewAlert(store.getAlert(id)!) };
     },
 
+    attachAlertZoneId(id: number, zoneId: string): AlertView {
+      const parsed = parseZoneId(zoneId);
+      if (!parsed) throw new PaperReject("invalid_zone_id", "zoneId", { zoneId });
+      const row = store.getAlert(id);
+      if (!row) throw new PaperReject("not_found", "id", { id });
+      if (row.status !== "armed") {
+        throw new PaperReject("alert_not_armed", "status", { id, status: row.status });
+      }
+      store.updateAlertZoneId(id, parsed);
+      return viewAlert(store.getAlert(id)!);
+    },
+
     async limit(request: LimitRequest, now = Date.now()) {
-      await requireEntryAllowed();
-      const symbol = requireKnownSymbol(request.symbol);
-      if (!request.limitPrice?.trim()) {
-        throw new PaperReject("missing_limit_price", "limit", { symbol });
-      }
-      await evaluate(now);
-      assertFlatSymbol(symbol);
-      const ticker = await requireTicker(symbol, now);
-      const spec = requireInstrument(symbol, instruments);
-      const last = snapPrice(requireLast(ticker), spec);
-      const limitPrice = snapPrice(Dec.from(request.limitPrice.trim()), spec);
-      const side = parseSide(request.side);
-      const postOnly = parsePostOnly(request.postOnly);
-      if (postOnly && !limitPostOnlyOk(side, last, limitPrice)) {
-        throw new PaperReject("limit_crossed", "limit", {
-          side,
-          last: last.toText(),
-          limitPrice: limitPrice.toText(),
-          postOnly: true,
-        });
-      }
-      const plan = await planOpen(request, limitPrice, ticker, makerFeeRate(), "limit");
-      const oco = parseOco(request.oco);
-      const invalidate = snapPrice(
-        Dec.from((request.invalidatePrice ?? plan.stopLoss.toText()).trim()),
-        spec,
-      );
-      assertInvalidateSide(side, plan.entry, invalidate);
-      if (oco && limitInvalidated(side, last, invalidate)) {
-        throw new PaperReject("already_invalidated", "oco", {
-          side,
-          last: last.toText(),
-          invalidate: invalidate.toText(),
-          limitPrice: plan.entry.toText(),
-        });
-      }
-      const id = store.insertOrder({
-        symbol: plan.symbol,
-        side: plan.side,
-        postOnly,
-        limitPrice: plan.entry.toText(),
-        qty: plan.qty.toText(),
-        riskPct: plan.riskPct.toText(),
-        stopLoss: plan.stopLoss.toText(),
-        takeProfit: plan.takeProfit,
-        riskQuote: plan.riskQuote.toText(),
-        rewardQuote: plan.rewardQuote.toText(),
-        rr: plan.rr.toText(),
-        timeframes: JSON.stringify(plan.timeframes),
-        mtfJson: JSON.stringify(plan.mtf),
-        leverage: plan.leverage.toText(),
-        takeProfitsJson: JSON.stringify(plan.plans),
-        note: plan.note,
-        createdTs: now,
-        oco,
-        invalidatePrice: invalidate.toText(),
-        zoneId: plan.zoneId,
-      });
-      let order = store.getOrder(id)!;
-      let position: PositionView | undefined;
-      let event: EventView | undefined;
-      if (!postOnly && limitFillHit(side, last, plan.entry)) {
-        try {
-          const filled = fillPendingOrder(order, ticker, now);
-          order = store.getOrder(id)!;
-          position = filled.position;
-          event = filled.event;
-        } catch (error) {
-          if (!(error instanceof PaperReject)) throw error;
-          store.rejectOrder(id, error.error, now);
-          order = store.getOrder(id)!;
-          event = emit("order.rejected", symbol, {
-            orderId: id,
-            reason: error.error,
-            gate: error.gate,
-            last: last.toText(),
-            ...(error.error === "kline_lag" || error.error === "feed_unhealthy"
-              ? { cancelCode: "gates_block" }
-              : error.error === "rr_below_min" ? { cancelCode: "rr_fail" } : {}),
-          }, now, order.zone_id ?? null);
+      try {
+        await requireEntryAllowed();
+        const symbol = requireKnownSymbol(request.symbol);
+        if (!request.limitPrice?.trim()) {
+          throw new PaperReject("missing_limit_price", "limit", { symbol });
         }
+        await evaluate(now);
+        assertFlatSymbol(symbol);
+        const ticker = await requireTicker(symbol, now);
+        const spec = requireInstrument(symbol, instruments);
+        const last = snapPrice(requireLast(ticker), spec);
+        const limitPrice = snapPrice(Dec.from(request.limitPrice.trim()), spec);
+        const side = parseSide(request.side);
+        const postOnly = parsePostOnly(request.postOnly);
+        if (postOnly && !limitPostOnlyOk(side, last, limitPrice)) {
+          throw new PaperReject("limit_crossed", "limit", {
+            side,
+            last: last.toText(),
+            limitPrice: limitPrice.toText(),
+            postOnly: true,
+          });
+        }
+        const plan = await planOpen(request, limitPrice, ticker, makerFeeRate(), "limit");
+        const oco = parseOco(request.oco);
+        const invalidate = snapPrice(
+          Dec.from((request.invalidatePrice ?? plan.stopLoss.toText()).trim()),
+          spec,
+        );
+        assertInvalidateSide(side, plan.entry, invalidate);
+        if (oco && limitInvalidated(side, last, invalidate)) {
+          throw new PaperReject("already_invalidated", "oco", {
+            side,
+            last: last.toText(),
+            invalidate: invalidate.toText(),
+            limitPrice: plan.entry.toText(),
+          });
+        }
+        const id = store.insertOrder({
+          symbol: plan.symbol,
+          side: plan.side,
+          postOnly,
+          limitPrice: plan.entry.toText(),
+          qty: plan.qty.toText(),
+          riskPct: plan.riskPct.toText(),
+          stopLoss: plan.stopLoss.toText(),
+          takeProfit: plan.takeProfit,
+          riskQuote: plan.riskQuote.toText(),
+          rewardQuote: plan.rewardQuote.toText(),
+          rr: plan.rr.toText(),
+          timeframes: JSON.stringify(plan.timeframes),
+          mtfJson: JSON.stringify(plan.mtf),
+          leverage: plan.leverage.toText(),
+          takeProfitsJson: JSON.stringify(plan.plans),
+          note: plan.note,
+          createdTs: now,
+          oco,
+          invalidatePrice: invalidate.toText(),
+          zoneId: plan.zoneId,
+        });
+        let order = store.getOrder(id)!;
+        let position: PositionView | undefined;
+        let event: EventView | undefined;
+        if (!postOnly && limitFillHit(side, last, plan.entry)) {
+          try {
+            const filled = fillPendingOrder(order, ticker, now);
+            order = store.getOrder(id)!;
+            position = filled.position;
+            event = filled.event;
+          } catch (error) {
+            if (!(error instanceof PaperReject)) throw error;
+            store.rejectOrder(id, error.error, now);
+            order = store.getOrder(id)!;
+            event = emit("order.rejected", symbol, {
+              orderId: id,
+              reason: error.error,
+              gate: error.gate,
+              last: last.toText(),
+              ...cancelCodeFields(error),
+            }, now, order.zone_id ?? null);
+          }
+        }
+        return {
+          mode: "paper" as const,
+          order: viewOrder(order),
+          ...(position ? { position } : {}),
+          ...(event ? { event } : {}),
+        };
+      } catch (error) {
+        emitSubmitCancel(request, error, now);
+        throw error;
       }
-      return {
-        mode: "paper" as const,
-        order: viewOrder(order),
-        ...(position ? { position } : {}),
-        ...(event ? { event } : {}),
-      };
     },
 
     cancelOrder(id: number, now = Date.now()) {
@@ -1317,14 +1356,19 @@ export function createPaperEngine(opts: {
     },
 
     async open(request: OpenRequest, now = Date.now()) {
-      await requireEntryAllowed();
-      const symbol = requireKnownSymbol(request.symbol);
-      await evaluate(now);
-      assertFlatSymbol(symbol);
-      const ticker = await requireTicker(symbol, now);
-      const plan = await planOpen(request, requireLast(ticker), ticker, takerFeeRate(), "last");
-      const opened = commitOpen(plan, now);
-      return { mode: "paper" as const, position: viewPosition(opened) };
+      try {
+        await requireEntryAllowed();
+        const symbol = requireKnownSymbol(request.symbol);
+        await evaluate(now);
+        assertFlatSymbol(symbol);
+        const ticker = await requireTicker(symbol, now);
+        const plan = await planOpen(request, requireLast(ticker), ticker, takerFeeRate(), "last");
+        const opened = commitOpen(plan, now);
+        return { mode: "paper" as const, position: viewPosition(opened) };
+      } catch (error) {
+        emitSubmitCancel(request, error, now);
+        throw error;
+      }
     },
 
     async close(id: number, now = Date.now()) {

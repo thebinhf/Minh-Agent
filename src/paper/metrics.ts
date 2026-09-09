@@ -1,5 +1,6 @@
 import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
+import { cancelCodeForReject } from "./gates";
 import type { EventView, OrderView, PaperMetrics, PositionView } from "./types";
 import {
   bumpCancelCode,
@@ -77,9 +78,7 @@ function cancelCodeFromEvent(event: EventView): CancelCode | null {
   if (event.kind === "order.cancelled") return "ops_cancel";
   if (event.kind === "order.invalidated") return "never_touched";
   if (event.kind === "order.rejected") {
-    const reason = String(event.payload.reason ?? "");
-    if (reason === "kline_lag" || reason === "feed_unhealthy") return "gates_block";
-    if (reason === "rr_below_min") return "rr_fail";
+    return cancelCodeForReject(String(event.payload.reason ?? ""));
   }
   return null;
 }

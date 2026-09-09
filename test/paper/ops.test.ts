@@ -77,6 +77,28 @@ describe("paper operator surface", () => {
     expect(armed.alert?.zoneId).toBe("btc-4h-d-20260908-01");
   });
 
+  test("arm stamps zoneId onto an existing duplicate alert", async () => {
+    const ctx = await paperEngine(mockFeed({ lastPrice: "63000", markPrice: "63000" }));
+    dirs.push(ctx.dir);
+    const created = await ctx.engine.setAlert({
+      symbol: "BTCUSDT",
+      op: "below",
+      price: "62000",
+    });
+    expect(created.alert.zoneId).toBeNull();
+
+    const armed = await paperArm(ctx.engine, {
+      ...OPEN_LONG,
+      limitPrice: "62000",
+      zoneId: "btc-4h-d-20260908-01",
+    });
+    expect(armed.alertSkipped).toBe("duplicate_alert");
+    expect(armed.order.zoneId).toBe("btc-4h-d-20260908-01");
+    expect(armed.alert?.id).toBe(created.alert.id);
+    expect(armed.alert?.zoneId).toBe("btc-4h-d-20260908-01");
+    expect(ctx.engine.alerts("armed")[0]?.zoneId).toBe("btc-4h-d-20260908-01");
+  });
+
   test("CLI parses status / day / arm", () => {
     expect(parsePaperArgs(["status"])).toEqual({ name: "status" });
     expect(parsePaperArgs(["day", "--day", "2026-09-08"])).toEqual({ name: "day", day: "2026-09-08" });
