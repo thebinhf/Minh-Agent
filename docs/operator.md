@@ -78,6 +78,14 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 - Live keys, `/v5/order`, paper→live
 - Mid-watch PnL
 
-## Feed
+## 24/7 mesh
+
+Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT notify + kline-lag watchdog.
+
+On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json` next to the feed DB (override `MAP_CLOSE_PATH`). Optional `MAP_CLOSE_WEBHOOK` POSTs `{ kind: "map.close", interval, map }` — same payload as `/map`, not a signal. `MAP_CLOSE=0` disables.
+
+Then Agent draws zones and `paper arm`. Engine does **not** auto-arm.
+
+`GET /map-latest` reads the last dump (404 before the first close).
 
 `127.0.0.1:43180` public cache. Default watchlist is 10 linear symbols (BTC, ETH, SOL, ENA, BNB, XRP, DOGE, AVAX, LINK, HYPE). Stale ticker → paper rejects. Stale **klines** with a live ticker → `klineLag.ok=false` on `/health` and `/brief-pack`. Do not invent a price or a candle.
