@@ -16,6 +16,7 @@
     "brief-pack": "bun run src/brief-pack.ts",
     "map": "bun run src/feed/bb/map.ts",
     "confirm": "bun run src/feed/bb/confirm.ts",
+    "zones": "bun run src/feed/bb/zones.ts",
     "paper": "bun run src/paper/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
