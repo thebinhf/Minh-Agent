@@ -16,7 +16,8 @@
     "map": "bun run src/feed/bb/map.ts",
     "paper": "bun run src/paper/cli.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ci": "bun run typecheck && bun test"
   },
   "devDependencies": {
     "@types/bun": "^1.4.1",

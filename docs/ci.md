@@ -4,15 +4,16 @@ Paper week. **No live orders. No Bybit keys in GitHub.**
 
 ## CI
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to `main` and every pull request:
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to `main`, every pull request, and `workflow_dispatch`.
 
-1. `bun install --frozen-lockfile`
-2. `bun run typecheck`
-3. `bun test`
+1. Bun from [`.bun-version`](../.bun-version) (binary cache is setup-bun default)
+2. Restore `~/.bun/install/cache` keyed on `bun.lock`
+3. `bun install --frozen-lockfile --ignore-scripts`
+4. `bun run ci` → typecheck + test
 
-Does **not** start the WS daemon, does **not** open SQLite under `data/`, does **not** call private Bybit routes. Required check name: **test**.
+Check name stays **test** (branch protection). Checkout does not persist credentials. No daemon, no `data/`, no private Bybit routes.
 
-Turn on branch protection for `main`: require the `test` status, no admin bypass if you can.
+Local: `bun run ci`.
 
 ## CD
 
