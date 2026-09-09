@@ -51,6 +51,7 @@ HTTP (read-only):
 - `GET /health` — WS + ticker ages + `klineLag` (15/60/240 per symbol)
 - `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
 - `GET /map` — HTF MAP for the feed watchlist (`{ maps, klineLag }`, cap 10)
+- `GET /map-latest` — last HTF-close dump (`404` until the first 1H/4H confirm)
 - `GET /map?symbol=BTCUSDT` — one symbol (ticker + 4H/1H + D + klineLag 60/240)
 - `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` — `{ maps, klineLag }`
 - `GET /confirm?symbol=BTCUSDT&interval=15` — EVENT LTF (ticker + 20×15m; scalp `interval=5`)

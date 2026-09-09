@@ -3,6 +3,7 @@ import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { startKlineLagWatchdog } from "./health";
 import { startHttp } from "./http";
+import { startMapCloser } from "./map-close";
 import { startPruner } from "./prune";
 import { startTracker } from "./ws";
 
@@ -23,6 +24,7 @@ export async function startBybitTracker(opts?: BybitTrackerOpts): Promise<BybitT
   const tracker = startTracker(config, store);
   const pruner = startPruner(config, store);
   const klineLag = startKlineLagWatchdog(config, store);
+  const mapClose = startMapCloser(config, store);
 
   console.log(
     `[minh:bb] http://${config.httpHost}:${config.httpPort} db=${config.dbPath}`,
@@ -31,6 +33,7 @@ export async function startBybitTracker(opts?: BybitTrackerOpts): Promise<BybitT
 
   return {
     stop() {
+      mapClose.stop();
       klineLag.stop();
       tracker.stop();
       pruner.stop();
