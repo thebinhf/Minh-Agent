@@ -22,6 +22,7 @@ src/index.ts
          GET /map    (HTF MAP — ticker + 4H/1H + D if backfilled; klineLag 60/240)
          GET /map-latest (last 1H/4H close dump; 404 until first confirm)
          GET /confirm (EVENT — ticker + 20×15m or 5m; no depth)
+         GET /zones    (suggest-only zone-cards from local HTF klines; no auto-arm)
          GET /brief-pack  (tickers + kline lag + gates + open paper desk; paper injected from composition root)
          GET /chart  GET /depth  GET /heatmap  GET /market
          GET /health  (WS + per 15/60/240 kline lag)
@@ -31,12 +32,13 @@ src/index.ts
        → alerts + limit pending + tick evaluate (Phase 3)
        → optional notify on event-once kinds (Phase 4)
        → kline replay into paper-replay.sqlite (Phase 5)
-       → status / arm / day / metrics operator surface (Phase 6 + P1)
+       → status / arm / day / metrics operator surface (Phase 6 + P1 + zone funnel)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
 bun run map              # HTF MAP watchlist + klineLag; agent draws S/D
+bun run zones            # suggest-only zone-cards (no auto-arm)
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run brief-pack [SYMBOL]  # same JSON as GET /brief-pack; all symbols if omitted
 bun run query chart|depth|heatmap|market
@@ -54,8 +56,10 @@ bun run backfill   # one-shot; does not start WS
 | `src/index.ts` | Composition root |
 | `src/brief-pack.ts` | CLI for `GET /brief-pack` (feed SQLite + local paper SQLite) |
 | `src/feed/bb/` | Bybit public WS tracker (first live feature) |
+| `src/zones/` | Zone-card v1 schema + HTF suggest detector (no auto-arm) |
 | `src/paper/` | Paper trading ledger + CLI + HTTP (simulation only) |
 | `test/feed/bb/` | Tracker unit tests |
+| `test/zones/` | Zone-card schema + detector tests |
 | `test/paper/` | Paper ledger / risk / HTTP tests |
 | `deploy/` | systemd unit + `pull-restart.sh` for the Minh process |
 | `.github/workflows/` | CI: typecheck + test (no daemon, no keys) |
@@ -67,6 +71,7 @@ bun run backfill   # one-shot; does not start WS
 | --- | --- | --- |
 | App | `src/index.ts`, `src/brief-pack.ts` | Boot + wire. `GET /brief-pack` injects `paperDesk` from the composition root so feed never imports paper. CLI opens both SQLite files. |
 | Feed | `src/feed/bb/` | Exchange I/O — public WS, SQLite, HTTP. Owns kline lag on `/health`. |
+| Zones | `src/zones/` | Zone-card schema + HTF suggest. Feed HTTP `GET /zones` only. No paper writes. |
 | Paper | `src/paper/` | Simulated broker — own DB, own HTTP. Reads feed prices only. |
 
 Future features (strategy, agent, presence) belong under `src/` the same way — not as `apps/*` packages.
