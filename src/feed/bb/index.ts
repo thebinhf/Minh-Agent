@@ -33,7 +33,7 @@ export async function startBybitTracker(): Promise<BybitTrackerFeature> {
 
 export { buildBrief } from "./brief";
 export { buildConfirm } from "./confirm";
-export { buildMap } from "./map";
+export { buildMap, buildMapBatch } from "./map";
 export { loadConfig } from "./config";
 export { openDb } from "./db";
 export { buildChart, buildDepth, buildHeatmap, buildMarket, stitchBars } from "./view";

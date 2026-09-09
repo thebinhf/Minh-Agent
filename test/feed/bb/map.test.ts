@@ -7,10 +7,14 @@ import { openDb } from "../../../src/feed/bb/db";
 import { startHttp } from "../../../src/feed/bb/http";
 import {
   MAP_KLINE_LIMITS,
+  MAP_SYMBOL_CAP,
   buildMap,
+  buildMapBatch,
   emptyMap,
   parseMapArgs,
+  parseMapSymbols,
   type SnapshotMap,
+  type SnapshotMapBatch,
 } from "../../../src/feed/bb/map";
 import type { BybitKline, TrackerConfig } from "../../../src/feed/bb/types";
 
@@ -56,8 +60,10 @@ function expectMapShape(map: SnapshotMap, symbol = "BTCUSDT") {
 
 describe("parseMapArgs / buildMap", () => {
   test("defaults to BTCUSDT", () => {
-    expect(parseMapArgs([])).toEqual({ symbol: "BTCUSDT" });
-    expect(parseMapArgs(["ethusdt"])).toEqual({ symbol: "ETHUSDT" });
+    expect(parseMapArgs([])).toEqual({ symbols: ["BTCUSDT"] });
+    expect(parseMapArgs(["ethusdt"])).toEqual({ symbols: ["ETHUSDT"] });
+    expect(parseMapArgs(["btcusdt", "ethusdt"])).toEqual({ symbols: ["BTCUSDT", "ETHUSDT"] });
+    expect(parseMapSymbols("btc,ETH,btc")).toEqual(["BTC", "ETH"]);
   });
 
   test("empty database has no 15m key and empty D", () => {
@@ -103,6 +109,33 @@ describe("parseMapArgs / buildMap", () => {
       store.close();
     }
   });
+
+  test("batch maps two symbols independently", () => {
+    const { store, dbPath } = tempDb();
+    try {
+      store.saveTicker({
+        symbol: "BTCUSDT",
+        type: "snapshot",
+        fields: { lastPrice: "100" },
+      }, 1, false);
+      store.saveTicker({
+        symbol: "ETHUSDT",
+        type: "snapshot",
+        fields: { lastPrice: "3" },
+      }, 1, false);
+      store.saveKline("BTCUSDT", candle({ start: 240_000, interval: "240" }), 1);
+      store.saveKline("ETHUSDT", candle({ start: 241_000, interval: "240" }), 1);
+
+      const batch = buildMapBatch(store, { symbols: ["BTCUSDT", "ETHUSDT"], dbPath, now: 8 });
+      expect(batch.maps).toHaveLength(2);
+      expect(batch.maps[0]?.ticker.lastPrice).toBe("100");
+      expect(batch.maps[1]?.ticker.lastPrice).toBe("3");
+      expect(batch.maps[1]?.klines["240"][0]?.start_ts).toBe(241_000);
+      expect(batch.meta.count).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
 });
 
 describe("GET /map", () => {
@@ -138,6 +171,17 @@ describe("GET /map", () => {
       };
       expect(Object.keys(brief.klines)).toEqual(["15", "60", "240"]);
       expect(brief.klines["15"]).toHaveLength(1);
+
+      const many = await fetch(`http://127.0.0.1:${server.port}/map?symbols=BTCUSDT,ETHUSDT`);
+      expect(many.status).toBe(200);
+      const batch = await many.json() as SnapshotMapBatch;
+      expect(batch.maps).toHaveLength(2);
+      expect(batch.maps[0]?.symbol).toBe("BTCUSDT");
+      expect(batch.maps[1]?.symbol).toBe("ETHUSDT");
+
+      const over = Array.from({ length: MAP_SYMBOL_CAP + 1 }, (_, i) => `S${i}`).join(",");
+      const tooMany = await fetch(`http://127.0.0.1:${server.port}/map?symbols=${over}`);
+      expect(tooMany.status).toBe(400);
     } finally {
       server.stop();
       store.close();
