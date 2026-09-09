@@ -24,6 +24,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Paper operator surface | Live | `paper status` / `paper arm` / `paper day` — one JSON for desk, one command to rest limit+alert, UTC session counts. |
 | Orderbook snapshot gate | Live | Clear RAM on connect; ignore deltas until snapshot/`u=1` |
 | Subscribe + REST retry | Live | Chunked subscribe (10) + exponential retry |
+| CI | Live | GitHub Actions: `bun` typecheck + test on `main` and PRs. No keys, no daemon, no live deploy. See [ci.md](ci.md). |
 
 ## Explicitly not in this repo
 
@@ -43,3 +44,4 @@ Verify against `src/` before treating older PRs as product scope.
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
 | [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2–6: risk, fees, alerts/limit/OCO, notify, kline replay, operator surface) |
 | [operator.md](operator.md) | Minh Agent loop: MAP on HTF close, ARM alert+limit, EVENT-only (no 30m scan) |
+| [ci.md](ci.md) | GitHub Actions CI + host systemd restart (no live keys) |
