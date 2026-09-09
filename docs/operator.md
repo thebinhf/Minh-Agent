@@ -6,15 +6,17 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 | State | When | Minh-Agent | Agent output |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H candle close | `GET /map?symbols=` (HTF candles) + `GET /brief-pack` (lag + desk). `bun run map BTCUSDT ETHUSDT` / `brief-pack` | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` is false, do not trust SQLite candles |
+| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map` | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` is false, do not trust SQLite candles |
 | **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
 | **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /confirm?interval=15` (scalp: `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
 
 ## MAP
 
-Read `ticker` + `klines.240` + `klines.60` from **`GET /map`** (daily `klines.D` if backfilled). Several names: `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` → `{ maps: [...] }`. One name stays a single object. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged (full 15/60/240 dump) and is **not** the MAP candle source.
+Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. One name stays a single object. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.
 
-Read `tickers` + `klineLag` + open paper from **`GET /brief-pack`**. Additive only — it does **not** replace `/map`. Check `klineLag.rows` before drawing. Stale/formingStuck while ticker is live means the cache is not advancing — STAND ASIDE, do not invent candles.
+`GET /brief-pack` is optional (desk: pending / alerts / positions). Not required to draw zones. Positions have no `unrealizedPnl`.
+
+Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
 Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
 

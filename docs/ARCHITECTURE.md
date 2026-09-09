@@ -35,7 +35,7 @@ src/index.ts
        → CLI  bun run paper …
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
-bun run map [SYMBOL ...] # HTF MAP snapshot; several names → { maps }; agent draws S/D
+bun run map              # HTF MAP watchlist + klineLag; agent draws S/D
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run brief-pack [SYMBOL]  # same JSON as GET /brief-pack; all symbols if omitted
 bun run query chart|depth|heatmap|market

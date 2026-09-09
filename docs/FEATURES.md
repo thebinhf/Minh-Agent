@@ -14,7 +14,7 @@ Verify against `src/` before treating older PRs as product scope.
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
 | Historical kline backfill | Live | `bun run backfill` — REST failover or JSON/CSV dump into SQLite; no WS |
 | Snapshot brief | Live | `bun run brief` / `GET /brief` — one local JSON (ticker + 15/60/240) for Minh |
-| HTF map | Live | `bun run map` / `GET /map` — ticker + 4H/1H (+ daily if backfilled). `?symbols=` batches up to 8. No 15m, no S/D, no bias. `/brief` unchanged. |
+| HTF map | Live | `bun run map` / `GET /map` — ticker + 4H/1H (+ daily if backfilled) + `klineLag` (60/240). No query = watchlist (cap 10). No 15m, no S/D, no bias. `/brief` unchanged. |
 | LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). EVENT only. No depth, no S/D. |
 | Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + open paper desk. Additive; does not replace `/map`. Zones `[]`. No auto S/D. |
 | Chart / depth / heatmap views | Live | `GET /chart` stitches kline OHLCV; `GET /depth` is the live L50 ladder; `GET /heatmap` grids snapshots (+ live book); `GET /market` is one payload. No browser UI. |

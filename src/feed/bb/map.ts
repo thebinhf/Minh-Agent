@@ -9,6 +9,12 @@ import {
   type BriefStore,
   type BriefTicker,
 } from "./brief";
+import {
+  DEFAULT_KLINE_LAG_MS,
+  buildKlineLag,
+  type KlineLagStore,
+  type KlineLagSummary,
+} from "./health";
 
 /** HTF-only windows for MAP. No 15m — that stays on /brief and /chart. */
 export const MAP_KLINE_LIMITS = {
@@ -17,7 +23,11 @@ export const MAP_KLINE_LIMITS = {
   D: 30,
 } as const;
 
-export const MAP_SYMBOL_CAP = 8;
+/** Full public watchlist (10). One GET /map at 4H close. */
+export const MAP_SYMBOL_CAP = 10;
+
+/** Lag that blocks drawing HTF zones. 15m is EVENT /confirm, not MAP. */
+export const MAP_LAG_INTERVALS = ["60", "240"] as const;
 
 export type MapLimits = {
   "240": number;
@@ -34,6 +44,7 @@ export type SnapshotMap = {
     "60": BriefKline[];
     D: BriefKline[];
   };
+  klineLag: KlineLagSummary;
   meta: {
     db: string;
     limits: MapLimits;
@@ -41,7 +52,16 @@ export type SnapshotMap = {
   };
 };
 
-export type MapStore = BriefStore;
+export type MapStore = BriefStore & KlineLagStore;
+
+export function emptyKlineLag(staleMs = DEFAULT_KLINE_LAG_MS): KlineLagSummary {
+  return {
+    ok: true,
+    staleMs,
+    intervals: [...MAP_LAG_INTERVALS],
+    rows: [],
+  };
+}
 
 export function emptyMap(symbol: string, dbPath: string, ts: number, limits: MapLimits = { ...MAP_KLINE_LIMITS }): SnapshotMap {
   return {
@@ -49,11 +69,34 @@ export function emptyMap(symbol: string, dbPath: string, ts: number, limits: Map
     ts,
     ticker: { ...EMPTY_TICKER },
     klines: { "240": [], "60": [], D: [] },
+    klineLag: emptyKlineLag(),
     meta: {
       db: dbPath,
       limits,
       note: "htf map — agent draws S/D; no bias",
     },
+  };
+}
+
+export function klineLagForSymbols(
+  store: KlineLagStore,
+  symbols: string[],
+  opts: { now?: number; staleMs?: number } = {},
+): KlineLagSummary {
+  const want = new Set(symbols.map((s) => s.toUpperCase()));
+  if (want.size === 0) return emptyKlineLag(opts.staleMs);
+  const summaries = [...want].map((symbol) => buildKlineLag(store, {
+    now: opts.now,
+    staleMs: opts.staleMs,
+    symbol,
+    intervals: MAP_LAG_INTERVALS,
+  }));
+  const rows = summaries.flatMap((item) => item.rows);
+  return {
+    ok: rows.every((row) => !row.stale),
+    staleMs: summaries[0]?.staleMs ?? DEFAULT_KLINE_LAG_MS,
+    intervals: [...MAP_LAG_INTERVALS],
+    rows,
   };
 }
 
@@ -78,6 +121,7 @@ export function buildMap(
   map.klines["240"] = readBriefKlines(store, symbol, "240", limits["240"]);
   map.klines["60"] = readBriefKlines(store, symbol, "60", limits["60"]);
   map.klines.D = readBriefKlines(store, symbol, "D", limits.D);
+  map.klineLag = klineLagForSymbols(store, [symbol], { now });
   return map;
 }
 
@@ -99,6 +143,7 @@ export function parseMapSymbols(raw: string | undefined | null): string[] {
 export type SnapshotMapBatch = {
   ts: number;
   maps: SnapshotMap[];
+  klineLag: KlineLagSummary;
   meta: {
     db: string;
     count: number;
@@ -125,6 +170,7 @@ export function buildMapBatch(
   return {
     ts: now,
     maps,
+    klineLag: klineLagForSymbols(store, opts.symbols, { now }),
     meta: {
       db: opts.dbPath,
       count: maps.length,
@@ -135,12 +181,13 @@ export function buildMapBatch(
 
 function mapUsage(): never {
   console.log(`Usage:
+  bun run map
   bun run map [SYMBOL ...]
   bun run map --symbols BTCUSDT,ETHUSDT,SOLUSDT
 
-HTF snapshot for MAP (ticker + 4H/1H + daily if backfilled).
-One symbol → one object. Several → { maps: [...] }. Cap ${MAP_SYMBOL_CAP}.
-No 15m, no S/D, no bias. Default SYMBOL is BTCUSDT.
+HTF snapshot for MAP (ticker + 4H/1H + daily if backfilled + klineLag).
+No args → feed watchlist (cap ${MAP_SYMBOL_CAP}). One symbol → one object.
+Several → { maps, klineLag }. No 15m, no S/D, no bias.
 `);
   process.exit(2);
 }
@@ -151,20 +198,28 @@ function flag(argv: string[], name: string): string | undefined {
   return argv[index + 1];
 }
 
+/** Empty symbols → caller uses the feed watchlist. */
 export function parseMapArgs(argv: string[]): { symbols: string[] } {
   if (argv.includes("--help") || argv.includes("-h")) mapUsage();
   const fromFlag = parseMapSymbols(flag(argv, "--symbols"));
   const positionals = argv.filter((arg) => !arg.startsWith("-") && arg !== flag(argv, "--symbols"));
   const fromPos = parseMapSymbols(positionals.join(","));
   const symbols = fromFlag.length > 0 ? fromFlag : fromPos;
-  if (symbols.length === 0) return { symbols: [normalizeBriefSymbol(null)] };
   if (symbols.length > MAP_SYMBOL_CAP) mapUsage();
   return { symbols };
 }
 
+export function resolveMapSymbols(listed: string[], watchlist: string[]): string[] {
+  const symbols = listed.length > 0 ? listed : parseMapSymbols(watchlist.join(","));
+  if (symbols.length === 0) return [normalizeBriefSymbol(null)];
+  return symbols;
+}
+
 async function main(): Promise<void> {
-  const { symbols } = parseMapArgs(process.argv.slice(2));
+  const parsed = parseMapArgs(process.argv.slice(2));
   const config = await loadConfig();
+  const symbols = resolveMapSymbols(parsed.symbols, config.symbols ?? []);
+  if (symbols.length > MAP_SYMBOL_CAP) mapUsage();
   let store: TrackerDb;
   try {
     store = openDb(config.dbPath, true);
