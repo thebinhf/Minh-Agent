@@ -109,7 +109,7 @@ function expectBriefPackShape(pack: SnapshotBriefPack, symbols = ["BTCUSDT", "ET
 function expectPositionShape(row: BriefPackPosition) {
   expect(Object.keys(row)).toEqual([
     "id", "symbol", "side", "entryPrice", "stopLoss", "takeProfit",
-    "qty", "leverage", "riskPct", "unrealizedPnl", "status", "openedTs",
+    "qty", "leverage", "riskPct", "status", "openedTs",
   ]);
 }
 
@@ -269,6 +269,17 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
       expect(brief.ticker.lastPrice).toBe(expected.ticker.lastPrice);
       expect(brief.klines).toEqual(expected.klines);
       expect(brief.meta.limits).toEqual({ ...BRIEF_KLINE_LIMITS });
+
+      const mapRes = await fetch(`http://127.0.0.1:${server.port}/map?symbol=BTCUSDT`);
+      expect(mapRes.status).toBe(200);
+      const map = await mapRes.json() as { klines: Record<string, unknown[]> };
+      expect(Object.keys(map.klines)).toEqual(["240", "60", "D"]);
+      expect("15" in map.klines).toBe(false);
+
+      const confirmRes = await fetch(`http://127.0.0.1:${server.port}/confirm?symbol=BTCUSDT&interval=15`);
+      expect(confirmRes.status).toBe(200);
+      const confirm = await confirmRes.json() as { klines: Record<string, unknown[]> };
+      expect(Object.keys(confirm.klines)).toEqual(["15"]);
     } finally {
       server.stop();
       store.close();
@@ -345,10 +356,10 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
       qty: opened.position.qty,
       leverage: opened.position.leverage,
       riskPct: opened.position.riskPct,
-      unrealizedPnl: opened.position.unrealizedPnl,
       status: "open",
       openedTs: opened.position.openedTs,
     }));
+    expect(pack.paper.positions[0]).not.toHaveProperty("unrealizedPnl");
     expect(pack.paper.pendingOrders).toEqual([]);
     ctx.store.close();
     store.close();
@@ -373,7 +384,7 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
       expectArmedAlertShape(pack.paper.armedAlerts[0]!);
       expect(pack.paper.positions[0]).toEqual({
         id: null, symbol: null, side: null, entryPrice: null, stopLoss: null, takeProfit: null,
-        qty: null, leverage: null, riskPct: null, unrealizedPnl: null, status: null, openedTs: null,
+        qty: null, leverage: null, riskPct: null, status: null, openedTs: null,
       });
     } finally {
       store.close();

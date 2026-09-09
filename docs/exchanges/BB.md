@@ -219,7 +219,7 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
 - Missing ticker / kline / paper → `null` / `[]`. Unknown symbol does not 404.
 - `klineLag` is the same object as `GET /health`.
 - `paper` is the **local** paper desk (open positions, pending limits, armed alerts). `paper.source` is `http://127.0.0.1:43181` when the daemon injects the in-process engine (paper HTTP bind; no hop), or `sqlite:<PAPER_DB_PATH>` for `bun run brief-pack`. Missing paper → `source: null` and empty arrays. Feed does not import `src/paper`.
-- Paper row shapes are slim: positions (`id, symbol, side, entryPrice, stopLoss, takeProfit, qty, leverage, riskPct, unrealizedPnl, status, openedTs`), pendingOrders (`id, symbol, side, type, limitPrice, qty, stopLoss, takeProfit, status, createdTs`), armedAlerts (`id, symbol, op, price, status, createdTs`). Missing fields are `null`.
+- Paper row shapes are slim: positions (`id, symbol, side, entryPrice, stopLoss, takeProfit, qty, leverage, riskPct, status, openedTs` — no `unrealizedPnl`; use `paper status` for PnL), pendingOrders (`id, symbol, side, type, limitPrice, qty, stopLoss, takeProfit, status, createdTs`), armedAlerts (`id, symbol, op, price, status, createdTs`). Missing fields are `null`.
 - `zones` is always `[]`. MAP zones are agent-drawn; this repo has no zones store and does not auto-detect S/D.
 
 ## Chart, depth, heatmap

@@ -31,7 +31,6 @@ export type BriefPackPosition = {
   qty: string | null;
   leverage: string | null;
   riskPct: string | null;
-  unrealizedPnl: string | null;
   status: string | null;
   openedTs: number | null;
 };
@@ -210,7 +209,6 @@ function projectPosition(row: unknown): BriefPackPosition {
     qty: textField(o.qty),
     leverage: textField(o.leverage),
     riskPct: textField(o.riskPct),
-    unrealizedPnl: textField(o.unrealizedPnl),
     status: textField(o.status),
     openedTs: numberField(o.openedTs),
   };
