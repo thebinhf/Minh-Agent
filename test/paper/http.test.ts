@@ -230,6 +230,14 @@ describe("paper HTTP", () => {
       expect(limited.status).toBe(400);
       expect((await limited.json() as { error: string }).error).toBe("kline_lag");
 
+      const armed = await fetch(`${svc.url}/paper/arm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...OPEN_LONG, limitPrice: "62000" }),
+      });
+      expect(armed.status).toBe(400);
+      expect((await armed.json() as { error: string }).error).toBe("kline_lag");
+
       const health = await (await fetch(`${svc.url}/paper/health`)).json() as {
         gates: { tradingAllowed: boolean; reasons: string[] };
       };

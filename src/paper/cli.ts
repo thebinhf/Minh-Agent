@@ -17,8 +17,8 @@ export const PAPER_USAGE = `Usage:
   bun run paper positions [--status open|closed|all]
   bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT] [--zone-id ID]
   bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
-  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco]
-  bun run paper arm SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--alert-price PRICE]
+  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco] [--zone-id ID]
+  bun run paper arm SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--alert-price PRICE] [--zone-id ID]
   bun run paper status
   bun run paper day [--day YYYY-MM-DD]
   bun run paper metrics [--days N]

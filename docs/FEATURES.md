@@ -49,5 +49,5 @@ Verify against `src/` before treating older PRs as product scope.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
 | [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2–6: risk, fees, alerts/limit/OCO, notify, kline replay, operator surface) |
-| [operator.md](operator.md) | Minh Agent loop: MAP = `/map` (HTF) + `/brief-pack` (lag/desk); EVENT = `/confirm` (no 30m scan) |
+| [operator.md](operator.md) | Minh Agent loop: MAP = `/map` (HTF watchlist + klineLag); optional `/brief-pack` (gates/desk); EVENT = `/confirm` |
 | [ci.md](ci.md) | GitHub Actions CI + host systemd restart (no live keys) |

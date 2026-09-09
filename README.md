@@ -37,7 +37,7 @@ bun run backfill --interval D,W --days 365
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/FEATURES.md](docs/FEATURES.md)
 - [docs/exchanges/BB.md](docs/exchanges/BB.md)
-- [docs/operator.md](docs/operator.md) — MAP (`/map` + `/brief-pack`) / ARM / EVENT (`/confirm`) for Minh Agent (PA + S/D; no 30m scan)
+- [docs/operator.md](docs/operator.md) — MAP (`/map`, optional `/brief-pack` gates) / ARM / EVENT (`/confirm`) for Minh Agent (PA + S/D; no 30m scan)
 - [docs/ci.md](docs/ci.md) — GitHub Actions test gate; host restart via systemd
 - [docs/paper-trading.md](docs/paper-trading.md) — paper trading (ledger + CLI + HTTP; Phase 2 fees/funding/multi-TP/leverage)
 
