@@ -280,8 +280,9 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
 
       const confirmRes = await fetch(`http://127.0.0.1:${server.port}/confirm?symbol=BTCUSDT&interval=15`);
       expect(confirmRes.status).toBe(200);
-      const confirm = await confirmRes.json() as { klines: Record<string, unknown[]> };
-      expect(Object.keys(confirm.klines)).toEqual(["15"]);
+      const confirm = await confirmRes.json() as { interval: string; klines: unknown[] };
+      expect(confirm.interval).toBe("15");
+      expect(Array.isArray(confirm.klines)).toBe(true);
     } finally {
       server.stop();
       store.close();
