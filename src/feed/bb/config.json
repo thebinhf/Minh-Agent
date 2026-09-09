@@ -14,7 +14,8 @@
     "XRPUSDT",
     "DOGEUSDT",
     "AVAXUSDT",
-    "LINKUSDT"
+    "LINKUSDT",
+    "HYPEUSDT"
   ],
   "klineIntervals": ["5", "15", "60", "240"],
   "orderbook": {
