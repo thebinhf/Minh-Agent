@@ -54,9 +54,12 @@ Same ARM, on **backfilled** klines. Does not touch the live paper ledger. Slippa
 bun run backfill --symbol BTCUSDT --days 30
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
   --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
+bun run paper replay-batch ./zones.json
 ```
 
 Optional `--interval 15` (walk), `--funding-rate` if you want 8h settlements (kline cache has no funding tape). Auto S/D stays in MAP — replay only receives the zone.
+
+Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). Output is a table (fill / OCO / SL / TP). One bad row does not stop the rest.
 
 ## Ban
 

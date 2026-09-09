@@ -1,9 +1,10 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { loadConfig as loadFeedConfig } from "../feed/bb/config";
 import { openDb } from "../feed/bb/db";
-import { intervalToMs } from "../feed/bb/recovery";
+import { intervalToMs, parseTimeArg } from "../feed/bb/recovery";
 import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./config";
 import { openPaperDb } from "./db";
+import { Dec } from "./decimal";
 import { createPaperEngine, type PaperUniverse } from "./engine";
 import { PaperReject } from "./errors";
 import { parseSide } from "./risk";
@@ -19,6 +20,7 @@ import type {
 
 export const FUNDING_PERIOD_MS = 8 * 60 * 60 * 1000;
 export const REPLAY_BAR_CAP = 20_000;
+export const REPLAY_BATCH_CAP = 50;
 
 export type ReplayBar = {
   startTs: number;
@@ -306,6 +308,218 @@ export async function runReplayFromFeed(request: ReplayRequest): Promise<ReplayR
       series,
       request,
       dbPath,
+    });
+  } finally {
+    feedStore.close();
+  }
+}
+
+export type ReplayBatchSetup = ReplayRequest & { id: string };
+
+export type ReplayBatchRow = {
+  id: string;
+  symbol: string;
+  side: string;
+  outcome: string;
+  orderStatus: string | null;
+  closeReason: string | null;
+  realizedPnl: string | null;
+  error?: string;
+};
+
+export type ReplayBatchResult = {
+  mode: "paper";
+  replayBatch: true;
+  setups: number;
+  filled: number;
+  invalidated: number;
+  pending: number;
+  closed: { sl: number; tp: number; liq: number; manual: number };
+  realizedPnl: string;
+  rows: ReplayBatchRow[];
+};
+
+function asText(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  return String(value);
+}
+
+function parseBatchTime(raw: unknown, fallback?: number): number | undefined {
+  if (raw == null || raw === "") return fallback;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  try {
+    return parseTimeArg(String(raw));
+  } catch {
+    throw new PaperReject("replay_batch", "replay", { field: "from/to", value: raw });
+  }
+}
+
+function parseTimeframes(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof raw === "string") return raw.split(",").map((item) => item.trim()).filter(Boolean);
+  return [];
+}
+
+export function parseReplayBatchJson(raw: unknown): ReplayBatchSetup[] {
+  const root = raw && typeof raw === "object" ? raw as Record<string, unknown> : null;
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray(root?.setups)
+      ? root.setups
+      : null;
+  if (!list) throw new PaperReject("replay_batch", "replay", { reason: "need setups array" });
+  if (list.length === 0) throw new PaperReject("replay_batch", "replay", { reason: "empty" });
+  if (list.length > REPLAY_BATCH_CAP) {
+    throw new PaperReject("replay_too_many_setups", "replay", { setups: list.length, cap: REPLAY_BATCH_CAP });
+  }
+  const defaults = root && !Array.isArray(raw) ? root : {};
+  const defaultFrom = parseBatchTime(defaults.from);
+  const defaultTo = parseBatchTime(defaults.to);
+  const defaultInterval = asText(defaults.interval) ?? "15";
+  const defaultFunding = asText(defaults.fundingRate) ?? null;
+  return list.map((item, index) => {
+    const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const symbol = asText(row.symbol);
+    const side = asText(row.side);
+    const price = asText(row.price ?? row.limitPrice);
+    const sl = asText(row.sl ?? row.stopLoss);
+    const tp = asText(row.tp ?? row.takeProfit);
+    const timeframes = parseTimeframes(row.tf ?? row.timeframes ?? defaults.tf ?? defaults.timeframes);
+    const fromTs = parseBatchTime(row.from, defaultFrom);
+    const toTs = parseBatchTime(row.to, defaultTo);
+    if (!symbol || !side || !price || !sl || !tp || timeframes.length < 2 || fromTs == null || toTs == null) {
+      throw new PaperReject("replay_batch", "replay", { index, symbol, reason: "missing fields" });
+    }
+    return {
+      id: asText(row.id) ?? `${index + 1}:${symbol.trim().toUpperCase()}`,
+      symbol,
+      side,
+      limitPrice: price,
+      stopLoss: sl,
+      takeProfit: tp,
+      timeframes,
+      riskPct: asText(row.riskPct ?? row["risk-pct"]),
+      leverage: asText(row.leverage),
+      note: asText(row.note),
+      postOnly: row.postOnly !== false && row.cross !== true,
+      oco: row.oco !== false,
+      invalidatePrice: asText(row.invalidate ?? row.invalidatePrice),
+      fromTs,
+      toTs,
+      interval: asText(row.interval) ?? defaultInterval,
+      fundingRate: asText(row.fundingRate) ?? defaultFunding,
+    };
+  });
+}
+
+export function replayOutcome(result: ReplayResult): Pick<ReplayBatchRow, "outcome" | "orderStatus" | "closeReason" | "realizedPnl"> {
+  const orderStatus = result.order?.status ?? null;
+  const closeReason = result.position?.status === "closed" ? (result.position.closeReason ?? null) : null;
+  const realizedPnl = result.position?.status === "closed" ? (result.position.realizedPnl ?? "0") : null;
+  let outcome = "pending";
+  if (orderStatus === "invalidated") outcome = "invalidated";
+  else if (closeReason) outcome = closeReason;
+  else if (orderStatus === "filled") outcome = "filled";
+  else if (orderStatus === "rejected") outcome = "rejected";
+  return { outcome, orderStatus, closeReason, realizedPnl };
+}
+
+export async function runReplayBatch(opts: {
+  config: PaperConfig;
+  universe: PaperUniverse;
+  seriesFor: (setup: ReplayBatchSetup) => Record<string, ReplayBar[]>;
+  setups: ReplayBatchSetup[];
+  dbPath: string;
+}): Promise<ReplayBatchResult> {
+  const rows: ReplayBatchRow[] = [];
+  for (const setup of opts.setups) {
+    try {
+      const result = await runReplay({
+        config: opts.config,
+        universe: opts.universe,
+        series: opts.seriesFor(setup),
+        request: setup,
+        dbPath: opts.dbPath,
+      });
+      rows.push({ id: setup.id, symbol: result.symbol, side: setup.side, ...replayOutcome(result) });
+    } catch (error) {
+      const message = error instanceof PaperReject ? error.error : (error instanceof Error ? error.message : String(error));
+      rows.push({
+        id: setup.id,
+        symbol: setup.symbol.trim().toUpperCase(),
+        side: setup.side,
+        outcome: "error",
+        orderStatus: null,
+        closeReason: null,
+        realizedPnl: null,
+        error: message,
+      });
+    }
+  }
+  const closed = { sl: 0, tp: 0, liq: 0, manual: 0 };
+  let realized = Dec.zero();
+  let filled = 0;
+  let invalidated = 0;
+  let pending = 0;
+  for (const row of rows) {
+    if (row.outcome === "filled") filled += 1;
+    if (row.outcome === "invalidated") invalidated += 1;
+    if (row.outcome === "pending") pending += 1;
+    if (row.outcome === "sl") closed.sl += 1;
+    if (row.outcome === "tp") closed.tp += 1;
+    if (row.outcome === "liq") closed.liq += 1;
+    if (row.outcome === "manual") closed.manual += 1;
+    if (row.realizedPnl) realized = realized.add(Dec.from(row.realizedPnl));
+  }
+  return {
+    mode: "paper",
+    replayBatch: true,
+    setups: opts.setups.length,
+    filled,
+    invalidated,
+    pending,
+    closed,
+    realizedPnl: realized.toText(),
+    rows,
+  };
+}
+
+export async function runReplayBatchFromFeed(filePath: string): Promise<ReplayBatchResult> {
+  assertNoApiKeys();
+  const paper = await loadPaperConfig();
+  const feedCfg = await loadFeedConfig();
+  const dbPath = replayDbPath(paper.dbPath);
+  assertSeparateDb(dbPath, feedCfg.dbPath);
+  assertSeparateDb(paper.dbPath, dbPath);
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) {
+    throw new PaperReject("replay_batch_file", "replay", { path: filePath });
+  }
+  const setups = parseReplayBatchJson(JSON.parse(await file.text()));
+  const feedStore = openDb(feedCfg.dbPath, true);
+  const cache = new Map<string, Record<string, ReplayBar[]>>();
+  try {
+    return await runReplayBatch({
+      config: paper,
+      universe: { symbols: feedCfg.symbols, intervals: feedCfg.klineIntervals },
+      dbPath,
+      setups,
+      seriesFor(setup) {
+        const symbol = setup.symbol.trim().toUpperCase();
+        const hit = cache.get(symbol);
+        if (hit) return hit;
+        const intervals = [...new Set([setup.interval, ...setup.timeframes, ...setups.flatMap((item) => (
+          item.symbol.trim().toUpperCase() === symbol ? [item.interval, ...item.timeframes] : []
+        ))])];
+        const fromTs = Math.min(...setups.filter((item) => item.symbol.trim().toUpperCase() === symbol).map((item) => item.fromTs));
+        const toTs = Math.max(...setups.filter((item) => item.symbol.trim().toUpperCase() === symbol).map((item) => item.toTs));
+        const series: Record<string, ReplayBar[]> = {};
+        for (const interval of intervals) {
+          series[interval] = loadReplaySeries(feedStore, { symbol, interval, fromTs, toTs });
+        }
+        cache.set(symbol, series);
+        return series;
+      },
     });
   } finally {
     feedStore.close();

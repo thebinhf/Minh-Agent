@@ -7,7 +7,7 @@ import { httpFeed } from "./feed";
 import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
 import { paperArm, paperDay, paperStatus } from "./ops";
-import { runReplayFromFeed } from "./replay";
+import { runReplayBatchFromFeed, runReplayFromFeed } from "./replay";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
@@ -28,6 +28,7 @@ export const PAPER_USAGE = `Usage:
   bun run paper close ID
   bun run paper mark
   bun run paper replay SYMBOL --from TIME --to TIME --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--interval 15] [--funding-rate RATE] [--cross] [--invalidate PRICE] [--no-oco]
+  bun run paper replay-batch FILE.json
 
 Paper simulation only — no API keys, no real orders.
 Fills and marks come from the local feed at 127.0.0.1:43180.
@@ -40,6 +41,7 @@ Pass --no-oco to rest even if invalidation prints.
 alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
+replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
 arm = limit + alert (long → below limit, short → above). status is one JSON. day is UTC session fills/OCO/closes.
 `;
 
@@ -120,7 +122,8 @@ export type PaperCliCommand =
       toTs: number;
       interval: string;
       fundingRate?: string;
-    };
+    }
+  | { name: "replay-batch"; path: string };
 
 function parseTps(raw: string): Array<{ price: string; qtyPct: string }> {
   return raw.split(",").map((part) => {
@@ -283,6 +286,11 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
       alertPrice: flag(rest, "--alert-price"),
     };
   }
+  if (command === "replay-batch") {
+    const path = rest.find((arg) => !arg.startsWith("-"));
+    if (!path) throw new PaperUsageError(PAPER_USAGE);
+    return { name: "replay-batch", path };
+  }
   if (command === "replay") {
     const price = flag(rest, "--price");
     const fromRaw = flag(rest, "--from");
@@ -375,6 +383,7 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
       alertPrice: command.alertPrice,
     });
   }
+  if (command.name !== "open") throw new PaperUsageError(PAPER_USAGE);
   return engine.open({
     symbol: command.symbol,
     side: command.side,
@@ -420,6 +429,25 @@ async function main(): Promise<void> {
   if (command.name === "replay") {
     try {
       const body = await runReplayFromFeed(command);
+      console.log(JSON.stringify(body, null, 2));
+    } catch (error) {
+      if (error instanceof PaperSafetyError) {
+        console.error(`[minh:paper] ${error.message}`);
+        process.exit(1);
+      }
+      if (error instanceof PaperReject) {
+        console.log(JSON.stringify(error.toJSON(), null, 2));
+        process.exit(1);
+      }
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (command.name === "replay-batch") {
+    try {
+      const body = await runReplayBatchFromFeed(command.path);
       console.log(JSON.stringify(body, null, 2));
     } catch (error) {
       if (error instanceof PaperSafetyError) {

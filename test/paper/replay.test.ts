@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { parsePaperArgs } from "../../src/paper/cli";
 import {
   nextFundingTimeUtc,
+  parseReplayBatchJson,
   replayDbPath,
   replayPrints,
   runReplay,
+  runReplayBatch,
   type ReplayBar,
 } from "../../src/paper/replay";
 import { paperConfig, tempDir, UNIVERSE } from "./helpers";
@@ -196,5 +198,57 @@ describe("paper replay", () => {
       series: series([bar(0, "64000", "64100", "63500", "63800")]),
       request: { ...LIMIT, fromTs: FROM + 1000, toTs: FROM },
     })).rejects.toMatchObject({ error: "replay_window" });
+  });
+
+  test("batch parses a file of operator zones and tables fill vs OCO", async () => {
+    expect(parsePaperArgs(["replay-batch", "./zones.json"])).toEqual({ name: "replay-batch", path: "./zones.json" });
+    const setups = parseReplayBatchJson({
+      from: FROM,
+      to: FROM + 20 * MIN15,
+      interval: "15",
+      tf: ["240", "60", "15"],
+      setups: [
+        { id: "fill", symbol: "BTCUSDT", side: "long", price: "62000", sl: "60000", tp: "66000", riskPct: "0.02" },
+        { id: "oco", symbol: "BTCUSDT", side: "long", price: "62000", sl: "60000", tp: "66000", riskPct: "0.02" },
+      ],
+    });
+    expect(setups).toHaveLength(2);
+    expect(setups[0]?.limitPrice).toBe("62000");
+
+    const dir = tempDir("minh-replay-");
+    const config = await paperConfig(dir);
+    const fillSeries = series([
+      bar(0, "64000", "64100", "63500", "63800"),
+      bar(1, "63800", "63900", "61900", "62500"),
+    ]);
+    const ocoSeries = series([
+      bar(0, "64000", "64100", "63500", "63800"),
+      bar(1, "63800", "63000", "59000", "61000"),
+    ]);
+    const batch = await runReplayBatch({
+      config,
+      universe: UNIVERSE,
+      dbPath: join(dir, "replay.sqlite"),
+      setups,
+      seriesFor: (setup) => setup.id === "oco" ? ocoSeries : fillSeries,
+    });
+    expect(batch.replayBatch).toBe(true);
+    expect(batch.rows.map((row) => row.outcome)).toEqual(["filled", "invalidated"]);
+    expect(batch.filled).toBe(1);
+    expect(batch.invalidated).toBe(1);
+
+    const mixed = await runReplayBatch({
+      config,
+      universe: UNIVERSE,
+      dbPath: join(dir, "replay-err.sqlite"),
+      setups: [
+        { ...setups[0]!, id: "ok" },
+        { ...setups[0]!, id: "bad", fromTs: FROM + 1000, toTs: FROM },
+      ],
+      seriesFor: () => fillSeries,
+    });
+    expect(mixed.rows[1]?.outcome).toBe("error");
+    expect(mixed.rows[1]?.error).toBe("replay_window");
+    expect(mixed.rows[0]?.outcome).toBe("filled");
   });
 });
