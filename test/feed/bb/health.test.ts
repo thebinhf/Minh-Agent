@@ -12,6 +12,7 @@ import {
   evaluateKlineLag,
   lagRowKey,
   TICKER_LIVE_MS,
+  tradingGates,
   type KlineLagRow,
 } from "../../../src/feed/bb/health";
 import { startHttp } from "../../../src/feed/bb/http";
@@ -262,5 +263,22 @@ describe("buildKlineLag + GET /health", () => {
       server.stop();
       store.close();
     }
+  });
+});
+
+describe("tradingGates", () => {
+  test("composes /health ok and klineLag.ok without inventing a second lag check", () => {
+    expect(tradingGates({ feedOk: true, klineLagOk: true })).toEqual({
+      tradingAllowed: true,
+      reasons: [],
+    });
+    expect(tradingGates({ feedOk: true, klineLagOk: false })).toEqual({
+      tradingAllowed: false,
+      reasons: ["kline_lag"],
+    });
+    expect(tradingGates({ feedOk: false, klineLagOk: false })).toEqual({
+      tradingAllowed: false,
+      reasons: ["feed_unhealthy", "kline_lag"],
+    });
   });
 });

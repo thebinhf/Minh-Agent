@@ -1,5 +1,7 @@
 import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
+import { parseZoneId, rejectIfEntryBlocked } from "./gates";
+import { paperMetrics } from "./metrics";
 import type { PaperDb } from "./db";
 import {
   estimateCrossLiq,
@@ -155,6 +157,7 @@ export function viewPosition(row: PaperPositionRow): PositionView {
     openFee: row.open_fee ?? "0",
     closeFee: row.close_fee ?? "0",
     lastFundingTs: row.last_funding_ts ?? null,
+    zoneId: row.zone_id ?? null,
   };
 }
 
@@ -202,16 +205,20 @@ export function viewOrder(row: PaperOrderRow): OrderView {
     rejectReason: row.reject_reason,
     oco: row.oco !== 0,
     invalidatePrice: row.invalidate_price ?? row.stop_loss,
+    zoneId: row.zone_id ?? null,
   };
 }
 
 export function viewEvent(row: PaperEventRow): EventView {
+  const payload = parseEventPayload(row.payload_json);
+  const zoneId = row.zone_id ?? parseZoneId(payload.zoneId);
   return {
     id: row.id,
     kind: row.kind,
     symbol: row.symbol,
-    payload: parseEventPayload(row.payload_json),
+    payload,
     ts: row.ts,
+    zoneId,
   };
 }
 
@@ -300,6 +307,10 @@ export function createPaperEngine(opts: {
     }
   }
 
+  async function requireEntryAllowed(): Promise<void> {
+    rejectIfEntryBlocked(await feed.health());
+  }
+
   function requireFresh(ticker: PaperTicker, now: number): void {
     if (ticker.recvTs == null) {
       throw new PaperReject("stale_ticker", "stale", { recvTs: null, staleMs: config.staleMs });
@@ -375,14 +386,23 @@ export function createPaperEngine(opts: {
     return Dec.from(store.getAccount().maker_fee_rate ?? "0");
   }
 
-  function emit(kind: string, symbol: string | null, payload: Record<string, unknown>, now: number): EventView {
+  function emit(
+    kind: string,
+    symbol: string | null,
+    payload: Record<string, unknown>,
+    now: number,
+    zoneId: string | null = null,
+  ): EventView {
+    const resolved = zoneId ?? parseZoneId(payload.zoneId);
+    const body = resolved == null ? payload : { ...payload, zoneId: resolved };
     const id = store.insertEvent({
       kind,
       symbol,
-      payloadJson: JSON.stringify(payload),
+      payloadJson: JSON.stringify(body),
       ts: now,
+      zoneId: resolved,
     });
-    const view = { id, kind, symbol, payload, ts: now };
+    const view = { id, kind, symbol, payload: body, ts: now, zoneId: resolved };
     onEvent?.(view);
     return view;
   }
@@ -585,6 +605,7 @@ export function createPaperEngine(opts: {
     note: string | null;
     fillSource: PaperFillSource;
     fillRecvTs: number;
+    zoneId: string | null;
   };
 
   async function planOpen(
@@ -674,6 +695,7 @@ export function createPaperEngine(opts: {
       note: request.note?.trim() ? request.note.trim() : null,
       fillSource,
       fillRecvTs: ticker.recvTs ?? Date.now(),
+      zoneId: parseZoneId(request.zoneId),
     };
   }
 
@@ -705,6 +727,7 @@ export function createPaperEngine(opts: {
         liqPrice: plan.liq.toText(),
         takeProfitsJson: JSON.stringify(plan.plans),
         openFee: plan.openFee.toText(),
+        zoneId: plan.zoneId,
       });
       store.insertFill({
         positionId: id,
@@ -782,6 +805,7 @@ export function createPaperEngine(opts: {
       note: order.note,
       fillSource: "limit",
       fillRecvTs: ticker.recvTs ?? now,
+      zoneId: order.zone_id ?? null,
     }, now);
     store.fillOrder(order.id, opened.id, now);
     const event = emit("order.filled", order.symbol, {
@@ -790,7 +814,7 @@ export function createPaperEngine(opts: {
       limitPrice: order.limit_price,
       qty: order.qty,
       last: ticker.lastPrice,
-    }, now);
+    }, now, order.zone_id ?? null);
     return { order: viewOrder(store.getOrder(order.id)!), position: viewPosition(opened), event };
   }
 
@@ -851,7 +875,7 @@ export function createPaperEngine(opts: {
           invalidate: invalidate.toText(),
           stopLoss: row.stop_loss,
           last: last.toText(),
-        }, now));
+        }, now, row.zone_id ?? null));
         continue;
       }
       if (!limitFillHit(row.side, last, Dec.from(row.limit_price))) continue;
@@ -869,7 +893,7 @@ export function createPaperEngine(opts: {
           reason: error.error,
           gate: error.gate,
           last: last.toText(),
-        }, now));
+        }, now, row.zone_id ?? null));
       }
     }
     return { filled, rejected, invalidated, events };
@@ -912,7 +936,7 @@ export function createPaperEngine(opts: {
           closeReason: result.closeReason,
           closePrice: result.closePrice,
           realizedPnl: result.realizedPnl,
-        }, now));
+        }, now, fresh.zone_id ?? null));
         continue;
       }
       if (
@@ -936,7 +960,7 @@ export function createPaperEngine(opts: {
           closeReason: result.closeReason,
           closePrice: result.closePrice,
           realizedPnl: result.realizedPnl,
-        }, now));
+        }, now, fresh.zone_id ?? null));
         continue;
       }
       const plans = parsePlans(fresh.take_profits_json);
@@ -977,7 +1001,7 @@ export function createPaperEngine(opts: {
             closePrice: result.closePrice,
             realizedPnl: result.realizedPnl,
             partial: result.partial,
-          }, now));
+          }, now, working.zone_id ?? null));
           break;
         }
         working = store.getPosition(working.id)!;
@@ -1047,7 +1071,7 @@ export function createPaperEngine(opts: {
             closeReason: result.closeReason,
             closePrice: result.closePrice,
             realizedPnl: result.realizedPnl,
-          }, now));
+          }, now, row.zone_id ?? null));
         }
       }
     }
@@ -1113,6 +1137,14 @@ export function createPaperEngine(opts: {
       return store.listEventsRange(fromTs, toTs, limit).map(viewEvent);
     },
 
+    metrics(days = 7, now = Date.now()) {
+      return paperMetrics({
+        eventsBetween: (fromTs, toTs, limit = 500) => store.listEventsRange(fromTs, toTs, limit).map(viewEvent),
+        positions: (status) => store.listPositions(status).map(viewPosition),
+        account: () => viewAccount(store),
+      }, days, now);
+    },
+
     mark: evaluate,
     evaluate,
 
@@ -1174,7 +1206,7 @@ export function createPaperEngine(opts: {
     },
 
     async limit(request: LimitRequest, now = Date.now()) {
-      await requireHealthyFeed();
+      await requireEntryAllowed();
       const symbol = requireKnownSymbol(request.symbol);
       if (!request.limitPrice?.trim()) {
         throw new PaperReject("missing_limit_price", "limit", { symbol });
@@ -1230,6 +1262,7 @@ export function createPaperEngine(opts: {
         createdTs: now,
         oco,
         invalidatePrice: invalidate.toText(),
+        zoneId: plan.zoneId,
       });
       let order = store.getOrder(id)!;
       let position: PositionView | undefined;
@@ -1267,12 +1300,12 @@ export function createPaperEngine(opts: {
         throw new PaperReject("order_not_pending", "status", { id, status: row.status });
       }
       store.cancelOrder(id, now);
-      const event = emit("order.cancelled", row.symbol, { orderId: id }, now);
+      const event = emit("order.cancelled", row.symbol, { orderId: id }, now, row.zone_id ?? null);
       return { mode: "paper" as const, order: viewOrder(store.getOrder(id)!), event };
     },
 
     async open(request: OpenRequest, now = Date.now()) {
-      await requireHealthyFeed();
+      await requireEntryAllowed();
       const symbol = requireKnownSymbol(request.symbol);
       await evaluate(now);
       assertFlatSymbol(symbol);
@@ -1308,7 +1341,7 @@ export function createPaperEngine(opts: {
         closeReason: closed.closeReason,
         closePrice: closed.closePrice,
         realizedPnl: closed.realizedPnl,
-      }, now);
+      }, now, row.zone_id ?? null);
       return {
         mode: "paper" as const,
         position: {

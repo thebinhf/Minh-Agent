@@ -15,7 +15,7 @@ bun run start          # feed :43180 + paper :43181
 bun run brief BTCUSDT  # one local JSON snapshot (ticker + 15/60/240)
 bun run map BTCUSDT ETHUSDT  # HTF MAP; several names → { maps: [...] }
 bun run confirm BTCUSDT # EVENT: ticker + 20×15m (scalp: --interval 5)
-bun run brief-pack     # tickers + kline lag + open paper desk (not candles)
+bun run brief-pack     # tickers + kline lag + gates + open paper desk (not candles)
 bun run query chart BTCUSDT 15
 bun run query depth BTCUSDT
 bun run query heatmap BTCUSDT --bucket 10
@@ -24,6 +24,7 @@ bun run paper account  # simulated equity (requires local feed prices to mutate)
 bun run paper alert set BTCUSDT --below 117500
 bun run paper arm BTCUSDT --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 bun run paper status
+bun run paper metrics --days 7
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 bun run paper replay-batch ./zones.json
 bun run backfill --probe

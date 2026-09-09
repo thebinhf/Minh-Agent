@@ -209,6 +209,7 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
     }
   ],
   "klineLag": { "ok": true, "staleMs": 180000, "intervals": ["15", "60", "240"], "rows": [] },
+  "gates": { "tradingAllowed": true, "reasons": [] },
   "paper": { "source": null, "positions": [], "pendingOrders": [], "armedAlerts": [] },
   "zones": [],
   "meta": { "db": "...", "klinesDays": 14, "paperSource": null }
@@ -218,6 +219,7 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
 - Default: every configured feed symbol. `?symbol=` / CLI positional filters one pair.
 - Missing ticker / kline / paper → `null` / `[]`. Unknown symbol does not 404.
 - `klineLag` is the same object as `GET /health`.
+- `gates` is additive: `tradingAllowed` is false when feed `/health` `ok` is false (`feed_unhealthy`) or `klineLag.ok` is false (`kline_lag`). Paper open/limit/arm reject with those codes. Does not auto-close existing paper positions and does not send extra alerts.
 - `paper` is the **local** paper desk (open positions, pending limits, armed alerts). `paper.source` is `http://127.0.0.1:43181` when the daemon injects the in-process engine (paper HTTP bind; no hop), or `sqlite:<PAPER_DB_PATH>` for `bun run brief-pack`. Missing paper → `source: null` and empty arrays. Feed does not import `src/paper`.
 - Paper row shapes are slim: positions (`id, symbol, side, entryPrice, stopLoss, takeProfit, qty, leverage, riskPct, status, openedTs` — no `unrealizedPnl`; use `paper status` for PnL), pendingOrders (`id, symbol, side, type, limitPrice, qty, stopLoss, takeProfit, status, createdTs`), armedAlerts (`id, symbol, op, price, status, createdTs`). Missing fields are `null`.
 - `zones` is always `[]`. MAP zones are agent-drawn; this repo has no zones store and does not auto-detect S/D.

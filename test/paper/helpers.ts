@@ -77,10 +77,11 @@ export function mockFeed(opts?: {
   ok?: boolean;
   klines?: Partial<Record<string, PaperKlineSnap | null>>;
   tickers?: Record<string, Partial<PaperTicker>>;
+  klineLagOk?: boolean;
 }): PaperFeed {
   const feed: PaperFeed = {
     async health() {
-      return { ok: opts?.ok ?? true, url: "http://127.0.0.1:43180/health" };
+      return { ok: opts?.ok ?? true, url: "http://127.0.0.1:43180/health", klineLagOk: opts?.klineLagOk ?? true };
     },
     async ticker(symbol: string) {
       return tickerRow(symbol, opts);

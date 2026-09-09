@@ -50,6 +50,32 @@ export type FeedHealth = {
   klineLag: KlineLagSummary;
 };
 
+/** Stable reason codes for paper entry kill-switch / `/brief-pack` gates. */
+export const GATE_FEED_UNHEALTHY = "feed_unhealthy";
+export const GATE_KLINE_LAG = "kline_lag";
+
+export type TradingGates = {
+  tradingAllowed: boolean;
+  reasons: string[];
+};
+
+/**
+ * Paper entry kill-switch. `GET /health` `ok` (WS/ticker) and `klineLag.ok` stay
+ * the sources of truth — this only composes them. Missing inputs do not trip.
+ */
+export function tradingGates(input: {
+  feedOk?: boolean | null;
+  klineLagOk?: boolean | null;
+}): TradingGates {
+  const reasons: string[] = [];
+  if (input.feedOk === false) reasons.push(GATE_FEED_UNHEALTHY);
+  if (input.klineLagOk === false) reasons.push(GATE_KLINE_LAG);
+  return {
+    tradingAllowed: reasons.length === 0,
+    reasons,
+  };
+}
+
 export type KlineLagStore = Pick<TrackerDb, "latestKlines" | "listTickers">;
 
 export type FeedHealthStore = Pick<TrackerDb, "getHealth" | "latestKlines" | "listTickers">;
