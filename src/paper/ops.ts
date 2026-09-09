@@ -98,6 +98,7 @@ export async function paperArm(
       op,
       price,
       note: request.note,
+      zoneId: request.zoneId,
     }, now);
     return { mode: "paper", arm: true, order: placed.order, alert: alert.alert };
   } catch (error) {

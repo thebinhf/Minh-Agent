@@ -174,6 +174,7 @@ export function viewAlert(row: PaperAlertRow): AlertView {
     firedTs: row.fired_ts,
     firedLast: row.fired_last,
     channel: row.channel,
+    zoneId: row.zone_id ?? null,
   };
 }
 
@@ -843,7 +844,7 @@ export function createPaperEngine(opts: {
         price: row.price,
         last: last.toText(),
         note: row.note,
-      }, now));
+      }, now, row.zone_id ?? null));
     }
     return { fired, events };
   }
@@ -875,6 +876,7 @@ export function createPaperEngine(opts: {
           invalidate: invalidate.toText(),
           stopLoss: row.stop_loss,
           last: last.toText(),
+          cancelCode: "never_touched",
         }, now, row.zone_id ?? null));
         continue;
       }
@@ -893,6 +895,9 @@ export function createPaperEngine(opts: {
           reason: error.error,
           gate: error.gate,
           last: last.toText(),
+          ...(error.error === "kline_lag" || error.error === "feed_unhealthy"
+            ? { cancelCode: "gates_block" }
+            : error.error === "rr_below_min" ? { cancelCode: "rr_fail" } : {}),
         }, now, row.zone_id ?? null));
       }
     }
@@ -1166,6 +1171,7 @@ export function createPaperEngine(opts: {
           price: price.toText(),
           note: request.note?.trim() ? request.note.trim() : null,
           createdTs: now,
+          zoneId: parseZoneId(request.zoneId),
         });
         const armed = store.getAlert(id)!;
         const last = snapPrice(requireLast(ticker), spec);
@@ -1178,7 +1184,7 @@ export function createPaperEngine(opts: {
             last: last.toText(),
             note: armed.note,
             immediate: true,
-          }, now);
+          }, now, parseZoneId(request.zoneId));
           return {
             mode: "paper" as const,
             alert: viewAlert(store.getAlert(id)!),
@@ -1282,7 +1288,10 @@ export function createPaperEngine(opts: {
             reason: error.error,
             gate: error.gate,
             last: last.toText(),
-          }, now);
+            ...(error.error === "kline_lag" || error.error === "feed_unhealthy"
+              ? { cancelCode: "gates_block" }
+              : error.error === "rr_below_min" ? { cancelCode: "rr_fail" } : {}),
+          }, now, order.zone_id ?? null);
         }
       }
       return {
@@ -1300,7 +1309,10 @@ export function createPaperEngine(opts: {
         throw new PaperReject("order_not_pending", "status", { id, status: row.status });
       }
       store.cancelOrder(id, now);
-      const event = emit("order.cancelled", row.symbol, { orderId: id }, now, row.zone_id ?? null);
+      const event = emit("order.cancelled", row.symbol, {
+        orderId: id,
+        cancelCode: "ops_cancel",
+      }, now, row.zone_id ?? null);
       return { mode: "paper" as const, order: viewOrder(store.getOrder(id)!), event };
     },
 

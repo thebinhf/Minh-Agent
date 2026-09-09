@@ -1,6 +1,12 @@
 import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
-import type { EventView, PaperMetrics, PositionView } from "./types";
+import type { EventView, OrderView, PaperMetrics, PositionView } from "./types";
+import {
+  bumpCancelCode,
+  classifyCancelCode,
+  emptyCancelCodeCounts,
+  type CancelCode,
+} from "../zones/card";
 
 const DAY_MS = 86_400_000;
 export const DEFAULT_METRICS_DAYS = 7;
@@ -23,6 +29,7 @@ export type PaperMetricsSource = {
   eventsBetween(fromTs: number, toTs: number, limit?: number): EventView[];
   positions(status: "open" | "closed" | "all"): PositionView[];
   account(): { openPositions: number; pendingOrders: number };
+  orders?(status: "pending" | "filled" | "cancelled" | "rejected" | "invalidated" | "all"): OrderView[];
 };
 
 function metricsWindow(days: number, now: number): { fromTs: number; toTs: number } {
@@ -51,6 +58,30 @@ function zoneKey(zoneId: string | null): string {
 
 function emptyCloseReasons() {
   return { sl: 0, tp: 0, liq: 0, manual: 0 };
+}
+
+function emptyFunnel() {
+  return {
+    detected: 0,
+    armed: 0,
+    touched: 0,
+    filled: 0,
+    cancelled: 0,
+    exited: 0,
+  };
+}
+
+function cancelCodeFromEvent(event: EventView): CancelCode | null {
+  const tagged = classifyCancelCode(event.payload.cancelCode);
+  if (tagged) return tagged;
+  if (event.kind === "order.cancelled") return "ops_cancel";
+  if (event.kind === "order.invalidated") return "never_touched";
+  if (event.kind === "order.rejected") {
+    const reason = String(event.payload.reason ?? "");
+    if (reason === "kline_lag" || reason === "feed_unhealthy") return "gates_block";
+    if (reason === "rr_below_min") return "rr_fail";
+  }
+  return null;
 }
 
 function emptyZoneBucket(zoneId: string | null) {
@@ -90,6 +121,13 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   let realized = Dec.zero();
   const byZone = new Map<string, ReturnType<typeof emptyZoneBucket>>();
   const rrByZone = new Map<string, Dec[]>();
+  const cancelCodes = emptyCancelCodeCounts();
+  const detectedIds = new Set<string>();
+  let touched = 0;
+
+  function noteZone(zoneId: string | null) {
+    if (zoneId) detectedIds.add(zoneId);
+  }
 
   function zoneBucket(zoneId: string | null) {
     const key = zoneKey(zoneId);
@@ -103,6 +141,9 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
 
   for (const event of events) {
     const zoneId = event.zoneId ?? parseEventZoneId(event);
+    noteZone(zoneId);
+    const code = cancelCodeFromEvent(event);
+    if (code) bumpCancelCode(cancelCodes, code);
     if (event.kind === "order.filled") {
       counts.filled += 1;
       zoneBucket(zoneId).filled += 1;
@@ -114,6 +155,8 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
       zoneBucket(zoneId).cancelled += 1;
     } else if (event.kind === "order.rejected") {
       counts.rejected += 1;
+    } else if (event.kind === "alert.fired") {
+      if (zoneId) touched += 1;
     } else if (event.kind === "position.closed") {
       counts.closed += 1;
       const reason = String(event.payload.closeReason ?? "");
@@ -134,6 +177,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   ));
   counts.filled += marketOpens.length;
   for (const row of marketOpens) {
+    noteZone(row.zoneId ?? null);
     zoneBucket(row.zoneId ?? null).filled += 1;
   }
 
@@ -146,6 +190,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   for (const row of closed) {
     const pnl = Dec.from(row.realizedPnl ?? "0");
     const zoneId = row.zoneId ?? null;
+    noteZone(zoneId);
     const bucket = zoneBucket(zoneId);
     bucket.trades += 1;
     if (pnl.isPos()) {
@@ -190,6 +235,22 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
     return a.zoneId.localeCompare(b.zoneId);
   });
 
+  const orders = engine.orders?.("all") ?? [];
+  const armed = orders.filter((row) => (
+    row.zoneId != null && inWindow(row.createdTs, window.fromTs, window.toTs)
+  )).length;
+  for (const row of orders) {
+    if (inWindow(row.createdTs, window.fromTs, window.toTs)) noteZone(row.zoneId ?? null);
+  }
+  const funnel = {
+    detected: detectedIds.size,
+    armed,
+    touched,
+    filled: counts.filled,
+    cancelled: counts.invalidated + counts.cancelled,
+    exited: counts.closed,
+  };
+
   return {
     mode: "paper",
     days: windowDays,
@@ -214,6 +275,8 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
     pendingOrders: account.pendingOrders,
     events: events.length,
     byZone: zones,
+    funnel,
+    cancelCodes,
   };
 }
 
@@ -249,6 +312,8 @@ export function emptyPaperMetrics(days = DEFAULT_METRICS_DAYS, now = Date.now())
     pendingOrders: 0,
     events: 0,
     byZone: [],
+    funnel: emptyFunnel(),
+    cancelCodes: emptyCancelCodeCounts(),
   };
 }
 
@@ -277,5 +342,7 @@ export function metricsKeys(): Array<keyof PaperMetrics> {
     "pendingOrders",
     "events",
     "byZone",
+    "funnel",
+    "cancelCodes",
   ];
 }

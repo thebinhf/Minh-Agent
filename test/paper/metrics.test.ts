@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { parsePaperArgs } from "../../src/paper/cli";
 import { PaperReject } from "../../src/paper/errors";
 import { metricsKeys, paperMetrics } from "../../src/paper/metrics";
+import { paperArm } from "../../src/paper/ops";
 import { mockFeed, OPEN_LONG, paperEngine } from "./helpers";
 
 const dirs: string[] = [];
@@ -41,6 +42,23 @@ describe("paper metrics", () => {
     expect(body.pendingOrders).toBe(0);
     expect(body.events).toBe(0);
     expect(body.byZone).toEqual([]);
+    expect(body.funnel).toEqual({
+      detected: 0,
+      armed: 0,
+      touched: 0,
+      filled: 0,
+      cancelled: 0,
+      exited: 0,
+    });
+    expect(body.cancelCodes).toEqual({
+      never_touched: 0,
+      ops_cancel: 0,
+      deep_mitigate: 0,
+      htf_break: 0,
+      expired: 0,
+      rr_fail: 0,
+      gates_block: 0,
+    });
   });
 
   test("aggregates win rate, avg RR, SL/TP, and optional zoneId", async () => {
@@ -148,5 +166,70 @@ describe("paper metrics", () => {
     const ctx = await paperEngine();
     dirs.push(ctx.dir);
     expect(() => paperMetrics(ctx.engine, 0)).toThrow(PaperReject);
+  });
+
+  test("funnel splits noFill into never_touched vs ops_cancel", async () => {
+    const feed = mockFeed({ lastPrice: "63000", markPrice: "63000" });
+    const ctx = await paperEngine(feed);
+    dirs.push(ctx.dir);
+    const now = Date.now();
+    await ctx.engine.limit({
+      ...OPEN_LONG,
+      limitPrice: "62000",
+      zoneId: "btc-4h-d-20260908-01",
+    }, now);
+    const cancelled = ctx.engine.cancelOrder(ctx.engine.orders("pending")[0]!.id, now + 1);
+    expect(cancelled.event.payload.cancelCode).toBe("ops_cancel");
+
+    await ctx.engine.limit({
+      ...OPEN_LONG,
+      symbol: "ETHUSDT",
+      limitPrice: "62000",
+      zoneId: "eth-4h-d-20260908-01",
+    }, now + 2);
+    feed.ticker = async (symbol) => ({
+      symbol,
+      lastPrice: "59000",
+      markPrice: "59000",
+      recvTs: now + 3,
+      fundingRate: null,
+      nextFundingTime: null,
+    });
+    await ctx.engine.mark(now + 3);
+    const body = paperMetrics(ctx.engine, 7, now + 4);
+    expect(Object.keys(body)).toEqual(metricsKeys());
+    expect(body.funnel.detected).toBe(2);
+    expect(body.funnel.armed).toBe(2);
+    expect(body.funnel.cancelled).toBe(2);
+    expect(body.funnel.filled).toBe(0);
+    expect(body.cancelCodes.ops_cancel).toBe(1);
+    expect(body.cancelCodes.never_touched).toBe(1);
+    expect(body.noFillPct).toBe("1");
+  });
+
+  test("funnel.touched counts alert.fired with zoneId after arm", async () => {
+    const feed = mockFeed({ lastPrice: "63000", markPrice: "63000" });
+    const ctx = await paperEngine(feed);
+    dirs.push(ctx.dir);
+    const now = Date.now();
+    await paperArm(ctx.engine, {
+      ...OPEN_LONG,
+      limitPrice: "62000",
+      zoneId: "btc-4h-d-20260908-01",
+    }, now);
+    feed.ticker = async (symbol) => ({
+      symbol,
+      lastPrice: "62000",
+      markPrice: "62000",
+      recvTs: now + 1,
+      fundingRate: null,
+      nextFundingTime: null,
+    });
+    await ctx.engine.mark(now + 1);
+    const body = paperMetrics(ctx.engine, 7, now + 2);
+    expect(body.funnel.detected).toBe(1);
+    expect(body.funnel.armed).toBe(1);
+    expect(body.funnel.touched).toBe(1);
+    expect(body.funnel.filled).toBe(1);
   });
 });
