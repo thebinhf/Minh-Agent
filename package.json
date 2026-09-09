@@ -14,6 +14,7 @@
     "backfill": "bun run src/feed/bb/backfill.ts",
     "brief": "bun run src/feed/bb/brief.ts",
     "map": "bun run src/feed/bb/map.ts",
+    "confirm": "bun run src/feed/bb/confirm.ts",
     "paper": "bun run src/paper/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",

@@ -20,6 +20,7 @@ src/index.ts
        → read-only HTTP 127.0.0.1:43180
          GET /brief  (one snapshot JSON for Minh — ticker + 15/60/240)
          GET /map    (HTF MAP — ticker + 4H/1H + D if backfilled; no 15m)
+         GET /confirm (EVENT — ticker + 20×15m or 5m; no depth)
          GET /chart  GET /depth  GET /heatmap  GET /market
   → src/paper
        → paper SQLite ledger (separate file)
@@ -33,6 +34,7 @@ src/index.ts
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
 bun run map [SYMBOL]     # HTF MAP snapshot; agent draws S/D
+bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run query chart|depth|heatmap|market
 bun run paper account    # simulated equity (no keys, no real orders)
 bun run backfill   # one-shot; does not start WS
