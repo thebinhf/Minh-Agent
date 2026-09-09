@@ -1,9 +1,10 @@
 import { buildBrief } from "./brief";
 import { buildBriefPack, resolvePaperDesk, type BriefPackPaperSource } from "./brief-pack";
 import { buildConfirm, parseConfirmInterval } from "./confirm";
-import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols } from "./map";
+import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols, resolveMapSymbols } from "./map";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
+import { mapClosePath } from "./map-close";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 
@@ -151,12 +152,26 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
         }));
       }
 
+      if (path === "/map-latest") {
+        const file = Bun.file(mapClosePath(config, process.env.MAP_CLOSE_PATH));
+        if (!(await file.exists())) {
+          return json({ error: "map_latest_missing" }, 404);
+        }
+        return new Response(await file.text(), {
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "access-control-allow-origin": "*",
+            "cache-control": "no-store",
+          },
+        });
+      }
+
       if (path === "/map") {
         const listed = parseMapSymbols(
           url.searchParams.get("symbols") ?? url.searchParams.get("symbol"),
         );
-        const symbols = listed.length > 0 ? listed : parseMapSymbols("BTCUSDT");
-        if (symbols.length > MAP_SYMBOL_CAP) {
+        const symbols = resolveMapSymbols(listed, config.symbols ?? []);
+        if (listed.length > MAP_SYMBOL_CAP || symbols.length > MAP_SYMBOL_CAP) {
           return json({ error: "map_symbols", cap: MAP_SYMBOL_CAP }, 400);
         }
         if (symbols.length === 1) {

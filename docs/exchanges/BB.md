@@ -50,8 +50,10 @@ HTTP (read-only):
 
 - `GET /health` — WS + ticker ages + `klineLag` (15/60/240 per symbol)
 - `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
-- `GET /map?symbol=BTCUSDT` — HTF MAP (ticker + 4H/1H + daily if backfilled; no 15m, no S/D)
-- `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` — same, `{ maps: [...] }` (cap 8)
+- `GET /map` — HTF MAP for the feed watchlist (`{ maps, klineLag }`, cap 10)
+- `GET /map-latest` — last HTF-close dump (`404` until the first 1H/4H confirm)
+- `GET /map?symbol=BTCUSDT` — one symbol (ticker + 4H/1H + D + klineLag 60/240)
+- `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` — `{ maps, klineLag }`
 - `GET /confirm?symbol=BTCUSDT&interval=15` — EVENT LTF (ticker + 20×15m; scalp `interval=5`)
 - `GET /brief-pack` — tickers + kline lag + open paper desk (additive; not candles)
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
@@ -68,7 +70,7 @@ CLI against the same SQLite file:
 
 ```bash
 bun run brief BTCUSDT
-bun run map BTCUSDT
+bun run map
 bun run confirm BTCUSDT
 bun run brief-pack
 bun run brief-pack BTCUSDT
@@ -113,7 +115,7 @@ Read what landed:
 | Surface | How |
 | --- | --- |
 | Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
-| HTF map | `bun run map SYMBOL ...` or `GET /map?symbol=` — ticker + 20×4h / 24×1h / 30×D. Several names: `?symbols=` → `{ maps }` (cap 8) |
+| HTF map | `bun run map` or `GET /map` — watchlist (cap 10). Ticker + 20×4h / 24×1h / 30×D + klineLag 60/240 |
 | LTF confirm | `bun run confirm SYMBOL` or `GET /confirm?symbol=&interval=15` — ticker + 20×15m (or 5) |
 | Brief pack | `bun run brief-pack [SYMBOL]` or `GET /brief-pack` — tickers + kline lag + open paper + `zones: []` |
 | Chart / depth / heatmap | `bun run query chart\|depth\|heatmap\|market` or `GET /chart` `/depth` `/heatmap` `/market` |

@@ -6,15 +6,17 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 | State | When | Minh-Agent | Agent output |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H candle close | `GET /map?symbols=` (HTF candles) + `GET /brief-pack` (lag + `gates` + desk). `bun run map BTCUSDT ETHUSDT` / `brief-pack` | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` or `gates.tradingAllowed` is false, do not trust SQLite candles and do not arm |
+| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map`. Optional `GET /brief-pack` for `gates` + desk | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` or `gates.tradingAllowed` is false, do not trust SQLite candles and do not arm |
 | **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
 | **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /confirm?interval=15` (scalp: `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
 
 ## MAP
 
-Read `ticker` + `klines.240` + `klines.60` from **`GET /map`** (daily `klines.D` if backfilled). Several names: `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` → `{ maps: [...] }`. One name stays a single object. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged (full 15/60/240 dump) and is **not** the MAP candle source.
+Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. One name stays a single object. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.
 
-Read `tickers` + `klineLag` + `gates` + open paper from **`GET /brief-pack`**. Additive only — it does **not** replace `/map`. Check `klineLag.rows` before drawing. If `gates.tradingAllowed` is false (`kline_lag` and/or `feed_unhealthy`), STAND ASIDE — do not `paper arm` / `paper open`. Stale/formingStuck while ticker is live means the cache is not advancing — do not invent candles. Existing paper positions stay open; do not spam mid-range alerts.
+`GET /brief-pack` is optional (desk: pending / alerts / positions + `gates`). Not required to draw zones. Positions have no `unrealizedPnl`. If `gates.tradingAllowed` is false (`kline_lag` and/or `feed_unhealthy`), STAND ASIDE — do not `paper arm` / `paper open`. Existing paper positions stay open; do not spam mid-range alerts.
+
+Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
 Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
 
@@ -77,6 +79,14 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 - Live keys, `/v5/order`, paper→live
 - Mid-watch PnL
 
-## Feed
+## 24/7 mesh
+
+Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT notify + kline-lag watchdog.
+
+On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json` next to the feed DB (override `MAP_CLOSE_PATH`). Optional `MAP_CLOSE_WEBHOOK` POSTs `{ kind: "map.close", interval, map }` — same payload as `/map`, not a signal. `MAP_CLOSE=0` disables.
+
+Then Agent draws zones and `paper arm`. Engine does **not** auto-arm.
+
+`GET /map-latest` reads the last dump (404 before the first close).
 
 `127.0.0.1:43180` public cache. Default watchlist is 10 linear symbols (BTC, ETH, SOL, ENA, BNB, XRP, DOGE, AVAX, LINK, HYPE). Stale ticker → paper rejects. Stale **klines** with a live ticker → `klineLag.ok=false` on `/health` and `/brief-pack`, and `gates.tradingAllowed=false`. Paper **open/limit/arm** reject with `kline_lag`. Do not invent a price or a candle. Do not auto-close existing paper positions.

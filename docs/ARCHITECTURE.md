@@ -19,7 +19,8 @@ src/index.ts
        → SQLite cache
        → read-only HTTP 127.0.0.1:43180
          GET /brief  (one snapshot JSON for Minh — ticker + 15/60/240)
-         GET /map    (HTF MAP — ticker + 4H/1H + D if backfilled; no 15m)
+         GET /map    (HTF MAP — ticker + 4H/1H + D if backfilled; klineLag 60/240)
+         GET /map-latest (last 1H/4H close dump; 404 until first confirm)
          GET /confirm (EVENT — ticker + 20×15m or 5m; no depth)
          GET /brief-pack  (tickers + kline lag + gates + open paper desk; paper injected from composition root)
          GET /chart  GET /depth  GET /heatmap  GET /market
@@ -35,7 +36,7 @@ src/index.ts
        → CLI  bun run paper …
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
-bun run map [SYMBOL ...] # HTF MAP snapshot; several names → { maps }; agent draws S/D
+bun run map              # HTF MAP watchlist + klineLag; agent draws S/D
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run brief-pack [SYMBOL]  # same JSON as GET /brief-pack; all symbols if omitted
 bun run query chart|depth|heatmap|market

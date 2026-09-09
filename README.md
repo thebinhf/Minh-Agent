@@ -13,7 +13,7 @@ bun install
 bun test
 bun run start          # feed :43180 + paper :43181
 bun run brief BTCUSDT  # one local JSON snapshot (ticker + 15/60/240)
-bun run map BTCUSDT ETHUSDT  # HTF MAP; several names → { maps: [...] }
+bun run map              # HTF MAP watchlist + klineLag (cap 10)
 bun run confirm BTCUSDT # EVENT: ticker + 20×15m (scalp: --interval 5)
 bun run brief-pack     # tickers + kline lag + gates + open paper desk (not candles)
 bun run query chart BTCUSDT 15
