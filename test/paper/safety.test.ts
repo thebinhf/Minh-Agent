@@ -46,6 +46,9 @@ describe("paper safety", () => {
       "src/paper/replay.ts",
       "src/paper/ops.ts",
       "src/paper/db.ts",
+      "src/zones/card.ts",
+      "src/zones/detect.ts",
+      "src/feed/bb/zones.ts",
     ];
     for (const file of files) {
       const src = await Bun.file(file).text();

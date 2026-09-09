@@ -6,7 +6,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 | State | When | Minh-Agent | Agent output |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map`. Optional `GET /brief-pack` for `gates` + desk | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` or `gates.tradingAllowed` is false, do not trust SQLite candles and do not arm |
+| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map`. Optional `GET /zones` (suggest-only). Optional `GET /brief-pack` for `gates` + desk | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` or `gates.tradingAllowed` is false, do not trust SQLite candles and do not arm |
 | **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
 | **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /confirm?interval=15` (scalp: `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
 
@@ -18,9 +18,11 @@ Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** 
 
 Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
+Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. If you take a card, `paper arm … --zone-id <zoneId>`.
+
 Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
 
-Open paper (`positions` / `pendingOrders` / `armedAlerts`) is on the brief-pack payload. Positions do **not** include `unrealizedPnl` — use `paper status` if you need PnL. `zones` is `[]` until a store exists — Agent draws S/D, engine does not.
+Open paper (`positions` / `pendingOrders` / `armedAlerts`) is on the brief-pack payload. Positions do **not** include `unrealizedPnl` — use `paper status` if you need PnL. `zones` on the pack is `[]` — suggestions live on **`GET /zones`** (suggest-only, paper-only). Engine does not auto-arm. Attach `--zone-id` when you `paper arm`.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 
@@ -30,7 +32,7 @@ Depth/heatmap only when price is **at the zone**, not on a timer.
 
 ```text
 bun run paper arm BTCUSDT --side long --price 117500 \
-  --sl 116200 --tp 120800 --tf 240,60,15 --risk-pct 0.02
+  --sl 116200 --tp 120800 --tf 240,60,15 --zone-id btc-4h-d-20260908-01
 ```
 
 Long → alert `--below` at `--price`. Short → `--above`. Override with `--alert-price`. Then **quiet**.

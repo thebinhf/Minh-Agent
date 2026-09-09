@@ -29,6 +29,8 @@ describe("paper operator surface", () => {
     expect(armed.alert?.op).toBe("below");
     expect(armed.alert?.price).toBe("62000");
     expect(armed.alert?.status).toBe("armed");
+    expect(armed.order.zoneId).toBeNull();
+    expect(armed.alert?.zoneId).toBeNull();
 
     const status = paperStatus(ctx.engine);
     expect(status.pending).toHaveLength(1);
@@ -61,6 +63,40 @@ describe("paper operator surface", () => {
     expect(day.filled).toBe(0);
     expect(day.closed).toBe(0);
     expect(day.realizedPnl).toBe("0");
+  });
+
+  test("arm copies optional zoneId onto the limit and the alert", async () => {
+    const ctx = await paperEngine(mockFeed({ lastPrice: "63000", markPrice: "63000" }));
+    dirs.push(ctx.dir);
+    const armed = await paperArm(ctx.engine, {
+      ...OPEN_LONG,
+      limitPrice: "62000",
+      zoneId: "btc-4h-d-20260908-01",
+    });
+    expect(armed.order.zoneId).toBe("btc-4h-d-20260908-01");
+    expect(armed.alert?.zoneId).toBe("btc-4h-d-20260908-01");
+  });
+
+  test("arm stamps zoneId onto an existing duplicate alert", async () => {
+    const ctx = await paperEngine(mockFeed({ lastPrice: "63000", markPrice: "63000" }));
+    dirs.push(ctx.dir);
+    const created = await ctx.engine.setAlert({
+      symbol: "BTCUSDT",
+      op: "below",
+      price: "62000",
+    });
+    expect(created.alert.zoneId).toBeNull();
+
+    const armed = await paperArm(ctx.engine, {
+      ...OPEN_LONG,
+      limitPrice: "62000",
+      zoneId: "btc-4h-d-20260908-01",
+    });
+    expect(armed.alertSkipped).toBe("duplicate_alert");
+    expect(armed.order.zoneId).toBe("btc-4h-d-20260908-01");
+    expect(armed.alert?.id).toBe(created.alert.id);
+    expect(armed.alert?.zoneId).toBe("btc-4h-d-20260908-01");
+    expect(ctx.engine.alerts("armed")[0]?.zoneId).toBe("btc-4h-d-20260908-01");
   });
 
   test("CLI parses status / day / arm", () => {

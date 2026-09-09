@@ -105,8 +105,8 @@ export function httpPaperSource(url: string | null | undefined): string {
 }
 
 /**
- * Agent-drawn MAP zones. No zones store exists in this repo — always [].
- * Do not invent an auto S/D detector here.
+ * Agent-drawn MAP zones stay empty on the pack.
+ * Suggest-only cards live on GET /zones — this pack does not auto-detect or auto-arm.
  */
 export function readMapZones(): unknown[] {
   return [];
@@ -384,7 +384,7 @@ function briefPackUsage(): never {
 Print one local JSON for Minh's 2h loop (tickers + kline lag + gates + open paper + zones).
 Default is every configured feed symbol. Missing data is null / [].
 gates.tradingAllowed is false when WS/ticker health is down or klineLag.ok is false.
-Zones are always [] — MAP draws them; this process does not store S/D.
+Zones are always [] on this pack — GET /zones is the suggest-only surface; this process does not auto-arm.
 Paper comes from the local paper SQLite (same process / PAPER_DB_PATH), not Bybit.
 paper.source is http://127.0.0.1:43181 (daemon) or sqlite:<path> (CLI). Missing paper is null.
 `);

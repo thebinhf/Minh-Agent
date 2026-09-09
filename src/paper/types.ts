@@ -1,3 +1,5 @@
+import type { CancelCode } from "../zones/card";
+
 export type PaperSide = "long" | "short";
 export type PaperStatus = "open" | "closed";
 export type PaperMarginMode = "isolated" | "cross";
@@ -155,6 +157,7 @@ export type PaperAlertRow = {
   fired_ts: number | null;
   fired_last: string | null;
   channel: string;
+  zone_id: string | null;
 };
 
 export type PaperOrderRow = {
@@ -224,6 +227,7 @@ export type AlertRequest = {
   op: string;
   price: string;
   note?: string;
+  zoneId?: string | null;
 };
 
 export type PositionView = {
@@ -274,6 +278,7 @@ export type AlertView = {
   firedTs: number | null;
   firedLast: string | null;
   channel: string;
+  zoneId: string | null;
 };
 
 export type OrderView = {
@@ -335,6 +340,15 @@ export type PaperMetricsZone = {
   cancelled: number;
 };
 
+export type PaperMetricsFunnel = {
+  detected: number;
+  armed: number;
+  touched: number;
+  filled: number;
+  cancelled: number;
+  exited: number;
+};
+
 export type PaperMetrics = {
   mode: "paper";
   days: number;
@@ -359,6 +373,8 @@ export type PaperMetrics = {
   pendingOrders: number;
   events: number;
   byZone: PaperMetricsZone[];
+  funnel: PaperMetricsFunnel;
+  cancelCodes: Record<CancelCode, number>;
 };
 
 export type AccountView = {

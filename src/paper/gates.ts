@@ -4,6 +4,7 @@ import {
   tradingGates,
   type TradingGates,
 } from "../feed/bb/health";
+import type { CancelCode } from "../zones/card";
 import { PaperReject } from "./errors";
 import type { PaperFeedHealth } from "./types";
 
@@ -38,4 +39,11 @@ export function parseZoneId(raw: unknown): string | null {
   if (raw == null || raw === "") return null;
   const id = String(raw).trim();
   return id.length ? id : null;
+}
+
+/** Funnel cancelCodes for submit-time rejects (no order row yet). */
+export function cancelCodeForReject(error: string): CancelCode | null {
+  if (error === GATE_KLINE_LAG || error === GATE_FEED_UNHEALTHY) return "gates_block";
+  if (error === "rr_below_min") return "rr_fail";
+  return null;
 }

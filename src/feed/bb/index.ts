@@ -47,6 +47,7 @@ export { buildBrief } from "./brief";
 export { buildBriefPack } from "./brief-pack";
 export { buildConfirm } from "./confirm";
 export { buildMap, buildMapBatch } from "./map";
+export { buildZones } from "./zones";
 export { loadConfig } from "./config";
 export { openDb } from "./db";
 export { buildFeedHealth, buildKlineLag } from "./health";

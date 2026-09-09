@@ -847,7 +847,7 @@ bun run paper day
 
 ## 15. P1 — entry kill-switch + method metrics
 
-Paper-only. No Bybit keys, no private WS, no live orders, no auto-arm, no `/zones`, no replay-batch change.
+Paper-only. No Bybit keys, no private WS, no live orders, no auto-arm. P1 did not ship `/zones`; that is [§16](#16-p0--zone-card-suggest--funnel).
 
 ### 15.1 Kill-switch / health gates
 
@@ -892,7 +892,62 @@ Default `days=7` (1–365). Missing rates → `null`; counts → `0`. Stable key
 | `closeReasons` | `{ sl, tp, liq, manual }` |
 | `realizedPnl` | Sum of close-event PnL |
 | `byZone` | Same stats grouped by operator `zoneId` (unzoned groups use `zoneId: null`). Empty `[]` if none |
+| `funnel` | `{ detected, armed, touched, filled, cancelled, exited }` — see [§16](#16-p0--zone-card-suggest--funnel) |
+| `cancelCodes` | Counts for `never_touched` / `ops_cancel` / `deep_mitigate` / `htf_break` / `expired` / `rr_fail` / `gates_block` |
 
 Still banned: live orders, auto S/D, mid-watch PnL spam.
+
+---
+
+## 16. P0 — zone-card suggest + funnel
+
+Paper-only. No Bybit keys, no auto-arm, no auto S/D, no live trading.
+
+### 16.1 Zone-card v1
+
+Locked enums: `freshness` = `virgin` \| `touched` \| `deep`. `cancelCodes` = `never_touched` \| `ops_cancel` \| `deep_mitigate` \| `htf_break` \| `expired` \| `rr_fail` \| `gates_block`.
+
+`GET /zones` / `bun run zones` reads **local** HTF klines (default `240`, or `60`) and returns candidate cards. It does **not** call paper open/limit/arm. `/brief-pack.zones` stays `[]` so MAP does not auto-use suggestions. `/map` is unchanged (no `zones` key).
+
+```text
+bun run zones
+bun run zones BTCUSDT --interval 240
+GET http://127.0.0.1:43180/zones?symbol=BTCUSDT
+GET http://127.0.0.1:43180/zones?interval=60
+```
+
+Detector (suggest, not a signal): ATR(14) SMA, impulse body ≥ 1 ATR leaving a ≤6-bar base, departure ≥ 0.3 ATR, entry at 30% from proximal, SL = distal + 0.25 ATR buffer, TP at RR ≥ 2 (measured move if larger). Drops `deep` and RR&lt;2. Cap 2 cards/symbol. `klineLag` is included so Minh can STAND ASIDE; `/zones` itself does not reject on gates.
+
+Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm copies it onto the limit **and** the alert. If the alert already exists (`duplicate_alert`), arm still stamps `zoneId` onto that armed row.
+
+### 16.2 Funnel counters
+
+`GET /paper/metrics` adds:
+
+```json
+"funnel": { "detected": 0, "armed": 0, "touched": 0, "filled": 0, "cancelled": 0, "exited": 0 },
+"cancelCodes": {
+  "never_touched": 0,
+  "ops_cancel": 0,
+  "deep_mitigate": 0,
+  "htf_break": 0,
+  "expired": 0,
+  "rr_fail": 0,
+  "gates_block": 0
+}
+```
+
+| Funnel key | Meaning |
+| --- | --- |
+| `detected` | Distinct operator `zoneId`s seen in the window (events / orders / positions). `/zones` does not persist detections |
+| `armed` | Limit/arm orders with `zoneId` created in the window |
+| `touched` | `alert.fired` events that carry a `zoneId` |
+| `filled` | Same as top-level `filled` |
+| `cancelled` | `order.cancelled` + `order.invalidated` |
+| `exited` | `position.closed` |
+
+`noFillPct` is unchanged. Split: operator `paper cancel` → `ops_cancel`; OCO invalidate → `never_touched`. `gates_block` / `rr_fail` count submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` rejects (no order row) via `order.rejected`. `deep_mitigate` / `htf_break` / `expired` stay 0 until a later tagger writes them.
+
+Kill-switch `brief-pack.gates` / paper entry gates are unchanged: new open/limit/arm still reject on `kline_lag` / `feed_unhealthy`. `/zones` is read-only suggest.
 
 

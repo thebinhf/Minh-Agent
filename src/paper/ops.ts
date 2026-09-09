@@ -1,6 +1,7 @@
 import { Dec } from "./decimal";
 import type { PaperEngine } from "./engine";
 import { PaperReject } from "./errors";
+import { parseZoneId } from "./gates";
 import { parseSide } from "./risk";
 import type { AlertView, LimitRequest, OrderView } from "./types";
 
@@ -98,20 +99,28 @@ export async function paperArm(
       op,
       price,
       note: request.note,
+      zoneId: request.zoneId,
     }, now);
     return { mode: "paper", arm: true, order: placed.order, alert: alert.alert };
   } catch (error) {
     if (error instanceof PaperReject && error.error === "duplicate_alert") {
       const snapped = String(error.extra.price ?? price);
       const symbol = request.symbol.trim().toUpperCase();
-      const existing = engine.alerts("armed").find((row) => (
-        row.symbol === symbol && row.op === op && row.price === snapped
-      )) ?? null;
+      const alertId = typeof error.extra.alertId === "number" ? error.extra.alertId : null;
+      const existing = (alertId != null
+        ? engine.alerts("armed").find((row) => row.id === alertId)
+        : engine.alerts("armed").find((row) => (
+          row.symbol === symbol && row.op === op && row.price === snapped
+        ))) ?? null;
+      const zoneId = parseZoneId(request.zoneId);
+      const alert = existing && zoneId
+        ? engine.attachAlertZoneId(existing.id, zoneId)
+        : existing;
       return {
         mode: "paper",
         arm: true,
         order: placed.order,
-        alert: existing,
+        alert,
         alertSkipped: "duplicate_alert",
       };
     }

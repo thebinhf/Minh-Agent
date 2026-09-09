@@ -46,7 +46,7 @@ Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
 arm = limit + alert (long → below limit, short → above). status is one JSON. day is UTC session fills/OCO/closes.
-metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, trade count. Missing rates are null.
+metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→armed→touched→filled/cancelled→exited). Missing rates are null.
 `;
 
 export type PaperCliCommand =

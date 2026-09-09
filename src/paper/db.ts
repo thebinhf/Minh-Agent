@@ -18,7 +18,7 @@ import type {
   PaperStatus,
 } from "./types";
 
-export const PAPER_SCHEMA_VERSION = "5";
+export const PAPER_SCHEMA_VERSION = "6";
 
 export type PaperDb = ReturnType<typeof openPaperDb>;
 
@@ -114,7 +114,8 @@ function migrate(db: Database, seed: PaperAccountSeed) {
       created_ts INTEGER NOT NULL,
       fired_ts INTEGER,
       fired_last TEXT,
-      channel TEXT NOT NULL DEFAULT 'log'
+      channel TEXT NOT NULL DEFAULT 'log',
+      zone_id TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_alerts_armed_unique
       ON paper_alerts(symbol, op, price) WHERE status = 'armed';
@@ -338,6 +339,9 @@ function ensureZoneIdColumns(db: Database) {
   if (!tableColumns(db, "paper_events").has("zone_id")) {
     db.exec("ALTER TABLE paper_events ADD COLUMN zone_id TEXT");
   }
+  if (!tableColumns(db, "paper_alerts").has("zone_id")) {
+    db.exec("ALTER TABLE paper_alerts ADD COLUMN zone_id TEXT");
+  }
 }
 
 function ensurePaperOrders(db: Database) {
@@ -466,8 +470,8 @@ function wrap(db: Database) {
 
   const insertAlertStmt = db.prepare(
     `INSERT INTO paper_alerts (
-      account_id, symbol, op, price, status, once, note, created_ts, channel
-    ) VALUES (1, ?, ?, ?, 'armed', 1, ?, ?, 'log')`,
+      account_id, symbol, op, price, status, once, note, created_ts, channel, zone_id
+    ) VALUES (1, ?, ?, ?, 'armed', 1, ?, ?, 'log', ?)`,
   );
   const getAlertStmt = db.prepare("SELECT * FROM paper_alerts WHERE id = ?");
   const listAlertsStmt = db.prepare(
@@ -480,6 +484,9 @@ function wrap(db: Database) {
   );
   const fireAlertStmt = db.prepare(
     `UPDATE paper_alerts SET status = 'fired', fired_ts = ?, fired_last = ? WHERE id = ? AND status = 'armed'`,
+  );
+  const updateAlertZoneStmt = db.prepare(
+    `UPDATE paper_alerts SET zone_id = ? WHERE id = ? AND status = 'armed'`,
   );
   const cancelAlertStmt = db.prepare(
     `UPDATE paper_alerts SET status = 'cancelled' WHERE id = ? AND status = 'armed'`,
@@ -742,8 +749,15 @@ function wrap(db: Database) {
       );
     },
 
-    insertAlert(row: { symbol: string; op: AlertOp; price: string; note: string | null; createdTs: number }): number {
-      const result = insertAlertStmt.run(row.symbol, row.op, row.price, row.note, row.createdTs);
+    insertAlert(row: {
+      symbol: string;
+      op: AlertOp;
+      price: string;
+      note: string | null;
+      createdTs: number;
+      zoneId?: string | null;
+    }): number {
+      const result = insertAlertStmt.run(row.symbol, row.op, row.price, row.note, row.createdTs, row.zoneId ?? null);
       return Number(result.lastInsertRowid);
     },
     getAlert(id: number): PaperAlertRow | null {
@@ -757,6 +771,9 @@ function wrap(db: Database) {
     },
     fireAlert(id: number, ts: number, last: string) {
       return fireAlertStmt.run(ts, last, id).changes;
+    },
+    updateAlertZoneId(id: number, zoneId: string) {
+      return updateAlertZoneStmt.run(zoneId, id).changes;
     },
     cancelAlert(id: number) {
       return cancelAlertStmt.run(id).changes;

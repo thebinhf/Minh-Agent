@@ -2,6 +2,8 @@ import { buildBrief } from "./brief";
 import { buildBriefPack, resolvePaperDesk, type BriefPackPaperSource } from "./brief-pack";
 import { buildConfirm, parseConfirmInterval } from "./confirm";
 import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols, resolveMapSymbols } from "./map";
+import { buildZones } from "./zones";
+import { parseZoneInterval } from "../../zones/detect";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
@@ -189,6 +191,25 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
           symbol: url.searchParams.get("symbol"),
           interval,
           dbPath: config.dbPath,
+        }));
+      }
+
+      if (path === "/zones") {
+        const listed = parseMapSymbols(
+          url.searchParams.get("symbols") ?? url.searchParams.get("symbol"),
+        );
+        const symbols = resolveMapSymbols(listed, config.symbols ?? []);
+        if (listed.length > MAP_SYMBOL_CAP || symbols.length > MAP_SYMBOL_CAP) {
+          return json({ error: "map_symbols", cap: MAP_SYMBOL_CAP }, 400);
+        }
+        const interval = parseZoneInterval(url.searchParams.get("interval"));
+        if (interval == null) {
+          return json({ error: "zones_interval", allowed: ["240", "60"] }, 400);
+        }
+        return json(buildZones(store, {
+          symbols,
+          dbPath: config.dbPath,
+          interval,
         }));
       }
 
