@@ -1,4 +1,5 @@
 import { buildBrief } from "./brief";
+import { buildMap } from "./map";
 import type { TrackerDb } from "./db";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
@@ -149,6 +150,13 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
 
       if (path === "/brief") {
         return json(buildBrief(store, {
+          symbol: url.searchParams.get("symbol"),
+          dbPath: config.dbPath,
+        }));
+      }
+
+      if (path === "/map") {
+        return json(buildMap(store, {
           symbol: url.searchParams.get("symbol"),
           dbPath: config.dbPath,
         }));

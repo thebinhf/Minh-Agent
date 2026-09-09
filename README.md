@@ -11,6 +11,7 @@ bun install
 bun test
 bun run start          # feed :43180 + paper :43181
 bun run brief BTCUSDT  # one local JSON snapshot (ticker + 15/60/240)
+bun run map BTCUSDT    # HTF MAP (4H/1H + D if backfilled; no 15m)
 bun run query chart BTCUSDT 15
 bun run query depth BTCUSDT
 bun run query heatmap BTCUSDT --bucket 10
