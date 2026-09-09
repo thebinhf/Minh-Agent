@@ -37,6 +37,22 @@ describe("loadConfig REST fallbacks", () => {
     expect(loaded.restEndpoint).toBe("https://api.bybit.com");
     expect(loaded.restFallbacks).toEqual(DEFAULT_REST_FALLBACKS);
   });
+
+  test("default public linear watchlist is 10 symbols including HYPEUSDT", async () => {
+    const loaded = await loadConfig();
+    expect(loaded.symbols).toEqual([
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "ENAUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "HYPEUSDT",
+    ]);
+  });
 });
 
 describe("parseBackfillArgs", () => {

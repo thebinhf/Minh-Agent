@@ -12,7 +12,7 @@ Adapter path: `src/feed/bb/`.
 | --- | --- |
 | Runtime | Bun + TypeScript + `bun:sqlite` |
 | Endpoint | `wss://stream.bybit.com/v5/public/linear` |
-| Symbols | BTCUSDT ETHUSDT SOLUSDT ENAUSDT BNBUSDT XRPUSDT DOGEUSDT AVAXUSDT LINKUSDT |
+| Symbols | BTCUSDT ETHUSDT SOLUSDT ENAUSDT BNBUSDT XRPUSDT DOGEUSDT AVAXUSDT LINKUSDT HYPEUSDT |
 | Kline intervals | Live WS: 5, 15, 60, 240. REST/backfill also accept Bybit v5 `1`,`3`,`5`,`15`,`30`,`60`,`120`,`240`,`360`,`720`,`D`,`W`,`M` |
 | Orderbook | depth 50 for BTC / ETH / SOL |
 | Topics | `tickers.{symbol}`, `kline.{interval}.{symbol}`, `orderbook.50.{symbol}` |

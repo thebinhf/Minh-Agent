@@ -8,7 +8,7 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- | --- |
 | Single-process Bun runtime | Live | `bun run start` → `src/index.ts` |
 | TypeScript 7.x | Live | `bun run typecheck` |
-| Bybit public WS market cache | Live | `src/feed/bb/` — see [exchanges/BB.md](exchanges/BB.md) |
+| Bybit public WS market cache | Live | `src/feed/bb/` — 10 linear symbols including HYPEUSDT. See [exchanges/BB.md](exchanges/BB.md) |
 | Stale-pong watchdog | Live | Force reconnect if no pong after grace + `pongStaleMs` |
 | Kline lag watchdog | Live | `GET /health` `klineLag` — 15/60/240 stop advancing for `klineLagMs` (default 3m) while ticker WS is live. Log once on trip/recover. Not mid-watch PnL. |
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
