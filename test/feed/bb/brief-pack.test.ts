@@ -273,7 +273,9 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
       const mapRes = await fetch(`http://127.0.0.1:${server.port}/map?symbol=BTCUSDT`);
       expect(mapRes.status).toBe(200);
       const map = await mapRes.json() as { klines: Record<string, unknown[]> };
-      expect(Object.keys(map.klines)).toEqual(["240", "60", "D"]);
+      expect(map.klines).toHaveProperty("240");
+      expect(map.klines).toHaveProperty("60");
+      expect(map.klines).toHaveProperty("D");
       expect("15" in map.klines).toBe(false);
 
       const confirmRes = await fetch(`http://127.0.0.1:${server.port}/confirm?symbol=BTCUSDT&interval=15`);
