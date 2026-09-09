@@ -197,6 +197,10 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
       "symbol": "BTCUSDT",
       "lastPrice": null,
       "price24hPcnt": null,
+      "highPrice24h": null,
+      "lowPrice24h": null,
+      "volume24h": null,
+      "turnover24h": null,
       "fundingRate": null,
       "nextFundingTime": null,
       "openInterest": null,
@@ -214,7 +218,8 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
 - Default: every configured feed symbol. `?symbol=` / CLI positional filters one pair.
 - Missing ticker / kline / paper → `null` / `[]`. Unknown symbol does not 404.
 - `klineLag` is the same object as `GET /health`.
-- `paper` is the **local** paper desk (open positions, pending limits, armed alerts). Same process: composition root injects `paperDesk` from the paper engine (no `:43181` hop). CLI: opens `PAPER_DB_PATH` if the file exists. Feed-only → `source: null` and empty arrays. Feed does not import `src/paper`.
+- `paper` is the **local** paper desk (open positions, pending limits, armed alerts). `paper.source` is `http://127.0.0.1:43181` when the daemon injects the in-process engine (paper HTTP bind; no hop), or `sqlite:<PAPER_DB_PATH>` for `bun run brief-pack`. Missing paper → `source: null` and empty arrays. Feed does not import `src/paper`.
+- Paper row shapes are slim: positions (`id, symbol, side, entryPrice, stopLoss, takeProfit, qty, leverage, riskPct, unrealizedPnl, status, openedTs`), pendingOrders (`id, symbol, side, type, limitPrice, qty, stopLoss, takeProfit, status, createdTs`), armedAlerts (`id, symbol, op, price, status, createdTs`). Missing fields are `null`.
 - `zones` is always `[]`. MAP zones are agent-drawn; this repo has no zones store and does not auto-detect S/D.
 
 ## Chart, depth, heatmap

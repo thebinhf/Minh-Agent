@@ -35,8 +35,8 @@ describe("paper operator surface", () => {
     expect(status.open).toHaveLength(0);
     expect(status.alerts).toHaveLength(1);
 
-    const desk = paperDesk(ctx.engine);
-    expect(desk.source).toBe("local");
+    const desk = paperDesk(ctx.engine, "sqlite:/tmp/paper.sqlite");
+    expect(desk.source).toBe("sqlite:/tmp/paper.sqlite");
     expect(desk.pendingOrders).toHaveLength(1);
     expect(desk.armedAlerts).toHaveLength(1);
     expect(desk.positions).toEqual([]);

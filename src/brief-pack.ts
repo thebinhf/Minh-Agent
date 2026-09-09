@@ -1,4 +1,4 @@
-import { buildBriefPack, EMPTY_BRIEF_PACK_PAPER, parseBriefPackArgs } from "./feed/bb/brief-pack";
+import { buildBriefPack, EMPTY_BRIEF_PACK_PAPER, parseBriefPackArgs, sqlitePaperSource } from "./feed/bb/brief-pack";
 import { loadConfig } from "./feed/bb/config";
 import { openDb } from "./feed/bb/db";
 import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./paper/config";
@@ -23,7 +23,7 @@ async function loadLocalPaperDesk(): Promise<BriefPackPaper> {
         config: paperCfg,
         universe: { symbols: feedCfg.symbols, intervals: feedCfg.klineIntervals },
       });
-      return paperDesk(engine);
+      return paperDesk(engine, sqlitePaperSource(paperCfg.dbPath));
     } finally {
       store.close();
     }

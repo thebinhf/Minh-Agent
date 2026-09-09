@@ -11,8 +11,13 @@ import {
   buildBriefPack,
   EMPTY_BRIEF_PACK_PAPER,
   EMPTY_BRIEF_PACK_TICKER,
+  httpPaperSource,
   parseBriefPackArgs,
   readMapZones,
+  sqlitePaperSource,
+  type BriefPackArmedAlert,
+  type BriefPackPendingOrder,
+  type BriefPackPosition,
   type SnapshotBriefPack,
 } from "../../../src/feed/bb/brief-pack";
 import { DEFAULT_RECOVERY } from "../../../src/feed/bb/config";
@@ -80,6 +85,10 @@ function expectBriefPackShape(pack: SnapshotBriefPack, symbols = ["BTCUSDT", "ET
       "symbol",
       "lastPrice",
       "price24hPcnt",
+      "highPrice24h",
+      "lowPrice24h",
+      "volume24h",
+      "turnover24h",
       "fundingRate",
       "nextFundingTime",
       "openInterest",
@@ -97,6 +106,26 @@ function expectBriefPackShape(pack: SnapshotBriefPack, symbols = ["BTCUSDT", "ET
   expect(pack.meta.db).toEqual(expect.any(String));
 }
 
+function expectPositionShape(row: BriefPackPosition) {
+  expect(Object.keys(row)).toEqual([
+    "id", "symbol", "side", "entryPrice", "stopLoss", "takeProfit",
+    "qty", "leverage", "riskPct", "unrealizedPnl", "status", "openedTs",
+  ]);
+}
+
+function expectPendingOrderShape(row: BriefPackPendingOrder) {
+  expect(Object.keys(row)).toEqual([
+    "id", "symbol", "side", "type", "limitPrice", "qty",
+    "stopLoss", "takeProfit", "status", "createdTs",
+  ]);
+}
+
+function expectArmedAlertShape(row: BriefPackArmedAlert) {
+  expect(Object.keys(row)).toEqual([
+    "id", "symbol", "op", "price", "status", "createdTs",
+  ]);
+}
+
 describe("parseBriefPackArgs / zones", () => {
   test("omits symbol by default and uppercases a positional", () => {
     expect(parseBriefPackArgs([])).toEqual({});
@@ -105,6 +134,13 @@ describe("parseBriefPackArgs / zones", () => {
 
   test("zones store does not exist — always []", () => {
     expect(readMapZones()).toEqual([]);
+  });
+
+  test("paper.source labels are sqlite path or paper HTTP URL", () => {
+    expect(sqlitePaperSource("./data/paper.sqlite")).toBe("sqlite:./data/paper.sqlite");
+    expect(sqlitePaperSource("sqlite:/tmp/paper.sqlite")).toBe("sqlite:/tmp/paper.sqlite");
+    expect(httpPaperSource("http://127.0.0.1:43181/")).toBe("http://127.0.0.1:43181");
+    expect(httpPaperSource(undefined)).toBe("http://127.0.0.1:43181");
   });
 });
 
@@ -169,6 +205,10 @@ describe("buildBriefPack shape + missing data", () => {
         fields: {
           lastPrice: "100",
           price24hPcnt: "0.012",
+          highPrice24h: "110",
+          lowPrice24h: "90",
+          volume24h: "3",
+          turnover24h: "4",
           fundingRate: "0.0001",
           nextFundingTime: "1700000000000",
           openInterest: "1",
@@ -183,6 +223,10 @@ describe("buildBriefPack shape + missing data", () => {
         symbol: "BTCUSDT",
         lastPrice: "100",
         price24hPcnt: "0.012",
+        highPrice24h: "110",
+        lowPrice24h: "90",
+        volume24h: "3",
+        turnover24h: "4",
         fundingRate: "0.0001",
         nextFundingTime: "1700000000000",
         openInterest: "1",
@@ -238,20 +282,101 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
     await paperArm(ctx.engine, { ...OPEN_LONG, limitPrice: "62000" });
 
     const server = startHttp(feedConfig(dbPath), store, {
-      paperDesk: () => paperDesk(ctx.engine),
+      paperDesk: () => paperDesk(ctx.engine, sqlitePaperSource(ctx.config.dbPath)),
     });
     try {
       const pack = await (await fetch(`http://127.0.0.1:${server.port}/brief-pack`)).json() as SnapshotBriefPack;
-      expect(pack.paper.source).toBe("local");
+      expect(pack.paper.source).toBe(sqlitePaperSource(ctx.config.dbPath));
+      expect(pack.paper.source?.startsWith("sqlite:")).toBe(true);
       expect(pack.paper.pendingOrders).toHaveLength(1);
       expect(pack.paper.armedAlerts).toHaveLength(1);
       expect(pack.paper.positions).toEqual([]);
-      expect(pack.meta.paperSource).toBe("local");
+      expectPendingOrderShape(pack.paper.pendingOrders[0]!);
+      expectArmedAlertShape(pack.paper.armedAlerts[0]!);
+      expect(pack.paper.pendingOrders[0]).toEqual(expect.objectContaining({
+        symbol: "BTCUSDT",
+        side: "long",
+        type: "limit",
+        limitPrice: "62000",
+        stopLoss: "60000",
+        takeProfit: "66000",
+        status: "pending",
+      }));
+      expect(pack.paper.armedAlerts[0]).toEqual(expect.objectContaining({
+        symbol: "BTCUSDT",
+        op: "below",
+        price: "62000",
+        status: "armed",
+      }));
+      expect(pack.paper.pendingOrders[0]?.id).toEqual(expect.any(Number));
+      expect(pack.paper.pendingOrders[0]?.qty).toEqual(expect.any(String));
+      expect(pack.paper.pendingOrders[0]?.createdTs).toEqual(expect.any(Number));
+      expect(pack.paper.armedAlerts[0]?.createdTs).toEqual(expect.any(Number));
+      expect(pack.meta.paperSource).toBe(pack.paper.source);
       expect(pack.zones).toEqual([]);
     } finally {
       server.stop();
       store.close();
       ctx.store.close();
+    }
+  });
+
+  test("projects open position fields and http://127.0.0.1:43181 source", async () => {
+    const { store, dbPath } = tempDb();
+    const ctx = await paperEngine(mockFeed({ lastPrice: "63000", markPrice: "63000" }));
+    dirs.push(ctx.dir);
+    const opened = await ctx.engine.open(OPEN_LONG);
+    const source = httpPaperSource("http://127.0.0.1:43181");
+    const pack = buildBriefPack(store, {
+      config: feedConfig(dbPath),
+      paper: paperDesk(ctx.engine, source),
+      now: 1,
+    });
+    expect(pack.paper.source).toBe("http://127.0.0.1:43181");
+    expect(pack.paper.positions).toHaveLength(1);
+    expectPositionShape(pack.paper.positions[0]!);
+    expect(pack.paper.positions[0]).toEqual(expect.objectContaining({
+      id: opened.position.id,
+      symbol: "BTCUSDT",
+      side: "long",
+      entryPrice: opened.position.entryPrice,
+      stopLoss: opened.position.stopLoss,
+      takeProfit: opened.position.takeProfit,
+      qty: opened.position.qty,
+      leverage: opened.position.leverage,
+      riskPct: opened.position.riskPct,
+      unrealizedPnl: opened.position.unrealizedPnl,
+      status: "open",
+      openedTs: opened.position.openedTs,
+    }));
+    expect(pack.paper.pendingOrders).toEqual([]);
+    ctx.store.close();
+    store.close();
+  });
+
+  test("missing paper row fields become null and extra engine keys are dropped", () => {
+    const { store, dbPath } = tempDb();
+    try {
+      const pack = buildBriefPack(store, {
+        config: feedConfig(dbPath),
+        now: 1,
+        paper: {
+          source: "",
+          positions: [{ extra: true }],
+          pendingOrders: [{ extra: true }],
+          armedAlerts: [{ extra: true }],
+        } as never,
+      });
+      expect(pack.paper.source).toBeNull();
+      expectPositionShape(pack.paper.positions[0]!);
+      expectPendingOrderShape(pack.paper.pendingOrders[0]!);
+      expectArmedAlertShape(pack.paper.armedAlerts[0]!);
+      expect(pack.paper.positions[0]).toEqual({
+        id: null, symbol: null, side: null, entryPrice: null, stopLoss: null, takeProfit: null,
+        qty: null, leverage: null, riskPct: null, unrealizedPnl: null, status: null, openedTs: null,
+      });
+    } finally {
+      store.close();
     }
   });
 
