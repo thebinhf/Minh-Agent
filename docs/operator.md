@@ -8,7 +8,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 | --- | --- | --- | --- |
 | **MAP** | 1H/4H candle close | `GET /map?symbol=` or `bun run map SYMBOL` | 5 lines: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE** |
 | **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
-| **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /chart?interval=15` (scalp: also `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
+| **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /confirm?interval=15` (scalp: `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
 
 ## MAP
 
@@ -36,6 +36,8 @@ Account seed: risk 2%, `minRr` **2** (config, not an engine constant). Engine st
 ## EVENT
 
 Do not poll `/brief` every 30 minutes. Tick already evaluates alerts/limits/SL-TP.
+
+On ping: `GET /confirm?symbol=&interval=15` (ticker + 20×15m). Scalp: `--interval 5`. Do **not** pull `/chart` heatmap. `/brief` unchanged.
 
 Optional ping: `PAPER_NOTIFY=telegram` or `webhook`. Same four kinds. Log-only if unset.
 

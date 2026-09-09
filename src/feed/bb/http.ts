@@ -1,4 +1,5 @@
 import { buildBrief } from "./brief";
+import { buildConfirm, parseConfirmInterval } from "./confirm";
 import { buildMap } from "./map";
 import type { TrackerDb } from "./db";
 import type { TrackerConfig } from "./types";
@@ -158,6 +159,18 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
       if (path === "/map") {
         return json(buildMap(store, {
           symbol: url.searchParams.get("symbol"),
+          dbPath: config.dbPath,
+        }));
+      }
+
+      if (path === "/confirm") {
+        const interval = parseConfirmInterval(url.searchParams.get("interval"));
+        if (interval == null) {
+          return json({ error: "confirm_interval", allowed: ["15", "5"] }, 400);
+        }
+        return json(buildConfirm(store, {
+          symbol: url.searchParams.get("symbol"),
+          interval,
           dbPath: config.dbPath,
         }));
       }

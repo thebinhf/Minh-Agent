@@ -32,6 +32,7 @@ export async function startBybitTracker(): Promise<BybitTrackerFeature> {
 }
 
 export { buildBrief } from "./brief";
+export { buildConfirm } from "./confirm";
 export { buildMap } from "./map";
 export { loadConfig } from "./config";
 export { openDb } from "./db";

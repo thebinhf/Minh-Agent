@@ -50,6 +50,7 @@ HTTP (read-only):
 - `GET /health`
 - `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
 - `GET /map?symbol=BTCUSDT` — HTF MAP (ticker + 4H/1H + daily if backfilled; no 15m, no S/D)
+- `GET /confirm?symbol=BTCUSDT&interval=15` — EVENT LTF (ticker + 20×15m; scalp `interval=5`)
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
 - `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size
 - `GET /heatmap?symbol=BTCUSDT&limit=120&bucket=10` — liquidity grid from book snapshots (+ live book)
@@ -65,6 +66,7 @@ CLI against the same SQLite file:
 ```bash
 bun run brief BTCUSDT
 bun run map BTCUSDT
+bun run confirm BTCUSDT
 bun run query health
 bun run query tickers BTCUSDT
 bun run query orderbooks ETHUSDT
@@ -107,6 +109,7 @@ Read what landed:
 | --- | --- |
 | Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
 | HTF map | `bun run map SYMBOL` or `GET /map?symbol=` — ticker + 20×4h / 24×1h / 30×D (D empty until backfilled) |
+| LTF confirm | `bun run confirm SYMBOL` or `GET /confirm?symbol=&interval=15` — ticker + 20×15m (or 5) |
 | Chart / depth / heatmap | `bun run query chart\|depth\|heatmap\|market` or `GET /chart` `/depth` `/heatmap` `/market` |
 | CLI | `bun run query klines SYMBOL INTERVAL --start TIME --end TIME --limit N` (cap 20000) |
 | HTTP | `GET /klines?symbol=BTCUSDT&interval=15&start=&end=&limit=1000` and `GET /kline-stats` |
