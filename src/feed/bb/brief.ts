@@ -115,14 +115,14 @@ export function buildBrief(
   };
   const now = opts.now ?? Date.now();
   const brief = emptyBrief(symbol, opts.dbPath, now, limits);
-  brief.ticker = readTicker(store, symbol);
-  brief.klines["15"] = readKlines(store, symbol, "15", limits["15"]);
-  brief.klines["60"] = readKlines(store, symbol, "60", limits["60"]);
-  brief.klines["240"] = readKlines(store, symbol, "240", limits["240"]);
+  brief.ticker = readBriefTicker(store, symbol);
+  brief.klines["15"] = readBriefKlines(store, symbol, "15", limits["15"]);
+  brief.klines["60"] = readBriefKlines(store, symbol, "60", limits["60"]);
+  brief.klines["240"] = readBriefKlines(store, symbol, "240", limits["240"]);
   return brief;
 }
 
-function readTicker(store: BriefStore, symbol: string): BriefTicker {
+export function readBriefTicker(store: BriefStore, symbol: string): BriefTicker {
   return tryRead(() => {
     const rows = store.listTickers(symbol) as Array<Record<string, unknown>> | unknown;
     if (!Array.isArray(rows) || rows.length === 0) return { ...EMPTY_TICKER };
@@ -141,7 +141,7 @@ function readTicker(store: BriefStore, symbol: string): BriefTicker {
   }, { ...EMPTY_TICKER });
 }
 
-function readKlines(store: BriefStore, symbol: string, interval: BriefInterval, limit: number): BriefKline[] {
+export function readBriefKlines(store: BriefStore, symbol: string, interval: string, limit: number): BriefKline[] {
   return tryRead(() => {
     const rows = store.listKlines({
       symbol,
