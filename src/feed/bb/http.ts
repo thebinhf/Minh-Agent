@@ -1,6 +1,6 @@
 import { buildBrief } from "./brief";
 import { buildConfirm, parseConfirmInterval } from "./confirm";
-import { buildMap } from "./map";
+import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols } from "./map";
 import type { TrackerDb } from "./db";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
@@ -157,10 +157,17 @@ export function startHttp(config: TrackerConfig, store: TrackerDb) {
       }
 
       if (path === "/map") {
-        return json(buildMap(store, {
-          symbol: url.searchParams.get("symbol"),
-          dbPath: config.dbPath,
-        }));
+        const listed = parseMapSymbols(
+          url.searchParams.get("symbols") ?? url.searchParams.get("symbol"),
+        );
+        const symbols = listed.length > 0 ? listed : parseMapSymbols("BTCUSDT");
+        if (symbols.length > MAP_SYMBOL_CAP) {
+          return json({ error: "map_symbols", cap: MAP_SYMBOL_CAP }, 400);
+        }
+        if (symbols.length === 1) {
+          return json(buildMap(store, { symbol: symbols[0], dbPath: config.dbPath }));
+        }
+        return json(buildMapBatch(store, { symbols, dbPath: config.dbPath }));
       }
 
       if (path === "/confirm") {

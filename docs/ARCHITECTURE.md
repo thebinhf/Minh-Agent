@@ -33,7 +33,7 @@ src/index.ts
        → CLI  bun run paper …
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
-bun run map [SYMBOL]     # HTF MAP snapshot; agent draws S/D
+bun run map [SYMBOL ...] # HTF MAP snapshot; several names → { maps }; agent draws S/D
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run query chart|depth|heatmap|market
 bun run paper account    # simulated equity (no keys, no real orders)
