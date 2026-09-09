@@ -71,6 +71,9 @@ export type PaperKlineSnap = {
 export type PaperFeedHealth = {
   ok: boolean;
   url: string;
+  connected?: boolean;
+  /** From GET /health `klineLag.ok`. Missing (old mocks) is treated as true. */
+  klineLagOk?: boolean;
 };
 
 export type PaperFeed = {
@@ -128,6 +131,7 @@ export type PaperPositionRow = {
   fill_source: PaperFillSource;
   fill_recv_ts: number;
   note: string | null;
+  zone_id: string | null;
   leverage: string;
   qty_initial: string;
   margin: string;
@@ -182,6 +186,7 @@ export type PaperOrderRow = {
   reject_reason: string | null;
   oco: number;
   invalidate_price: string;
+  zone_id: string | null;
 };
 
 export type PaperEventRow = {
@@ -190,6 +195,7 @@ export type PaperEventRow = {
   symbol: string | null;
   payload_json: string;
   ts: number;
+  zone_id: string | null;
 };
 
 export type OpenRequest = {
@@ -202,6 +208,8 @@ export type OpenRequest = {
   riskPct?: string;
   leverage?: string;
   note?: string;
+  /** Operator-drawn zone id. Optional; never invented by the engine. */
+  zoneId?: string | null;
 };
 
 export type LimitRequest = OpenRequest & {
@@ -243,6 +251,7 @@ export type PositionView = {
   fillSource: PaperFillSource;
   fillRecvTs: number;
   note: string | null;
+  zoneId: string | null;
   leverage: string;
   qtyInitial: string;
   margin: string;
@@ -294,6 +303,7 @@ export type OrderView = {
   rejectReason: string | null;
   oco: boolean;
   invalidatePrice: string;
+  zoneId: string | null;
 };
 
 export type EventView = {
@@ -302,6 +312,53 @@ export type EventView = {
   symbol: string | null;
   payload: Record<string, unknown>;
   ts: number;
+  zoneId: string | null;
+};
+
+export type PaperMetricsCloseReasons = {
+  sl: number;
+  tp: number;
+  liq: number;
+  manual: number;
+};
+
+export type PaperMetricsZone = {
+  zoneId: string | null;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: string | null;
+  avgRr: string | null;
+  filled: number;
+  invalidated: number;
+  cancelled: number;
+};
+
+export type PaperMetrics = {
+  mode: "paper";
+  days: number;
+  fromTs: number;
+  toTs: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: string | null;
+  avgRr: string | null;
+  avgRealizedRr: string | null;
+  noFillPct: string | null;
+  filled: number;
+  invalidated: number;
+  cancelled: number;
+  rejected: number;
+  closed: number;
+  closeReasons: PaperMetricsCloseReasons;
+  realizedPnl: string;
+  openPositions: number;
+  pendingOrders: number;
+  events: number;
+  byZone: PaperMetricsZone[];
 };
 
 export type AccountView = {

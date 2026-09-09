@@ -104,6 +104,11 @@ function expectBriefPackShape(pack: SnapshotBriefPack, symbols = ["BTCUSDT", "ET
   }));
   expect(pack.zones).toEqual([]);
   expect(pack.meta.db).toEqual(expect.any(String));
+  expect(pack.gates).toEqual({
+    tradingAllowed: expect.any(Boolean),
+    reasons: expect.any(Array),
+  });
+  expect(Object.keys(pack.gates)).toEqual(["tradingAllowed", "reasons"]);
 }
 
 function expectPositionShape(row: BriefPackPosition) {
@@ -158,6 +163,8 @@ describe("buildBriefPack shape + missing data", () => {
       expect(pack.zones).toEqual([]);
       expect(pack.klineLag.rows).toHaveLength(6);
       expect(pack.klineLag.rows.every((row) => row.startTs == null && row.klineLagMs == null)).toBe(true);
+      expect(pack.gates.tradingAllowed).toBe(false);
+      expect(pack.gates.reasons).toEqual(["feed_unhealthy"]);
       expect(pack.meta.klinesDays).toBe(14);
       expect(pack.meta.paperSource).toBeNull();
     } finally {
@@ -193,6 +200,8 @@ describe("buildBriefPack shape + missing data", () => {
     expect(pack.tickers[0]?.lastPrice).toBeNull();
     expect(pack.klineLag.rows).toHaveLength(3);
     expect(pack.klineLag.rows.every((row) => row.startTs == null && row.klineLagMs == null)).toBe(true);
+    expect(pack.gates.tradingAllowed).toBe(true);
+    expect(pack.gates.reasons).toEqual([]);
     expect(pack.zones).toEqual([]);
   });
 
@@ -408,6 +417,35 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
       expect(pack.paper).toEqual(EMPTY_BRIEF_PACK_PAPER);
     } finally {
       server.stop();
+      store.close();
+    }
+  });
+
+  test("gates.tradingAllowed is false when klineLag.ok is false and WS is live", () => {
+    const { store, dbPath } = tempDb();
+    const now = 2_000_000;
+    const interval15 = 15 * 60_000;
+    const expected15 = Math.floor(now / interval15) * interval15;
+    store.setHealth({ connected: 1, lastMessageTs: now, endpoint: "wss://example" });
+    store.saveTicker({
+      symbol: "BTCUSDT",
+      type: "snapshot",
+      fields: { lastPrice: "100" },
+    }, now - 80, false);
+    store.saveKline("BTCUSDT", candle({
+      start: expected15,
+      interval: "15",
+      confirm: false,
+    }), now - 240_000);
+    try {
+      const pack = buildBriefPack(store, {
+        config: feedConfig(dbPath, { symbols: ["BTCUSDT"] }),
+        now,
+        symbol: "BTCUSDT",
+      });
+      expect(pack.klineLag.ok).toBe(false);
+      expect(pack.gates).toEqual({ tradingAllowed: false, reasons: ["kline_lag"] });
+    } finally {
       store.close();
     }
   });

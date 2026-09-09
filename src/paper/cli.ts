@@ -7,18 +7,21 @@ import { httpFeed } from "./feed";
 import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
 import { paperArm, paperDay, paperStatus } from "./ops";
+import { DEFAULT_METRICS_DAYS, parseMetricsDays, paperMetrics } from "./metrics";
+import { parseZoneId } from "./gates";
 import { runReplayBatchFromFeed, runReplayFromFeed } from "./replay";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
   bun run paper account
   bun run paper positions [--status open|closed|all]
-  bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT]
+  bun run paper open SYMBOL --side long|short --sl PRICE --tp PRICE --tf 240,60,15 [--risk-pct 0.03] [--note TEXT] [--zone-id ID]
   bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
-  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco]
-  bun run paper arm SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--alert-price PRICE]
+  bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco] [--zone-id ID]
+  bun run paper arm SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--alert-price PRICE] [--zone-id ID]
   bun run paper status
   bun run paper day [--day YYYY-MM-DD]
+  bun run paper metrics [--days N]
   bun run paper orders [--status pending|filled|cancelled|rejected|invalidated|all]
   bun run paper cancel ID
   bun run paper alert set SYMBOL --above|--below PRICE [--note TEXT]
@@ -43,6 +46,7 @@ Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
 arm = limit + alert (long → below limit, short → above). status is one JSON. day is UTC session fills/OCO/closes.
+metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, trade count. Missing rates are null.
 `;
 
 export type PaperCliCommand =
@@ -59,6 +63,7 @@ export type PaperCliCommand =
       riskPct?: string;
       leverage?: string;
       note?: string;
+      zoneId?: string | null;
     }
   | {
       name: "limit";
@@ -75,6 +80,7 @@ export type PaperCliCommand =
       postOnly: boolean;
       oco: boolean;
       invalidatePrice?: string;
+      zoneId?: string | null;
     }
   | { name: "orders"; status: OrderStatus | "all" }
   | { name: "cancel"; id: number }
@@ -86,6 +92,7 @@ export type PaperCliCommand =
   | { name: "mark" }
   | { name: "status" }
   | { name: "day"; day?: string }
+  | { name: "metrics"; days: number }
   | {
       name: "arm";
       symbol: string;
@@ -102,6 +109,7 @@ export type PaperCliCommand =
       oco: boolean;
       invalidatePrice?: string;
       alertPrice?: string;
+      zoneId?: string | null;
     }
   | {
       name: "replay";
@@ -122,6 +130,7 @@ export type PaperCliCommand =
       toTs: number;
       interval: string;
       fundingRate?: string;
+      zoneId?: string | null;
     }
   | { name: "replay-batch"; path: string };
 
@@ -163,6 +172,7 @@ function parseOpenish(rest: string[]): {
   riskPct?: string;
   leverage?: string;
   note?: string;
+  zoneId?: string | null;
 } {
   const symbol = positionalSymbol(rest);
   const side = flag(rest, "--side");
@@ -172,6 +182,7 @@ function parseOpenish(rest: string[]): {
   const tf = flag(rest, "--tf");
   const leverage = flag(rest, "--leverage");
   if (!symbol || !side || !sl || !tf || (!tp && !tps)) throw new PaperUsageError(PAPER_USAGE);
+  const zoneId = parseZoneId(flag(rest, "--zone-id"));
   return {
     symbol,
     side,
@@ -182,6 +193,7 @@ function parseOpenish(rest: string[]): {
     riskPct: flag(rest, "--risk-pct"),
     ...(leverage ? { leverage } : {}),
     note: flag(rest, "--note"),
+    ...(zoneId ? { zoneId } : {}),
   };
 }
 
@@ -202,6 +214,14 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
   if (command === "status") return { name: "status" };
   if (command === "day") {
     return { name: "day", day: flag(rest, "--day") };
+  }
+  if (command === "metrics") {
+    const daysRaw = flag(rest, "--days");
+    try {
+      return { name: "metrics", days: parseMetricsDays(daysRaw, DEFAULT_METRICS_DAYS) };
+    } catch {
+      throw new PaperUsageError(PAPER_USAGE);
+    }
   }
   if (command === "close") {
     const id = Number(rest[0]);
@@ -337,6 +357,7 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
   if (command.name === "mark") return engine.mark();
   if (command.name === "status") return paperStatus(engine);
   if (command.name === "day") return paperDay(engine, command.day);
+  if (command.name === "metrics") return paperMetrics(engine, command.days);
   if (command.name === "close") return engine.close(command.id);
   if (command.name === "cancel") return engine.cancelOrder(command.id);
   if (command.name === "alert-cancel") return engine.cancelAlert(command.id);
@@ -363,6 +384,7 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
       postOnly: command.postOnly,
       oco: command.oco,
       invalidatePrice: command.invalidatePrice,
+      zoneId: command.zoneId,
     });
   }
   if (command.name === "arm") {
@@ -381,6 +403,7 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
       oco: command.oco,
       invalidatePrice: command.invalidatePrice,
       alertPrice: command.alertPrice,
+      zoneId: command.zoneId,
     });
   }
   if (command.name !== "open") throw new PaperUsageError(PAPER_USAGE);
@@ -394,6 +417,7 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
     riskPct: command.riskPct,
     leverage: command.leverage,
     note: command.note,
+    zoneId: command.zoneId,
   });
 }
 

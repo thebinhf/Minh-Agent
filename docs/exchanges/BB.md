@@ -55,7 +55,7 @@ HTTP (read-only):
 - `GET /map?symbol=BTCUSDT` — one symbol (ticker + 4H/1H + D + klineLag 60/240)
 - `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` — `{ maps, klineLag }`
 - `GET /confirm?symbol=BTCUSDT&interval=15` — EVENT LTF (ticker + 20×15m; scalp `interval=5`)
-- `GET /brief-pack` — tickers + kline lag + open paper desk (additive; not candles)
+- `GET /brief-pack` — tickers + kline lag + `gates` + open paper desk (additive; not candles)
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
 - `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size
 - `GET /heatmap?symbol=BTCUSDT&limit=120&bucket=10` — liquidity grid from book snapshots (+ live book)
@@ -117,7 +117,7 @@ Read what landed:
 | Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
 | HTF map | `bun run map` or `GET /map` — watchlist (cap 10). Ticker + 20×4h / 24×1h / 30×D + klineLag 60/240 |
 | LTF confirm | `bun run confirm SYMBOL` or `GET /confirm?symbol=&interval=15` — ticker + 20×15m (or 5) |
-| Brief pack | `bun run brief-pack [SYMBOL]` or `GET /brief-pack` — tickers + kline lag + open paper + `zones: []` |
+| Brief pack | `bun run brief-pack [SYMBOL]` or `GET /brief-pack` — tickers + kline lag + `gates` + open paper + `zones: []` |
 | Chart / depth / heatmap | `bun run query chart\|depth\|heatmap\|market` or `GET /chart` `/depth` `/heatmap` `/market` |
 | CLI | `bun run query klines SYMBOL INTERVAL --start TIME --end TIME --limit N` (cap 20000) |
 | HTTP | `GET /klines?symbol=BTCUSDT&interval=15&start=&end=&limit=1000` and `GET /kline-stats` |
@@ -211,6 +211,7 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
     }
   ],
   "klineLag": { "ok": true, "staleMs": 180000, "intervals": ["15", "60", "240"], "rows": [] },
+  "gates": { "tradingAllowed": true, "reasons": [] },
   "paper": { "source": null, "positions": [], "pendingOrders": [], "armedAlerts": [] },
   "zones": [],
   "meta": { "db": "...", "klinesDays": 14, "paperSource": null }
@@ -220,6 +221,7 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
 - Default: every configured feed symbol. `?symbol=` / CLI positional filters one pair.
 - Missing ticker / kline / paper → `null` / `[]`. Unknown symbol does not 404.
 - `klineLag` is the same object as `GET /health`.
+- `gates` is additive: `tradingAllowed` is false when feed `/health` `ok` is false (`feed_unhealthy`) or `klineLag.ok` is false (`kline_lag`). Paper open/limit/arm reject with those codes. Does not auto-close existing paper positions and does not send extra alerts.
 - `paper` is the **local** paper desk (open positions, pending limits, armed alerts). `paper.source` is `http://127.0.0.1:43181` when the daemon injects the in-process engine (paper HTTP bind; no hop), or `sqlite:<PAPER_DB_PATH>` for `bun run brief-pack`. Missing paper → `source: null` and empty arrays. Feed does not import `src/paper`.
 - Paper row shapes are slim: positions (`id, symbol, side, entryPrice, stopLoss, takeProfit, qty, leverage, riskPct, status, openedTs` — no `unrealizedPnl`; use `paper status` for PnL), pendingOrders (`id, symbol, side, type, limitPrice, qty, stopLoss, takeProfit, status, createdTs`), armedAlerts (`id, symbol, op, price, status, createdTs`). Missing fields are `null`.
 - `zones` is always `[]`. MAP zones are agent-drawn; this repo has no zones store and does not auto-detect S/D.

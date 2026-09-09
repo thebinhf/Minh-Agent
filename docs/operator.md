@@ -6,7 +6,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 | State | When | Minh-Agent | Agent output |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map` | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` is false, do not trust SQLite candles |
+| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map`. Optional `GET /brief-pack` for `gates` + desk | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` or `gates.tradingAllowed` is false, do not trust SQLite candles and do not arm |
 | **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
 | **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /confirm?interval=15` (scalp: `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
 
@@ -14,7 +14,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. One name stays a single object. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.
 
-`GET /brief-pack` is optional (desk: pending / alerts / positions). Not required to draw zones. Positions have no `unrealizedPnl`.
+`GET /brief-pack` is optional (desk: pending / alerts / positions + `gates`). Not required to draw zones. Positions have no `unrealizedPnl`. If `gates.tradingAllowed` is false (`kline_lag` and/or `feed_unhealthy`), STAND ASIDE — do not `paper arm` / `paper open`. Existing paper positions stay open; do not spam mid-range alerts.
 
 Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
@@ -50,6 +50,7 @@ Optional ping: `PAPER_NOTIFY=telegram` or `webhook`. Same four kinds. Log-only i
 ```text
 bun run paper status
 bun run paper day
+bun run paper metrics --days 7
 bun run paper events --limit 20
 bun run paper cancel ID
 ```
@@ -88,4 +89,4 @@ Then Agent draws zones and `paper arm`. Engine does **not** auto-arm.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 
-`127.0.0.1:43180` public cache. Default watchlist is 10 linear symbols (BTC, ETH, SOL, ENA, BNB, XRP, DOGE, AVAX, LINK, HYPE). Stale ticker → paper rejects. Stale **klines** with a live ticker → `klineLag.ok=false` on `/health` and `/brief-pack`. Do not invent a price or a candle.
+`127.0.0.1:43180` public cache. Default watchlist is 10 linear symbols (BTC, ETH, SOL, ENA, BNB, XRP, DOGE, AVAX, LINK, HYPE). Stale ticker → paper rejects. Stale **klines** with a live ticker → `klineLag.ok=false` on `/health` and `/brief-pack`, and `gates.tradingAllowed=false`. Paper **open/limit/arm** reject with `kline_lag`. Do not invent a price or a candle. Do not auto-close existing paper positions.

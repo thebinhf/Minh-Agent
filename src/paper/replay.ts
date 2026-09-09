@@ -136,7 +136,7 @@ export function createReplayFeed(opts: {
       ticker = { ...ticker, nextFundingTime: next };
     },
     async health() {
-      return { ok: true, url: "replay" };
+      return { ok: true, url: "replay", klineLagOk: true };
     },
     async ticker(query: string) {
       return query.toUpperCase() === symbol ? ticker : null;

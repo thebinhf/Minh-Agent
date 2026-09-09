@@ -197,4 +197,77 @@ describe("paper HTTP", () => {
       svc.stop();
     }
   });
+
+  test("rejects new positions when kline lag is down and exposes metrics shape", async () => {
+    const svc = await serve(mockFeed({ klineLagOk: false }));
+    try {
+      const opened = await fetch(`${svc.url}/paper/positions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(OPEN_LONG),
+      });
+      expect(opened.status).toBe(400);
+      const rejectBody = await opened.json() as {
+        mode: string;
+        error: string;
+        gate: string;
+        tradingAllowed: boolean;
+        reasons: string[];
+      };
+      expect(rejectBody).toMatchObject({
+        mode: "paper",
+        error: "kline_lag",
+        gate: "gates",
+        tradingAllowed: false,
+        reasons: ["kline_lag"],
+      });
+
+      const limited = await fetch(`${svc.url}/paper/orders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...OPEN_LONG, limitPrice: "62000" }),
+      });
+      expect(limited.status).toBe(400);
+      expect((await limited.json() as { error: string }).error).toBe("kline_lag");
+
+      const armed = await fetch(`${svc.url}/paper/arm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...OPEN_LONG, limitPrice: "62000" }),
+      });
+      expect(armed.status).toBe(400);
+      expect((await armed.json() as { error: string }).error).toBe("kline_lag");
+
+      const health = await (await fetch(`${svc.url}/paper/health`)).json() as {
+        gates: { tradingAllowed: boolean; reasons: string[] };
+      };
+      expect(health.gates).toEqual({ tradingAllowed: false, reasons: ["kline_lag"] });
+    } finally {
+      svc.stop();
+    }
+  });
+
+  test("GET /paper/metrics?days= returns the stable schema", async () => {
+    const svc = await serve();
+    try {
+      const res = await fetch(`${svc.url}/paper/metrics?days=7`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.mode).toBe("paper");
+      expect(body.days).toBe(7);
+      expect(body.winRate).toBeNull();
+      expect(body.avgRr).toBeNull();
+      expect(body.noFillPct).toBeNull();
+      expect(body.trades).toBe(0);
+      expect(body.byZone).toEqual([]);
+      expect(body.closeReasons).toEqual({ sl: 0, tp: 0, liq: 0, manual: 0 });
+
+      const bad = await fetch(`${svc.url}/paper/metrics?days=0`);
+      expect(bad.status).toBe(400);
+      const badBody = await bad.json() as { error: string; gate: string };
+      expect(badBody.error).toBe("invalid_days");
+    } finally {
+      svc.stop();
+    }
+  });
 });

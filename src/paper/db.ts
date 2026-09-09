@@ -18,7 +18,7 @@ import type {
   PaperStatus,
 } from "./types";
 
-export const PAPER_SCHEMA_VERSION = "4";
+export const PAPER_SCHEMA_VERSION = "5";
 
 export type PaperDb = ReturnType<typeof openPaperDb>;
 
@@ -126,10 +126,12 @@ function migrate(db: Database, seed: PaperAccountSeed) {
       kind TEXT NOT NULL,
       symbol TEXT,
       payload_json TEXT NOT NULL,
-      ts INTEGER NOT NULL
+      ts INTEGER NOT NULL,
+      zone_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_paper_events_ts ON paper_events(ts DESC);
   `);
+  ensureZoneIdColumns(db);
 
   const now = Date.now();
   db.prepare(
@@ -258,7 +260,8 @@ function positionsDdl(): string {
       take_profits_json TEXT NOT NULL,
       last_funding_ts INTEGER,
       open_fee TEXT NOT NULL,
-      close_fee TEXT NOT NULL
+      close_fee TEXT NOT NULL,
+      zone_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_paper_positions_status_symbol
       ON paper_positions(status, symbol);
@@ -315,13 +318,26 @@ function ordersDdl(): string {
       filled_position_id INTEGER,
       reject_reason TEXT,
       oco INTEGER NOT NULL DEFAULT 1,
-      invalidate_price TEXT NOT NULL
+      invalidate_price TEXT NOT NULL,
+      zone_id TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_orders_one_pending_symbol
       ON paper_orders(symbol) WHERE status = 'pending';
     CREATE INDEX IF NOT EXISTS idx_paper_orders_status
       ON paper_orders(status, symbol);
   `;
+}
+
+function ensureZoneIdColumns(db: Database) {
+  if (!tableColumns(db, "paper_positions").has("zone_id")) {
+    db.exec("ALTER TABLE paper_positions ADD COLUMN zone_id TEXT");
+  }
+  if (!tableColumns(db, "paper_orders").has("zone_id")) {
+    db.exec("ALTER TABLE paper_orders ADD COLUMN zone_id TEXT");
+  }
+  if (!tableColumns(db, "paper_events").has("zone_id")) {
+    db.exec("ALTER TABLE paper_events ADD COLUMN zone_id TEXT");
+  }
 }
 
 function ensurePaperOrders(db: Database) {
@@ -380,11 +396,11 @@ function wrap(db: Database) {
       risk_quote, reward_quote, rr, timeframes, mtf_json, status, opened_ts,
       closed_ts, close_price, close_reason, realized_pnl, unrealized_pnl, mark_price,
       fill_source, fill_recv_ts, note, leverage, qty_initial, margin, liq_price,
-      take_profits_json, last_funding_ts, open_fee, close_fee
+      take_profits_json, last_funding_ts, open_fee, close_fee, zone_id
     ) VALUES (
       1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?,
       NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, NULL, ?, '0'
+      ?, ?, ?, ?, ?, NULL, ?, '0', ?
     )`,
   );
   const getPositionStmt = db.prepare("SELECT * FROM paper_positions WHERE id = ?");
@@ -473,11 +489,11 @@ function wrap(db: Database) {
     `INSERT INTO paper_orders (
       account_id, symbol, side, type, tif, post_only, status, limit_price, qty, risk_pct,
       stop_loss, take_profit, risk_quote, reward_quote, rr, timeframes, mtf_json, leverage,
-      take_profits_json, note, created_ts, updated_ts, oco, invalidate_price
+      take_profits_json, note, created_ts, updated_ts, oco, invalidate_price, zone_id
     ) VALUES (
       1, ?, ?, 'limit', 'gtc', ?, 'pending', ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?
     )`,
   );
   const getOrderStmt = db.prepare("SELECT * FROM paper_orders WHERE id = ?");
@@ -508,7 +524,7 @@ function wrap(db: Database) {
   );
 
   const insertEventStmt = db.prepare(
-    `INSERT INTO paper_events (kind, symbol, payload_json, ts) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO paper_events (kind, symbol, payload_json, ts, zone_id) VALUES (?, ?, ?, ?, ?)`,
   );
   const listEventsStmt = db.prepare(
     `SELECT * FROM paper_events ORDER BY id DESC LIMIT ?`,
@@ -577,6 +593,7 @@ function wrap(db: Database) {
       fillSource: PaperFillSource;
       fillRecvTs: number;
       note: string | null;
+      zoneId?: string | null;
       leverage: string;
       qtyInitial: string;
       margin: string;
@@ -609,6 +626,7 @@ function wrap(db: Database) {
         row.liqPrice,
         row.takeProfitsJson,
         row.openFee,
+        row.zoneId ?? null,
       );
       return Number(result.lastInsertRowid);
     },
@@ -764,6 +782,7 @@ function wrap(db: Database) {
       createdTs: number;
       oco: boolean;
       invalidatePrice: string;
+      zoneId?: string | null;
     }): number {
       const result = insertOrderStmt.run(
         row.symbol,
@@ -786,6 +805,7 @@ function wrap(db: Database) {
         row.createdTs,
         row.oco ? 1 : 0,
         row.invalidatePrice,
+        row.zoneId ?? null,
       );
       return Number(result.lastInsertRowid);
     },
@@ -815,15 +835,21 @@ function wrap(db: Database) {
       return invalidateOrderStmt.run(ts, id).changes;
     },
 
-    insertEvent(row: { kind: string; symbol: string | null; payloadJson: string; ts: number }): number {
-      const result = insertEventStmt.run(row.kind, row.symbol, row.payloadJson, row.ts);
+    insertEvent(row: {
+      kind: string;
+      symbol: string | null;
+      payloadJson: string;
+      ts: number;
+      zoneId?: string | null;
+    }): number {
+      const result = insertEventStmt.run(row.kind, row.symbol, row.payloadJson, row.ts, row.zoneId ?? null);
       return Number(result.lastInsertRowid);
     },
     listEvents(limit = 50): PaperEventRow[] {
       return listEventsStmt.all(Math.min(Math.max(limit, 1), 500)) as PaperEventRow[];
     },
     listEventsRange(fromTs: number, toTs: number, limit = 500): PaperEventRow[] {
-      return listEventsRangeStmt.all(fromTs, toTs, Math.min(Math.max(limit, 1), 2000)) as PaperEventRow[];
+      return listEventsRangeStmt.all(fromTs, toTs, Math.min(Math.max(limit, 1), 10_000)) as PaperEventRow[];
     },
   };
 }

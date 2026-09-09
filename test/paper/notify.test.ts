@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 function event(kind: string, payload: Record<string, unknown> = {}): EventView {
-  return { id: 1, kind, symbol: "BTCUSDT", payload, ts: 1_700_000_000_000 };
+  return { id: 1, kind, symbol: "BTCUSDT", payload, ts: 1_700_000_000_000, zoneId: null };
 }
 
 const telegramCfg: NotifyConfig = {

@@ -434,7 +434,7 @@ Reject `400`:
 }
 ```
 
-Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set), `leverage_out_of_band`, `insufficient_margin`, `tp_qty_pct_sum`, `unknown_instrument`, `min_order_qty`, `max_order_qty`, `min_notional`, `price_filter`.
+Other `error` values: `stale_ticker`, `missing_last_price`, `sl_side`, `tp_side`, `duplicate_symbol`, `equity_non_positive`, `unknown_symbol`, `feed_unhealthy`, `kline_lag`, `mtf_required`, `mtf_incomplete`, `rr_below_min` (only when `minRr` is set), `leverage_out_of_band`, `insufficient_margin`, `tp_qty_pct_sum`, `unknown_instrument`, `min_order_qty`, `max_order_qty`, `min_notional`, `price_filter`.
 
 #### `POST /paper/positions/:id/close`
 
@@ -842,4 +842,57 @@ bun run paper arm BTCUSDT --side long --price 117500 \
 bun run paper status
 bun run paper day
 ```
+
+---
+
+## 15. P1 — entry kill-switch + method metrics
+
+Paper-only. No Bybit keys, no private WS, no live orders, no auto-arm, no `/zones`, no replay-batch change.
+
+### 15.1 Kill-switch / health gates
+
+`GET /health` `klineLag` stays the lag source of truth. Paper reads it via `GET http://127.0.0.1:43180/health`.
+
+When **`klineLag.ok=false`** (forming/confirmed 15/60/240 stuck while ticker WS is live) **or** WS feed unhealthy/disconnected:
+
+- Reject new **`paper open`**, **`paper limit`**, **`paper arm`**, `POST /paper/positions`, `POST /paper/orders`, `POST /paper/arm`.
+- Error `kline_lag` or `feed_unhealthy`, `gate: "gates"`, `{ tradingAllowed: false, reasons: ["kline_lag"] }` (and/or `"feed_unhealthy"`).
+- Do **not** auto-close existing positions. Tick still evaluates SL/TP/OCO on already-resting orders. No extra mid-range alerts.
+
+`GET /brief-pack` is additive:
+
+```json
+"gates": { "tradingAllowed": false, "reasons": ["kline_lag"] }
+```
+
+`GET /paper/health` also includes `gates`. `/map`, `/confirm`, `/brief` are unchanged.
+
+Optional `zoneId` on open/limit/arm (CLI `--zone-id`, JSON `zoneId`). Stored on the order/position/`paper_events` row. **Null when omitted.** Do not invent a zone detector.
+
+### 15.2 Metrics store
+
+Lifecycle already lives in `paper_events` (fills, OCO invalidations, SL/TP closes, …). Schema v5 adds optional `zone_id` on `paper_positions`, `paper_orders`, `paper_events`.
+
+```text
+bun run paper metrics [--days 7]
+GET /paper/metrics?days=7
+```
+
+Default `days=7` (1–365). Missing rates → `null`; counts → `0`. Stable keys:
+
+| Key | Meaning |
+| --- | --- |
+| `trades` / `wins` / `losses` / `breakeven` | Closed positions in the window (`realizedPnl` sign) |
+| `winRate` | `wins / trades` TEXT, or `null` |
+| `avgRr` | Mean stored planned RR, or `null` |
+| `avgRealizedRr` | Mean `realizedPnl / riskQuote`, or `null` |
+| `noFillPct` | `(invalidated + cancelled) / (limitFilled + invalidated + cancelled)`, or `null` |
+| `filled` | Limit `order.filled` + market opens |
+| `invalidated` / `cancelled` / `rejected` / `closed` | Event counts |
+| `closeReasons` | `{ sl, tp, liq, manual }` |
+| `realizedPnl` | Sum of close-event PnL |
+| `byZone` | Same stats grouped by operator `zoneId` (unzoned groups use `zoneId: null`). Empty `[]` if none |
+
+Still banned: live orders, auto S/D, mid-watch PnL spam.
+
 

@@ -22,7 +22,7 @@ src/index.ts
          GET /map    (HTF MAP — ticker + 4H/1H + D if backfilled; klineLag 60/240)
          GET /map-latest (last 1H/4H close dump; 404 until first confirm)
          GET /confirm (EVENT — ticker + 20×15m or 5m; no depth)
-         GET /brief-pack  (tickers + kline lag + open paper desk; paper injected from composition root)
+         GET /brief-pack  (tickers + kline lag + gates + open paper desk; paper injected from composition root)
          GET /chart  GET /depth  GET /heatmap  GET /market
          GET /health  (WS + per 15/60/240 kline lag)
   → src/paper
@@ -31,7 +31,7 @@ src/index.ts
        → alerts + limit pending + tick evaluate (Phase 3)
        → optional notify on event-once kinds (Phase 4)
        → kline replay into paper-replay.sqlite (Phase 5)
-       → status / arm / day operator surface (Phase 6)
+       → status / arm / day / metrics operator surface (Phase 6 + P1)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 

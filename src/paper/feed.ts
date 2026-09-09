@@ -38,10 +38,20 @@ export function httpFeed(feedUrl: string): PaperFeed {
       const url = `${base}/health`;
       try {
         const res = await fetch(url);
-        const body = (await res.json()) as { ok?: unknown };
-        return { ok: body.ok === true, url };
+        const body = (await res.json()) as {
+          ok?: unknown;
+          connected?: unknown;
+          klineLag?: { ok?: unknown };
+        };
+        const klineLag = body.klineLag;
+        return {
+          ok: body.ok === true,
+          url,
+          connected: body.connected === undefined ? undefined : body.connected === true,
+          klineLagOk: klineLag == null ? true : klineLag.ok !== false,
+        };
       } catch {
-        return { ok: false, url };
+        return { ok: false, url, klineLagOk: true };
       }
     },
 

@@ -1,5 +1,7 @@
 import { PaperReject } from "./errors";
+import { gatesFromFeedHealth, parseZoneId } from "./gates";
 import type { PaperEngine } from "./engine";
+import { parseMetricsDays, paperMetrics } from "./metrics";
 import { paperArm, paperDay, paperStatus } from "./ops";
 import type { AlertStatus, OrderStatus, PaperConfig, PaperFeed, TakeProfitPlan } from "./types";
 
@@ -53,6 +55,7 @@ function openBody(body: Record<string, unknown>) {
     riskPct: body.riskPct == null || body.riskPct === "" ? undefined : String(body.riskPct),
     leverage: body.leverage == null || body.leverage === "" ? undefined : String(body.leverage),
     note: body.note == null ? undefined : String(body.note),
+    zoneId: parseZoneId(body.zoneId),
   };
 }
 
@@ -84,11 +87,13 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
           } catch {
             dbOk = false;
           }
+          const gates = gatesFromFeedHealth(feedHealth);
           return json({
             ok: dbOk && feedHealth.ok,
             mode: "paper",
-            feed: { url: feedHealth.url, ok: feedHealth.ok },
+            feed: { url: feedHealth.url, ok: feedHealth.ok, klineLagOk: feedHealth.klineLagOk !== false },
             account: accountName,
+            gates,
           });
         }
 
@@ -199,6 +204,12 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
         if (path === "/paper/day") {
           if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
           return json(paperDay(engine, url.searchParams.get("day") ?? undefined));
+        }
+
+        if (path === "/paper/metrics") {
+          if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+          const days = parseMetricsDays(url.searchParams.get("days"));
+          return json(paperMetrics(engine, days));
         }
 
         if (path === "/paper/arm") {

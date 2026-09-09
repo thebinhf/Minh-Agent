@@ -1,5 +1,12 @@
 import { DEFAULT_BRIEF_SYMBOL, normalizeBriefSymbol } from "./brief";
-import { buildKlineLag, type KlineLagSummary } from "./health";
+import {
+  buildFeedHealth,
+  buildKlineLag,
+  tradingGates,
+  type FeedHealthStore,
+  type KlineLagSummary,
+  type TradingGates,
+} from "./health";
 import type { TrackerDb } from "./db";
 import type { TrackerConfig } from "./types";
 
@@ -105,11 +112,18 @@ export function readMapZones(): unknown[] {
   return [];
 }
 
+export const EMPTY_TRADING_GATES: TradingGates = {
+  tradingAllowed: true,
+  reasons: [],
+};
+
 export type SnapshotBriefPack = {
   ts: number;
   symbols: string[];
   tickers: BriefPackTicker[];
   klineLag: KlineLagSummary;
+  /** Additive kill-switch. `klineLag` on this payload stays the lag source of truth. */
+  gates: TradingGates;
   paper: BriefPackPaper;
   zones: unknown[];
   meta: {
@@ -119,7 +133,7 @@ export type SnapshotBriefPack = {
   };
 };
 
-export type BriefPackStore = Pick<TrackerDb, "listTickers" | "latestKlines">;
+export type BriefPackStore = Pick<TrackerDb, "listTickers" | "latestKlines"> & Partial<Pick<TrackerDb, "getHealth">>;
 
 export type BriefPackPaperSource = () => BriefPackPaper | Promise<BriefPackPaper | null | undefined> | null | undefined;
 
@@ -131,20 +145,23 @@ export function emptyBriefPack(
     klinesDays?: number | null;
     paper?: BriefPackPaper;
     klineLag?: KlineLagSummary;
+    gates?: TradingGates;
   },
 ): SnapshotBriefPack {
   const symbols = opts.symbols?.length ? opts.symbols : [DEFAULT_BRIEF_SYMBOL];
   const paper = projectBriefPackPaper(opts.paper ?? EMPTY_BRIEF_PACK_PAPER);
+  const klineLag = opts.klineLag ?? {
+    ok: true,
+    staleMs: 0,
+    intervals: [],
+    rows: [],
+  };
   return {
     ts: opts.now ?? Date.now(),
     symbols,
     tickers: symbols.map((symbol) => ({ symbol, ...EMPTY_BRIEF_PACK_TICKER })),
-    klineLag: opts.klineLag ?? {
-      ok: true,
-      staleMs: 0,
-      intervals: [],
-      rows: [],
-    },
+    klineLag,
+    gates: opts.gates ?? tradingGates({ klineLagOk: klineLag.ok }),
     paper,
     zones: readMapZones(),
     meta: {
@@ -287,11 +304,13 @@ export function buildBriefPack(
   );
   const tickers = symbols.map((symbol) => readTicker(store, symbol));
   const paper = filterPaperBySymbol(projectBriefPackPaper(opts.paper ?? EMPTY_BRIEF_PACK_PAPER), filter);
+  const feedOk = readFeedOk(store, opts.config, now);
   return {
     ts: now,
     symbols,
     tickers,
     klineLag,
+    gates: tradingGates({ feedOk, klineLagOk: klineLag.ok }),
     paper,
     zones: readMapZones(),
     meta: {
@@ -300,6 +319,19 @@ export function buildBriefPack(
       paperSource: paper.source,
     },
   };
+}
+
+function readFeedOk(
+  store: BriefPackStore,
+  config: Partial<TrackerConfig>,
+  now: number,
+): boolean | null {
+  if (typeof store.getHealth !== "function") return null;
+  const health = tryRead(
+    () => buildFeedHealth(store as FeedHealthStore, config, now),
+    null as ReturnType<typeof buildFeedHealth> | null,
+  );
+  return health ? health.ok : null;
 }
 
 function readTicker(store: BriefPackStore, symbol: string): BriefPackTicker {
@@ -349,8 +381,9 @@ function briefPackUsage(): never {
   console.log(`Usage:
   bun run brief-pack [SYMBOL]
 
-Print one local JSON for Minh's 2h loop (tickers + kline lag + open paper + zones).
+Print one local JSON for Minh's 2h loop (tickers + kline lag + gates + open paper + zones).
 Default is every configured feed symbol. Missing data is null / [].
+gates.tradingAllowed is false when WS/ticker health is down or klineLag.ok is false.
 Zones are always [] — MAP draws them; this process does not store S/D.
 Paper comes from the local paper SQLite (same process / PAPER_DB_PATH), not Bybit.
 paper.source is http://127.0.0.1:43181 (daemon) or sqlite:<path> (CLI). Missing paper is null.
