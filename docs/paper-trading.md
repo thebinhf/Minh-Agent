@@ -819,7 +819,10 @@ Replay the **same** paper engine over local klines. Operator still picks the zon
 ```text
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
   --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
+bun run paper replay-batch ./zones.json
 ```
+
+`replay-batch` takes a JSON array or `{ from, to, interval, setups: [...] }`. Each setup is one ARM the operator already chose. Cap 50. A `replay_window` / `replay_no_bars` row is `outcome: error`; the rest still run. Live paper DB untouched.
 
 ---
 
