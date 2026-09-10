@@ -3,6 +3,7 @@ import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { startKlineLagWatchdog } from "./health";
 import { startHttp } from "./http";
+import { createRelay } from "./relay";
 import { startMapCloser, type MapCloseTick } from "./map-close";
 import { startPruner } from "./prune";
 import { startTracker } from "./ws";
@@ -26,14 +27,15 @@ export type BybitTrackerOpts = {
 export async function startBybitTracker(opts?: BybitTrackerOpts): Promise<BybitTrackerFeature> {
   const config = await loadConfig();
   const store = openDb(config.dbPath);
-  const http = startHttp(config, store, { paperDesk: opts?.paperDesk });
-  const tracker = startTracker(config, store);
+  const relay = createRelay();
+  const http = startHttp(config, store, { paperDesk: opts?.paperDesk, relay });
+  const tracker = startTracker(config, store, { onRelay: (msg) => relay.publish(msg) });
   const pruner = startPruner(config, store);
   const klineLag = startKlineLagWatchdog(config, store);
   const mapClose = startMapCloser(config, store, { onClose: opts?.onMapClose });
 
   console.log(
-    `[minh:bb] http://${config.httpHost}:${config.httpPort} db=${config.dbPath}`,
+    `[minh:bb] http://${config.httpHost}:${config.httpPort} ws://${config.httpHost}:${config.httpPort}/ws db=${config.dbPath}`,
   );
   console.log("[minh:bb] public linear market data only — no API keys, no trading");
 

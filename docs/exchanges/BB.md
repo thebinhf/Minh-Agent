@@ -60,6 +60,7 @@ HTTP (read-only `127.0.0.1:43180`; full contract: [http.md](../http.md)):
 - `GET /funding?symbol=BTCUSDT` — funding history (quant veto, `crowded`)
 - `GET /liq-heatmap?symbol=BTCUSDT` — actual liquidation prints (not Coinglass; not `/heatmap` book)
 - `GET /liq-model?symbol=BTCUSDT` — estimated isolated map (OI-capped; `model — not exchange data`)
+- `ws://127.0.0.1:43180/ws` — local relay (`ticker.*` / `kline.240.*` / `liq.*`). Not a Bybit proxy.
 - `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
 - `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size

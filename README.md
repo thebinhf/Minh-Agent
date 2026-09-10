@@ -22,6 +22,7 @@ Quiet between two 4H candles. `/confirm` is optional scalp, not required to hold
 - Funding-rate history (`GET /funding`, `/map.funding.crowded` veto)
 - Liquidation prints heatmap (`GET /liq-heatmap`, `/map.liq`)
 - Estimated liq model (`GET /liq-model`, inventory-capped; not exchange data)
+- Local WS relay (`ws://127.0.0.1:43180/ws` — ticker / kline close / liq prints)
 - HTF MAP (`/map`) and suggest-only zone cards (`/zones`)
 - Paper ledger with risk sizing, fees, funding, leverage, OCO limits
 - Proximity ARM on accepted cards
@@ -81,6 +82,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_FUNDING` | on (`0` disables) | REST funding history fill |
 | `BYBIT_LIQ` | on (`0` disables) | WS `allLiquidation` prints |
 | `BYBIT_LIQ_MODEL` | on (`0` disables) | Estimated `/liq-model` |
+| `BYBIT_RELAY` | on (`0` disables) | Local `ws://…/ws` push |
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
@@ -113,6 +115,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /funding` | Funding history (quant veto, `crowded`) |
 | `GET /liq-heatmap` | Actual liq prints (not orderbook `/heatmap`) |
 | `GET /liq-model` | Estimated forward map (not prints; not a target) |
+| `ws://127.0.0.1:43180/ws` | Local push: ticker / confirmed kline / liq |
 | `GET /confirm` | Optional LTF (20×15m; scalp `5`) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
 | `GET /health` | WS + kline lag |
