@@ -75,6 +75,7 @@ export async function loadConfig(
       ...base.retention,
       klinesDays: intEnv("BYBIT_KLINES_DAYS") ?? base.retention.klinesDays,
       liquidationsHours: intEnv("BYBIT_LIQ_HOURS") ?? base.retention.liquidationsHours ?? 48,
+      flowHours: intEnv("BYBIT_FLOW_HOURS") ?? base.retention.flowHours ?? 24,
     },
     recovery: {
       ...DEFAULT_RECOVERY,

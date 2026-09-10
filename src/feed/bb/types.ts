@@ -46,6 +46,8 @@ export type TrackerConfig = {
     klinesDays: number;
     /** Actual Bybit liq prints. Default 48. */
     liquidationsHours: number;
+    /** 1m CVD bars from publicTrade. Default 24. */
+    flowHours: number;
     pruneIntervalMs: number;
   };
   snapshot: {

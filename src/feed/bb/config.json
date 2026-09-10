@@ -32,6 +32,7 @@
     "orderbookSnapshotsHours": 6,
     "klinesDays": 14,
     "liquidationsHours": 48,
+    "flowHours": 24,
     "pruneIntervalMs": 300000
   },
   "snapshot": {

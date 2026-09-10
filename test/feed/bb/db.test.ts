@@ -103,6 +103,7 @@ describe("sqlite storage", () => {
     expect(result.oiDeleted).toBe(0);
     expect(result.fundingDeleted).toBe(0);
     expect(result.liqDeleted).toBe(0);
+    expect(result.flowDeleted).toBe(0);
     expect(result.pageCount).toBeGreaterThan(0);
 
     const raw = new Database(dbPath);

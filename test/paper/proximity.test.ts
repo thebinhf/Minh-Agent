@@ -119,6 +119,7 @@ describe("proximity arm", () => {
       crowded: null,
       oiReading: null,
       cascade: { active: true, side: "short", fuel: "6" },
+      flowReading: null,
     });
     const ctx = await engineWithLev(feed);
     ctx.engine.acceptZone(SUPPLY);
@@ -137,6 +138,24 @@ describe("proximity arm", () => {
       crowded: null,
       oiReading: "long_add",
       cascade: { active: false, side: null, fuel: "0" },
+      flowReading: null,
+    });
+    const ctx = await engineWithLev(feed);
+    ctx.engine.acceptZone(SUPPLY);
+    const marked = await ctx.engine.mark();
+    expect(marked.proximity.armed).toEqual(["btc-4h-s-20260908-01"]);
+    expect(ctx.engine.orders("pending")).toHaveLength(1);
+  });
+
+  test("opposing CVD does not block ARM (like OI add)", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.AGENT_QUANT;
+    const feed = mockFeed({ lastPrice: "79280", markPrice: "79280" });
+    feed.quant = async () => ({
+      crowded: null,
+      oiReading: null,
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: "buy_dom",
     });
     const ctx = await engineWithLev(feed);
     ctx.engine.acceptZone(SUPPLY);

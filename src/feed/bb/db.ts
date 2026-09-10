@@ -5,6 +5,7 @@ import type { BybitKline, OrderBookState, TickerState } from "./types";
 import type { OiBar } from "./oi";
 import type { FundingBar } from "./funding";
 import type { LiqPrint } from "./liq";
+import { addAmt, aggregateFlowTrades, type FlowBar, type FlowTrade } from "./flow";
 import { serializeBook } from "./merge";
 import {
   SQLITE_CACHE_KIB,
@@ -14,7 +15,7 @@ import {
   reclaimWal,
 } from "../../sqlite";
 
-export const SCHEMA_VERSION = "5";
+export const SCHEMA_VERSION = "6";
 export { SQLITE_CACHE_KIB, SQLITE_JOURNAL_SIZE_LIMIT, SQLITE_WAL_AUTOCHECKPOINT, applySqliteMemoryPragmas };
 
 export type TrackerDb = ReturnType<typeof openDb>;
@@ -137,6 +138,18 @@ function migrate(db: Database) {
       recv_ts INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_liq_symbol_ts ON liquidations(symbol, exch_ts);
+
+    CREATE TABLE IF NOT EXISTS flow_bars (
+      symbol TEXT NOT NULL,
+      start_ts INTEGER NOT NULL,
+      buy_size TEXT NOT NULL,
+      sell_size TEXT NOT NULL,
+      buy_notional TEXT NOT NULL,
+      sell_notional TEXT NOT NULL,
+      trade_count INTEGER NOT NULL,
+      recv_ts INTEGER NOT NULL,
+      PRIMARY KEY (symbol, start_ts)
+    );
 
     CREATE TABLE IF NOT EXISTS connection_health (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -326,6 +339,32 @@ function wrap(db: Database) {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
+  const getFlowBar = db.prepare(`
+    SELECT symbol, start_ts, buy_size, sell_size, buy_notional, sell_notional, trade_count
+    FROM flow_bars WHERE symbol = ? AND start_ts = ?
+  `);
+
+  const upsertFlowBar = db.prepare(`
+    INSERT INTO flow_bars (
+      symbol, start_ts, buy_size, sell_size, buy_notional, sell_notional, trade_count, recv_ts
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(symbol, start_ts) DO UPDATE SET
+      buy_size = excluded.buy_size,
+      sell_size = excluded.sell_size,
+      buy_notional = excluded.buy_notional,
+      sell_notional = excluded.sell_notional,
+      trade_count = excluded.trade_count,
+      recv_ts = excluded.recv_ts
+  `);
+
+  const sumFlow = db.prepare(`
+    SELECT
+      COALESCE(SUM(CAST(buy_notional AS REAL)), 0) AS buy_notional,
+      COALESCE(SUM(CAST(sell_notional AS REAL)), 0) AS sell_notional
+    FROM flow_bars
+    WHERE symbol = ? AND start_ts >= ? AND start_ts <= ?
+  `);
+
   const touchHealth = db.prepare(`
     UPDATE connection_health SET
       connected = COALESCE($connected, connected),
@@ -431,6 +470,42 @@ function wrap(db: Database) {
     },
     saveLiquidation(print: LiqPrint, recvTs: number) {
       insertLiq.run(print.symbol, print.side, print.price, print.size, print.exchTs, recvTs);
+    },
+    saveFlowTrades(trades: FlowTrade[], recvTs: number) {
+      if (trades.length === 0) return;
+      const bars = aggregateFlowTrades(trades);
+      const apply = db.transaction((rows: FlowBar[]) => {
+        for (const bar of rows) {
+          const existing = getFlowBar.get(bar.symbol, bar.startTs) as {
+            buy_size: string;
+            sell_size: string;
+            buy_notional: string;
+            sell_notional: string;
+            trade_count: number;
+          } | undefined;
+          upsertFlowBar.run(
+            bar.symbol,
+            bar.startTs,
+            existing ? addAmt(existing.buy_size, bar.buySize) : bar.buySize,
+            existing ? addAmt(existing.sell_size, bar.sellSize) : bar.sellSize,
+            existing ? addAmt(existing.buy_notional, bar.buyNotional) : bar.buyNotional,
+            existing ? addAmt(existing.sell_notional, bar.sellNotional) : bar.sellNotional,
+            (existing?.trade_count ?? 0) + bar.tradeCount,
+            recvTs,
+          );
+        }
+      });
+      apply(bars);
+    },
+    sumFlowWindow(symbol: string, fromTs: number, toTs: number): { buyNotional: string; sellNotional: string } {
+      const row = sumFlow.get(symbol, fromTs, toTs) as {
+        buy_notional: number | string | null;
+        sell_notional: number | string | null;
+      } | undefined;
+      return {
+        buyNotional: row?.buy_notional == null ? "0" : String(row.buy_notional),
+        sellNotional: row?.sell_notional == null ? "0" : String(row.sell_notional),
+      };
     },
     setHealth(fields: {
       connected?: number;
@@ -736,21 +811,24 @@ function wrap(db: Database) {
       orderbookSnapshotsHours: number;
       klinesDays: number;
       liquidationsHours?: number;
+      flowHours?: number;
       vacuumMinIntervalMs?: number;
     }) {
       const tickerCut = now - retention.tickerSnapshotsHours * 3600_000;
       const bookCut = now - retention.orderbookSnapshotsHours * 3600_000;
       const klineCut = now - retention.klinesDays * 86400_000;
       const liqCut = now - (retention.liquidationsHours ?? 48) * 3600_000;
+      const flowCut = now - (retention.flowHours ?? 24) * 3600_000;
       const tickerDeleted = db.prepare("DELETE FROM ticker_snapshots WHERE recv_ts < ?").run(tickerCut).changes;
       const bookDeleted = db.prepare("DELETE FROM orderbook_snapshots WHERE recv_ts < ?").run(bookCut).changes;
       const klineDeleted = db.prepare("DELETE FROM klines WHERE start_ts < ? AND confirm = 1").run(klineCut).changes;
       const oiDeleted = db.prepare("DELETE FROM open_interest WHERE start_ts < ?").run(klineCut).changes;
       const fundingDeleted = db.prepare("DELETE FROM funding WHERE funding_ts < ?").run(klineCut).changes;
       const liqDeleted = db.prepare("DELETE FROM liquidations WHERE exch_ts < ?").run(liqCut).changes;
+      const flowDeleted = db.prepare("DELETE FROM flow_bars WHERE start_ts < ?").run(flowCut).changes;
       setMeta(db, "last_prune_ts", String(now));
       const reclaim = reclaimSqlite(db, now, retention.vacuumMinIntervalMs ?? 3_600_000);
-      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, fundingDeleted, liqDeleted, ...reclaim };
+      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, fundingDeleted, liqDeleted, flowDeleted, ...reclaim };
     },
   };
 }

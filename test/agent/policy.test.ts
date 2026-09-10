@@ -140,13 +140,37 @@ describe("MAP policy", () => {
     delete process.env.AGENT_MAP;
     delete process.env.AGENT_QUANT;
     const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
-    const tape = { crowded: null, oiReading: null, cascade: { active: true, side: "long" as const, fuel: "9" } };
+    const tape = {
+      crowded: null,
+      oiReading: null,
+      cascade: { active: true, side: "long" as const, fuel: "9" },
+      flowReading: null,
+    };
     expect(decideMapAccept({
       card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true, tape,
     }).reason).toBe("quant_cascade");
     process.env.AGENT_QUANT = "0";
     expect(decideMapAccept({
       card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true, tape,
+    }).reason).toBe("ok");
+  });
+
+  test("sell_dom vs demand is quant_flow; same tape still allows supply", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.AGENT_QUANT;
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    const bear = readMapBias(mapPayload({ direction: "bear", lastPrice: String(SUPPLY_ARM_LAST) })).get("BTCUSDT");
+    const tape = {
+      crowded: null,
+      oiReading: null,
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: "sell_dom" as const,
+    };
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true, tape,
+    }).reason).toBe("quant_flow");
+    expect(decideMapAccept({
+      card: SUPPLY, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true, tape,
     }).reason).toBe("ok");
   });
 });

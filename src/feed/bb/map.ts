@@ -18,6 +18,7 @@ import {
 import { buildMapOi, emptyMapOi, type MapOi, type OiStore } from "./oi";
 import { buildMapFunding, emptyMapFunding, type FundingStore, type MapFunding } from "./funding";
 import { buildMapLiq, emptyMapLiq, type LiqStore, type MapLiq } from "./liq";
+import { buildMapFlow, emptyMapFlow, type FlowStore, type MapFlow } from "./flow";
 
 /** HTF-only windows for MAP. No 15m — that stays on /brief and /chart. */
 export const MAP_KLINE_LIMITS = {
@@ -51,6 +52,7 @@ export type SnapshotMap = {
   oi: MapOi;
   funding: MapFunding;
   liq: MapLiq;
+  flow: MapFlow;
   meta: {
     db: string;
     limits: MapLimits;
@@ -58,7 +60,7 @@ export type SnapshotMap = {
   };
 };
 
-export type MapStore = BriefStore & KlineLagStore & OiStore & FundingStore & LiqStore;
+export type MapStore = BriefStore & KlineLagStore & OiStore & FundingStore & LiqStore & FlowStore;
 
 export function emptyKlineLag(staleMs = DEFAULT_KLINE_LAG_MS): KlineLagSummary {
   return {
@@ -79,6 +81,7 @@ export function emptyMap(symbol: string, dbPath: string, ts: number, limits: Map
     oi: emptyMapOi(),
     funding: emptyMapFunding(),
     liq: emptyMapLiq(),
+    flow: emptyMapFlow(),
     meta: {
       db: dbPath,
       limits,
@@ -142,6 +145,7 @@ export function buildMap(
     nextFundingTime: map.ticker.nextFundingTime,
   });
   map.liq = buildMapLiq(store, symbol, map.ticker.lastPrice, now, map.oi.reading);
+  map.flow = buildMapFlow(store, symbol, now);
   return map;
 }
 
