@@ -2,6 +2,7 @@ import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
 import { cancelCodeForReject, parseZoneId, rejectIfEntryBlocked } from "./gates";
 import { paperMetrics } from "./metrics";
+import { runProximityArm } from "./proximity";
 import { ZoneCardError } from "../zones/card";
 import {
   LEDGER_CAP_PER_SYMBOL,
@@ -1159,6 +1160,7 @@ export function createPaperEngine(opts: {
       ...store.listOpen().map((row) => row.symbol),
       ...store.listAlerts("armed").map((row) => row.symbol),
       ...store.listOrders("pending").map((row) => row.symbol),
+      ...store.listZoneLedger("accepted").map((row) => row.symbol),
     ])];
     const tickers = await tickerMap(symbols, now);
     const alerts = fireArmedAlerts(tickers, now);
@@ -1187,7 +1189,27 @@ export function createPaperEngine(opts: {
     };
   }
 
-  return {
+  const host: { engine: PaperEngine | null } = { engine: null };
+
+  async function evaluateWithProximity(now = Date.now()) {
+    const result = await evaluate(now);
+    if (!host.engine) {
+      return { ...result, proximity: { armed: [] as string[], rejected: [] as string[] } };
+    }
+    const lastBySymbol = new Map<string, number>();
+    for (const row of host.engine.zones("accepted", now)) {
+      try {
+        const ticker = await requireTicker(row.symbol, now);
+        lastBySymbol.set(row.symbol, Number(requireLast(ticker).toText()));
+      } catch {
+        // stale/missing last — wait
+      }
+    }
+    const proximity = await runProximityArm(host.engine, lastBySymbol, now);
+    return { ...result, proximity };
+  }
+
+  const engine = {
     account(): AccountView {
       return viewAccount(store);
     },
@@ -1274,8 +1296,8 @@ export function createPaperEngine(opts: {
       }, days, now);
     },
 
-    mark: evaluate,
-    evaluate,
+    mark: evaluateWithProximity,
+    evaluate: evaluateWithProximity,
 
     async setAlert(request: AlertRequest, now = Date.now()) {
       await requireHealthyFeed();
@@ -1525,4 +1547,6 @@ export function createPaperEngine(opts: {
       };
     },
   };
+  host.engine = engine;
+  return engine;
 }

@@ -30,6 +30,10 @@ Depth/heatmap only when price is **at the zone**, not on a timer.
 
 ## ARM
 
+Accepted ledger cards rest themselves when last enters **proximal → entry** (demand last dropping in; supply last lifting in). Through entry → wait (no chase). ≥50% into the zone → `deep_mitigate`. Through SL → `htf_break`. Already pending/open on that symbol → skip. `insufficient_margin` (1x on a tight BTC stop) skips; raise account `defaultLeverage`. `PAPER_PROXIMITY_ARM=0` disables.
+
+Manual still works:
+
 ```text
 bun run paper arm BTCUSDT --side long --price 117500 \
   --sl 116200 --tp 120800 --tf 240,60,15 --zone-id btc-4h-d-20260908-01
@@ -87,7 +91,7 @@ Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT noti
 
 On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json` next to the feed DB (override `MAP_CLOSE_PATH`). Optional `MAP_CLOSE_WEBHOOK` POSTs `{ kind: "map.close", interval, map }` — same payload as `/map`, not a signal. `MAP_CLOSE=0` disables.
 
-Then Agent **accepts** 0–2 cards into the ledger (`paper zone accept`). Engine does **not** auto-arm.
+Then Agent **accepts** 0–2 cards into the ledger (`paper zone accept`). Tick **proximity-arms** when last is in the proximal band (post-only OCO). `PAPER_PROXIMITY_ARM=0` disables. Does **not** arm `GET /zones` suggestions.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 

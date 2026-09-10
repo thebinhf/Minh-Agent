@@ -33,7 +33,8 @@ src/index.ts
        → optional notify on event-once kinds (Phase 4)
        → kline replay into paper-replay.sqlite (Phase 5)
        → status / arm / day / metrics operator surface (Phase 6 + P1 + zone funnel)
-       → zone ledger (accept/reject/expire; cap 2/symbol; no auto-arm)
+       → zone ledger (accept/reject/expire; cap 2/symbol)
+       → proximity ARM (accepted cards, proximal band only; PAPER_PROXIMITY_ARM=0 off)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 
