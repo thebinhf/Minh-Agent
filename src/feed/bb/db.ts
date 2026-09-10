@@ -6,38 +6,25 @@ import type { OiBar } from "./oi";
 import type { FundingBar } from "./funding";
 import type { LiqPrint } from "./liq";
 import { serializeBook } from "./merge";
+import {
+  SQLITE_CACHE_KIB,
+  SQLITE_JOURNAL_SIZE_LIMIT,
+  SQLITE_WAL_AUTOCHECKPOINT,
+  applySqliteMemoryPragmas,
+  reclaimWal,
+} from "../../sqlite";
 
 export const SCHEMA_VERSION = "5";
-/** Negative cache_size is KiB. 4 MiB page cache — do not grow with DB file. */
-export const SQLITE_CACHE_KIB = 4096;
-/** ~2 MiB WAL (500 × 4 KiB pages) before autocheckpoint. */
-export const SQLITE_WAL_AUTOCHECKPOINT = 500;
-/** Hard cap on WAL file bytes. */
-export const SQLITE_JOURNAL_SIZE_LIMIT = 8 * 1024 * 1024;
+export { SQLITE_CACHE_KIB, SQLITE_JOURNAL_SIZE_LIMIT, SQLITE_WAL_AUTOCHECKPOINT, applySqliteMemoryPragmas };
 
 export type TrackerDb = ReturnType<typeof openDb>;
-
-export function applySqliteMemoryPragmas(db: Database, writable: boolean): void {
-  db.exec(`PRAGMA cache_size = -${SQLITE_CACHE_KIB};`);
-  db.exec("PRAGMA mmap_size = 0;");
-  if (writable) {
-    db.exec(`PRAGMA wal_autocheckpoint = ${SQLITE_WAL_AUTOCHECKPOINT};`);
-    db.exec(`PRAGMA journal_size_limit = ${SQLITE_JOURNAL_SIZE_LIMIT};`);
-  }
-}
 
 export function openDb(dbPath: string, readonly = false) {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath, readonly ? { readonly: true } : { create: true });
   db.exec("PRAGMA busy_timeout = 5000;");
-  if (!readonly) {
-    db.exec("PRAGMA journal_mode = WAL;");
-    db.exec("PRAGMA synchronous = NORMAL;");
-    applySqliteMemoryPragmas(db, true);
-    migrate(db);
-  } else {
-    applySqliteMemoryPragmas(db, false);
-  }
+  applySqliteMemoryPragmas(db, !readonly);
+  if (!readonly) migrate(db);
   return wrap(db);
 }
 
@@ -202,16 +189,18 @@ export type ReclaimResult = {
   pageCount: number;
   freelistCount: number;
   vacuumed: boolean;
+  walBusy: number;
+  walLog: number;
+  walTruncated: boolean;
 };
 
-/** Truncate WAL. VACUUM only when free pages are a real fraction of the file. */
+/** PASSIVE then TRUNCATE (skip TRUNCATE if readers hold the WAL). VACUUM when freelist is large. */
 export function reclaimSqlite(
   db: Database,
   now = Date.now(),
   vacuumMinIntervalMs = 3_600_000,
 ): ReclaimResult {
-  db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
-  db.exec("PRAGMA shrink_memory;");
+  const wal = reclaimWal(db);
   const pageCount = pragmaNum(db, "page_count");
   const freelistCount = pragmaNum(db, "freelist_count");
   const lastVacuum = Number(
@@ -221,11 +210,18 @@ export function reclaimSqlite(
   let vacuumed = false;
   if (ratio >= 0.15 && now - lastVacuum >= vacuumMinIntervalMs) {
     db.exec("VACUUM;");
-    db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    reclaimWal(db);
     setMeta(db, "last_vacuum_ts", String(now));
     vacuumed = true;
   }
-  return { pageCount, freelistCount, vacuumed };
+  return {
+    pageCount,
+    freelistCount,
+    vacuumed,
+    walBusy: wal.passive.busy,
+    walLog: wal.passive.log,
+    walTruncated: wal.truncated,
+  };
 }
 
 function wrap(db: Database) {
