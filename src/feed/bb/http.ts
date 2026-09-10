@@ -7,6 +7,7 @@ import { parseZoneInterval } from "../../zones/detect";
 import { buildOi } from "./oi";
 import { buildFunding } from "./funding";
 import { buildLiqHeatmap } from "./liq";
+import { buildLiqModel } from "./liq-model";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
@@ -265,6 +266,17 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
           hours: hours != null && Number.isFinite(hours) ? hours : undefined,
           bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
           lastPrice: ticker?.last_price == null ? null : String(ticker.last_price),
+        }));
+      }
+
+      if (path === "/liq-model") {
+        const symbol = url.searchParams.get("symbol");
+        const bucketRaw = url.searchParams.get("bucket");
+        const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+        return json(buildLiqModel(store, {
+          symbol,
+          dbPath: config.dbPath,
+          bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
         }));
       }
 

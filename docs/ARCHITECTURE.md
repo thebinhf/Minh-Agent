@@ -52,6 +52,7 @@ HTTP contract: [http.md](http.md).
 | `GET /oi` | OI history (quant veto) |
 | `GET /funding` | Funding history (quant veto) |
 | `GET /liq-heatmap` | Actual liq prints heatmap |
+| `GET /liq-model` | Estimated forward map (inventory-capped) |
 | `GET /confirm` | Optional LTF (15 / 5) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
 | `GET /health` | WS + kline lag |

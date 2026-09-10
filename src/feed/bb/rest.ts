@@ -850,3 +850,151 @@ export async function fillFundingHistory(
 
   return { series, bars, errors, host: cachedWorkingBase };
 }
+
+export type RiskLimitRow = {
+  mmRate: string;
+  maxLeverage: string;
+  ts: number;
+};
+
+const riskCache = new Map<string, RiskLimitRow>();
+const RISK_TTL_MS = 3_600_000;
+
+export function resetRiskLimitCache(): void {
+  riskCache.clear();
+}
+
+export function peekRiskLimit(symbol: string): RiskLimitRow | null {
+  const row = riskCache.get(symbol.toUpperCase());
+  if (!row) return null;
+  if (Date.now() - row.ts > RISK_TTL_MS) return null;
+  return row;
+}
+
+export function parseRestRiskLimit(list: unknown): { mmRate: string; maxLeverage: string } | null {
+  if (!Array.isArray(list)) return null;
+  const rows: Array<{ mm: number; maxLev: string; lowest: boolean }> = [];
+  for (const row of list) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as { maintenanceMargin?: unknown; maxLeverage?: unknown; isLowestRisk?: unknown };
+    const mm = Number(rec.maintenanceMargin);
+    const maxLev = rec.maxLeverage == null ? "" : String(rec.maxLeverage).trim();
+    if (!Number.isFinite(mm) || mm < 0 || maxLev === "") continue;
+    rows.push({
+      mm,
+      maxLev,
+      lowest: rec.isLowestRisk === 1 || rec.isLowestRisk === "1",
+    });
+  }
+  if (rows.length === 0) return null;
+  const picked = rows.find((row) => row.lowest) ?? rows.reduce((a, b) => (a.mm <= b.mm ? a : b));
+  return { mmRate: String(picked.mm), maxLeverage: picked.maxLev };
+}
+
+async function fetchLinearRiskLimitFromBase(
+  base: string,
+  config: TrackerConfig,
+  opts: { symbol: string; fetchImpl: RestFetch; signal?: AbortSignal },
+): Promise<{ mmRate: string; maxLeverage: string } | null> {
+  const recovery = config.recovery;
+  const url = new URL("/v5/market/risk-limit", base);
+  url.searchParams.set("category", "linear");
+  url.searchParams.set("symbol", opts.symbol);
+  return withRetries(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), recovery.restTimeoutMs);
+    const onAbort = () => controller.abort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const res = await opts.fetchImpl(url.toString(), { signal: controller.signal });
+      if (!res.ok) {
+        const error = new Error(`Bybit REST risk-limit HTTP ${res.status} (${base})`);
+        if (FAILOVER_STATUS.has(res.status)) {
+          throw Object.assign(error, { retryable: false, failover: true, status: res.status });
+        }
+        throw error;
+      }
+      const body = (await res.json()) as {
+        retCode?: number;
+        retMsg?: string;
+        result?: { list?: unknown };
+      };
+      if (body.retCode !== 0) {
+        throw new Error(`Bybit REST risk-limit ${body.retCode}: ${body.retMsg ?? "error"}`);
+      }
+      return parseRestRiskLimit(body.result?.list);
+    } finally {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+    }
+  }, {
+    retries: recovery.restRetries,
+    delayMs: recovery.restRetryDelayMs,
+    signal: opts.signal,
+  });
+}
+
+export async function fetchLinearRiskLimit(
+  config: TrackerConfig,
+  opts: { symbol: string; fetchImpl?: RestFetch; signal?: AbortSignal },
+): Promise<{ mmRate: string; maxLeverage: string } | null> {
+  const fetchImpl = opts.fetchImpl ?? (fetch as RestFetch);
+  const bases = orderedBases(config);
+  let lastError: unknown;
+  for (const base of bases) {
+    try {
+      const row = await fetchLinearRiskLimitFromBase(base, config, {
+        symbol: opts.symbol,
+        fetchImpl,
+        signal: opts.signal,
+      });
+      if (cachedWorkingBase !== base) {
+        if (cachedWorkingBase || base !== restBases(config)[0]) {
+          console.log(`[minh:bb] REST risk-limit host ${base}`);
+        }
+        cachedWorkingBase = base;
+      }
+      return row;
+    } catch (error) {
+      lastError = error;
+      if (opts.signal?.aborted) throw error;
+      if (!isFailoverError(error)) throw error;
+      if (base === bases[bases.length - 1]) break;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[minh:bb] ${message}; trying next REST host`);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Bybit REST risk-limit failed on every host");
+}
+
+export async function fillRiskLimits(
+  config: TrackerConfig,
+  opts: { now?: number; fetchImpl?: RestFetch; signal?: AbortSignal } = {},
+): Promise<{ symbols: number; errors: number }> {
+  if (!config.recovery.gapFill || process.env.BYBIT_LIQ_MODEL === "0") {
+    return { symbols: 0, errors: 0 };
+  }
+  const now = opts.now ?? Date.now();
+  let symbols = 0;
+  let errors = 0;
+  for (const symbol of config.symbols) {
+    if (opts.signal?.aborted) return { symbols, errors };
+    if (peekRiskLimit(symbol)) continue;
+    symbols += 1;
+    try {
+      const row = await fetchLinearRiskLimit(config, {
+        symbol,
+        fetchImpl: opts.fetchImpl,
+        signal: opts.signal,
+      });
+      if (row) {
+        riskCache.set(symbol.toUpperCase(), { ...row, ts: now });
+      }
+    } catch {
+      errors += 1;
+    }
+  }
+  return { symbols, errors };
+}

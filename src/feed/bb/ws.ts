@@ -2,7 +2,7 @@ import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
 import { parseLiqPrints } from "./liq";
-import { fillKlineGaps, fillOiGaps, fillFundingGaps } from "./rest";
+import { fillKlineGaps, fillOiGaps, fillFundingGaps, fillRiskLimits } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
   BybitKline,
@@ -144,6 +144,11 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
           console.log(
             `[minh:bb] funding fill series=${funding.series} bars=${funding.bars} errors=${funding.errors}`,
           );
+        }
+        const risk = await fillRiskLimits(config, { signal });
+        if (signal.aborted) return;
+        if (risk.symbols) {
+          console.log(`[minh:bb] risk-limit symbols=${risk.symbols} errors=${risk.errors}`);
         }
       })
       .catch((error) => {

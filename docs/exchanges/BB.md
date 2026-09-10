@@ -59,6 +59,7 @@ HTTP (read-only `127.0.0.1:43180`; full contract: [http.md](../http.md)):
 - `GET /oi?symbol=BTCUSDT&interval=240` — OI history (quant veto, not a signal)
 - `GET /funding?symbol=BTCUSDT` — funding history (quant veto, `crowded`)
 - `GET /liq-heatmap?symbol=BTCUSDT` — actual liquidation prints (not Coinglass; not `/heatmap` book)
+- `GET /liq-model?symbol=BTCUSDT` — estimated isolated map (OI-capped; `model — not exchange data`)
 - `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
 - `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size
@@ -123,6 +124,7 @@ Read what landed:
 | Open interest | `bun run query oi SYMBOL [INTERVAL]` or `GET /oi` — REST `/v5/market/open-interest` cache. Quant veto. |
 | Funding | `bun run query funding SYMBOL` or `GET /funding` — REST `/v5/market/funding/history` cache. Quant veto. |
 | Liquidation | `bun run query liq-heatmap SYMBOL` or `GET /liq-heatmap` — WS `allLiquidation` prints. Quant veto. |
+| Liq model | `bun run query liq-model SYMBOL` or `GET /liq-model` — estimated, inventory-capped. Not a signal. |
 | Zone suggest | `bun run zones` or `GET /zones` — candidate zone-cards from local 4H/1H. Suggest-only; no auto-arm. Paper ledger is `/brief-pack.zones` |
 | LTF confirm | `bun run confirm SYMBOL` or `GET /confirm?symbol=&interval=15` — optional scalp snapshot |
 | Brief pack | `bun run brief-pack [SYMBOL]` or `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted zones |

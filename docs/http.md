@@ -125,6 +125,14 @@ Quiet 3 prints do not trip. Mixed long/short bursts do not trip. Not a signal. `
 curl -sS 'http://127.0.0.1:43180/liq-heatmap?symbol=BTCUSDT&hours=24'
 ```
 
+### `GET /liq-model`
+
+**Estimated** forward map — not prints, not Coinglass. Isolated MMR (risk-limit cache or `0.005`) × public mix `10x/20x/50x` (`0.50/0.35/0.15`) × VW 15m entries (48 bars) × ticker OI. Each side capped at `oiUsd/2`. `meta.note` is always `model — not exchange data`. `ok=false` + `broken` when last/OI/entries missing. Does not arm. `BYBIT_LIQ_MODEL=0` off. Do not mix with `/liq-heatmap`.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/liq-model?symbol=BTCUSDT'
+```
+
 ### `GET /brief`
 
 One-symbol snapshot for Minh: ticker + 15/60/240. Unchanged. Default symbol `BTCUSDT`. Not the MAP candle source.
