@@ -271,7 +271,7 @@ Shared open fields: `symbol`, `side` (`long`\|`short`), `stopLoss`, `takeProfit`
 
 `postOnly` and `oco` default **true**. Long alert defaults `--below` at `limitPrice`; short `--above`.
 
-OCO: last through `invalidatePrice` (default SL) **before** the limit → `order.invalidated`, no fill. After fill, SL/TP run on the position.
+OCO: last through `invalidatePrice` (default SL) **before** the limit → `order.invalidated`, no fill. Bound pending (`zoneId`) also dies with the ledger card (expire / deep / HTF / zone reject). After fill, SL/TP run on the position.
 
 ### Positions
 
@@ -280,7 +280,7 @@ OCO: last through `invalidatePrice` (default SL) **before** the limit → `order
 | `GET /paper/positions?status=open\|closed\|all` | Default `open` |
 | `POST /paper/positions` | Market-style open at last. `201` |
 | `POST /paper/positions/:id/close` | Manual close at last |
-| `POST /paper/mark` | Tick: expire zones, fire alerts, OCO, fill limits, mark SL/TP/funding |
+| `POST /paper/mark` | Tick: expire zones (cancel bound OCO), pending proximity, fire alerts, OCO, quant hold, fill limits, mark SL/TP/funding |
 
 ```bash
 curl -sS http://127.0.0.1:43181/paper/event

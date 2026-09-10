@@ -2,8 +2,8 @@ import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
 import { cancelCodeForReject, parseZoneId, rejectIfEntryBlocked } from "./gates";
 import { paperMetrics } from "./metrics";
-import { runProximityArm } from "./proximity";
-import { ZoneCardError } from "../zones/card";
+import { pendingProximityReject, pendingQuantSkipFill, runProximityArm } from "./proximity";
+import { ZoneCardError, type CancelCode } from "../zones/card";
 import {
   LEDGER_CAP_PER_SYMBOL,
   ledgerDue,
@@ -340,6 +340,7 @@ export function createPaperEngine(opts: {
   const instruments = opts.instruments ?? defaultCatalog();
   const symbolSet = new Set(universe.symbols.map((s) => s.toUpperCase()));
   const intervalSet = new Set(universe.intervals.map(String));
+  let tickBind: { invalidated: OrderView[]; events: EventView[] } | null = null;
 
   async function requireHealthyFeed(): Promise<void> {
     const health = await feed.health();
@@ -463,6 +464,39 @@ export function createPaperEngine(opts: {
       gate: error.gate,
       cancelCode,
     }, now, parseZoneId(request.zoneId));
+  }
+
+  function cancelBoundForZone(zoneId: string, now: number, cancelCode: CancelCode, last?: string): void {
+    for (const row of store.listOrders("pending")) {
+      if (row.zone_id !== zoneId) continue;
+      if (store.invalidateOrder(row.id, now, cancelCode) === 0) continue;
+      const view = viewOrder(store.getOrder(row.id)!);
+      const event = emit("order.invalidated", row.symbol, {
+        orderId: row.id,
+        cancelCode,
+        ...(last != null ? { last } : {}),
+      }, now, zoneId);
+      tickBind?.invalidated.push(view);
+      tickBind?.events.push(event);
+    }
+    for (const row of store.listAlerts("armed")) {
+      if (row.zone_id !== zoneId) continue;
+      store.cancelAlert(row.id);
+    }
+  }
+
+  async function loadQuantBySymbols(symbols: Iterable<string>): Promise<Map<string, PaperQuantTape>> {
+    const out = new Map<string, PaperQuantTape>();
+    if (!feed.quant) return out;
+    for (const symbol of symbols) {
+      try {
+        const tape = await feed.quant(symbol);
+        if (tape) out.set(symbol, tape);
+      } catch {
+        // missing tape is not a veto
+      }
+    }
+    return out;
   }
 
   function requireKnownSymbol(raw: string): string {
@@ -909,6 +943,7 @@ export function createPaperEngine(opts: {
   function fillPendingLimits(
     tickers: Map<string, PaperTicker>,
     now: number,
+    skipFill?: (row: PaperOrderRow) => boolean,
   ): { filled: OrderView[]; rejected: OrderView[]; invalidated: OrderView[]; events: EventView[] } {
     const filled: OrderView[] = [];
     const rejected: OrderView[] = [];
@@ -937,6 +972,7 @@ export function createPaperEngine(opts: {
         }, now, row.zone_id ?? null));
         continue;
       }
+      if (skipFill?.(row)) continue;
       if (!limitFillHit(row.side, last, Dec.from(row.limit_price))) continue;
       try {
         const result = fillPendingOrder(row, ticker, now);
@@ -1144,6 +1180,7 @@ export function createPaperEngine(opts: {
       const view = viewLedger(row);
       if (!ledgerDue(view, now)) continue;
       store.updateZoneLedgerStatus(view.zoneId, "expired", now, "expired");
+      cancelBoundForZone(view.zoneId, now, "expired");
       expired.push({
         ...view,
         status: "expired",
@@ -1154,40 +1191,77 @@ export function createPaperEngine(opts: {
     return expired;
   }
 
+  function watchPendingProximity(tickers: Map<string, PaperTicker>, now: number): void {
+    for (const row of store.listOrders("pending")) {
+      if (!row.zone_id) continue;
+      const ledger = store.getZoneLedger(row.zone_id);
+      if (!ledger || ledger.status !== "accepted") continue;
+      const ticker = tickers.get(row.symbol);
+      if (!ticker) continue;
+      let last: Dec;
+      try {
+        last = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
+      } catch {
+        continue;
+      }
+      const card = viewLedger(ledger).card;
+      const code = pendingProximityReject(card, Number(last.toText()));
+      if (!code) continue;
+      store.updateZoneLedgerStatus(card.zoneId, "rejected", now, code);
+      cancelBoundForZone(card.zoneId, now, code, last.toText());
+    }
+  }
+
+  function skipZonedQuantFill(row: PaperOrderRow, tapes: Map<string, PaperQuantTape>): boolean {
+    if (!row.zone_id) return false;
+    const ledger = store.getZoneLedger(row.zone_id);
+    if (!ledger || ledger.status !== "accepted") return false;
+    return pendingQuantSkipFill(viewLedger(ledger).card.side, tapes.get(row.symbol));
+  }
+
   async function evaluate(now = Date.now()) {
-    expireDue(now);
-    await requireHealthyFeed();
-    const symbols = [...new Set([
-      ...store.listOpen().map((row) => row.symbol),
-      ...store.listAlerts("armed").map((row) => row.symbol),
-      ...store.listOrders("pending").map((row) => row.symbol),
-      ...store.listZoneLedger("accepted").map((row) => row.symbol),
-    ])];
-    const tickers = await tickerMap(symbols, now);
-    const alerts = fireArmedAlerts(tickers, now);
-    const orders = fillPendingLimits(tickers, now);
-    const marked = await markOpenPositions(tickers, now);
-    const account = rewriteEquity(now);
-    return {
-      mode: "paper" as const,
-      account: {
-        cash: account.cash,
-        equity: account.equity,
-        unrealizedPnl: account.unrealizedPnl,
-        marginUsed: account.marginUsed,
-        marginMode: account.marginMode,
-        marginBalance: account.marginBalance,
-        totalMm: account.totalMm,
-      },
-      positions: marked.stillOpen,
-      closed: marked.closed,
-      funding: marked.funding,
-      alerts: alerts.fired,
-      filled: orders.filled,
-      rejected: orders.rejected,
-      invalidated: orders.invalidated,
-      events: [...alerts.events, ...orders.events, ...marked.events],
-    };
+    tickBind = { invalidated: [], events: [] };
+    try {
+      expireDue(now);
+      await requireHealthyFeed();
+      const symbols = [...new Set([
+        ...store.listOpen().map((row) => row.symbol),
+        ...store.listAlerts("armed").map((row) => row.symbol),
+        ...store.listOrders("pending").map((row) => row.symbol),
+        ...store.listZoneLedger("accepted").map((row) => row.symbol),
+      ])];
+      const tickers = await tickerMap(symbols, now);
+      watchPendingProximity(tickers, now);
+      const quantBySymbol = await loadQuantBySymbols(
+        store.listOrders("pending").filter((row) => row.zone_id).map((row) => row.symbol),
+      );
+      const alerts = fireArmedAlerts(tickers, now);
+      const orders = fillPendingLimits(tickers, now, (row) => skipZonedQuantFill(row, quantBySymbol));
+      const marked = await markOpenPositions(tickers, now);
+      const account = rewriteEquity(now);
+      return {
+        mode: "paper" as const,
+        account: {
+          cash: account.cash,
+          equity: account.equity,
+          unrealizedPnl: account.unrealizedPnl,
+          marginUsed: account.marginUsed,
+          marginMode: account.marginMode,
+          marginBalance: account.marginBalance,
+          totalMm: account.totalMm,
+        },
+        positions: marked.stillOpen,
+        closed: marked.closed,
+        funding: marked.funding,
+        alerts: alerts.fired,
+        filled: orders.filled,
+        rejected: orders.rejected,
+        invalidated: [...tickBind.invalidated, ...orders.invalidated],
+        events: [...tickBind.events, ...alerts.events, ...orders.events, ...marked.events],
+      };
+    } finally {
+      tickBind = null;
+    }
   }
 
   const host: { engine: PaperEngine | null } = { engine: null };
@@ -1206,18 +1280,8 @@ export function createPaperEngine(opts: {
         // stale/missing last — wait
       }
     }
-    const quantBySymbol = new Map<string, PaperQuantTape>();
+    const quantBySymbol = await loadQuantBySymbols(lastBySymbol.keys());
     const kline15BySymbol = new Map<string, PaperKlineSnap>();
-    if (feed.quant) {
-      for (const symbol of lastBySymbol.keys()) {
-        try {
-          const tape = await feed.quant(symbol);
-          if (tape) quantBySymbol.set(symbol, tape);
-        } catch {
-          // missing tape is not a veto
-        }
-      }
-    }
     for (const symbol of lastBySymbol.keys()) {
       try {
         const bar = await feed.lastKline(symbol, "15");
@@ -1311,6 +1375,7 @@ export function createPaperEngine(opts: {
       }
       const rejectCode = parseRejectCode(code);
       store.updateZoneLedgerStatus(id, "rejected", now, rejectCode);
+      cancelBoundForZone(id, now, rejectCode);
       return viewLedger(store.getZoneLedger(id)!);
     },
 

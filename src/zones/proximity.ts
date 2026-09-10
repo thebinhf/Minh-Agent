@@ -7,12 +7,18 @@ export type ProximityDecision = "wait" | "arm" | "deep" | "invalid";
 export function penetrationFromLast(card: ZoneCard, last: number): number {
   const span = Math.abs(card.proximal - card.distal);
   if (!(span > 0) || !Number.isFinite(last)) return 0;
-  if (card.side === "demand") {
-    if (last >= card.proximal) return 0;
-    return ((card.proximal - last) / span) * 100;
+  switch (card.side) {
+    case "demand":
+      if (last >= card.proximal) return 0;
+      return ((card.proximal - last) / span) * 100;
+    case "supply":
+      if (last <= card.proximal) return 0;
+      return ((last - card.proximal) / span) * 100;
+    default: {
+      const _exhaustive: never = card.side;
+      return _exhaustive;
+    }
   }
-  if (last <= card.proximal) return 0;
-  return ((last - card.proximal) / span) * 100;
 }
 
 /**
@@ -21,20 +27,26 @@ export function penetrationFromLast(card: ZoneCard, last: number): number {
  */
 export function proximityDecision(card: ZoneCard, last: number): ProximityDecision {
   if (!Number.isFinite(last)) return "wait";
-  if (card.side === "demand") {
-    if (last <= card.sl) return "invalid";
-    if (last > card.proximal) return "wait";
-    if (last < card.distal) return "wait";
-    if (penetrationFromLast(card, last) >= ZONE_DETECT.deepPenetrationPct) return "deep";
-    if (last <= card.entry) return "wait";
-    return "arm";
+  switch (card.side) {
+    case "demand":
+      if (last <= card.sl) return "invalid";
+      if (last > card.proximal) return "wait";
+      if (last < card.distal) return "wait";
+      if (penetrationFromLast(card, last) >= ZONE_DETECT.deepPenetrationPct) return "deep";
+      if (last <= card.entry) return "wait";
+      return "arm";
+    case "supply":
+      if (last >= card.sl) return "invalid";
+      if (last < card.proximal) return "wait";
+      if (last > card.distal) return "wait";
+      if (penetrationFromLast(card, last) >= ZONE_DETECT.deepPenetrationPct) return "deep";
+      if (last >= card.entry) return "wait";
+      return "arm";
+    default: {
+      const _exhaustive: never = card.side;
+      return _exhaustive;
+    }
   }
-  if (last >= card.sl) return "invalid";
-  if (last < card.proximal) return "wait";
-  if (last > card.distal) return "wait";
-  if (penetrationFromLast(card, last) >= ZONE_DETECT.deepPenetrationPct) return "deep";
-  if (last >= card.entry) return "wait";
-  return "arm";
 }
 
 export function armTimeframes(tf: string): string[] {
@@ -44,5 +56,14 @@ export function armTimeframes(tf: string): string[] {
 }
 
 export function armSide(side: ZoneCard["side"]): "long" | "short" {
-  return side === "demand" ? "long" : "short";
+  switch (side) {
+    case "demand":
+      return "long";
+    case "supply":
+      return "short";
+    default: {
+      const _exhaustive: never = side;
+      return _exhaustive;
+    }
+  }
 }

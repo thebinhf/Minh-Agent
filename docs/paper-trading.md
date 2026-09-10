@@ -678,10 +678,13 @@ When the daemon starts (`bun run start` → `startPaper`), paper evaluates every
 
 Each tick, in order:
 
-1. Fire armed **alerts** whose last print is through the level.
-2. **OCO-invalidate** pending limits whose last print is through `--invalidate` / `--sl`.
-3. Fill remaining **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage).
-4. Mark open positions (funding → SL → liq → TP → MTM). Newly filled positions are included so a gap can SL in the same tick.
+1. Expire accepted ledger cards past `expiryBars`. Bound pending (`zoneId`) + matching armed alerts invalidate with `cancelCode: expired`.
+2. Bound pending proximity: last ≥50% into the zone → `deep_mitigate`; through SL → `htf_break`. Cancels the resting OCO + alert. Does **not** close open positions.
+3. Fire armed **alerts** whose last print is through the level.
+4. **OCO-invalidate** pending limits whose last print is through `--invalidate` / `--sl` (`cancelCode: never_touched`). Bound through-SL is already `htf_break` from step 2.
+5. Bound pending: `quantVeto(..., "arm")` cascade/crowded → **skip fill this tick** (keep pending, do not reject the zone). Opposing OI/CVD do not hold (accept-only). Unzoned orders ignore this.
+6. Fill remaining **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage).
+7. Mark open positions (funding → SL → liq → TP → MTM). Newly filled positions are included so a gap can SL in the same tick.
 
 `POST /paper/mark` / `bun run paper mark` runs the same `evaluate()`. Feed unhealthy → explicit mark still rejects; the daemon tick swallows `PaperReject` and waits.
 
@@ -813,7 +816,7 @@ Replay the **same** paper engine over local klines. Operator still picks the zon
 | Input | One limit ARM (`--price/--sl/--tp/--tf`) + `--from` / `--to` |
 | Data | Feed SQLite klines (run `bun run backfill` first). Readonly. |
 | Walk | `--interval` default `15`. Long prints open→low→high→close so OCO/SL beat TP on the same bar. After a **fill**, remaining prints on that bar are skipped (no same-bar TP) |
-| Engine | Same evaluate order: OCO → fill at limit → fee → funding → SL/liq/TP |
+| Engine | Same evaluate order as the live tick (expire / pending proximity / alerts / OCO / quant hold / fill / fee / funding / SL/liq/TP) |
 | Ledger | `paper-replay.sqlite` next to the live file. Never the live paper DB |
 | Funding | Optional `--funding-rate` (cache has no funding tape). Settles every 8h UTC |
 | Slippage | Always `0`. Depth/orderbook not used |
@@ -948,7 +951,7 @@ Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm co
 | `cancelled` | `order.cancelled` + `order.invalidated` |
 | `exited` | `position.closed` |
 
-`noFillPct` is unchanged. Split: operator `paper cancel` → `ops_cancel`; OCO invalidate → `never_touched`. `gates_block` / `rr_fail` count submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` rejects (no order row) via `order.rejected`. `deep_mitigate` / `htf_break` / `expired` stay 0 until a later tagger writes them.
+`noFillPct` is unchanged. Split: operator `paper cancel` → `ops_cancel`; OCO print through `--invalidate` / `--sl` → `never_touched`. `gates_block` / `rr_fail` count submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` rejects (no order row) via `order.rejected`. Bound pending (`zoneId`) writes `deep_mitigate` / `htf_break` / `expired` / `ops_cancel` on `order.invalidated` when the ledger card dies (deep after rest, through SL, expiry, `paper zone reject`).
 
 Kill-switch `brief-pack.gates` / paper entry gates are unchanged: new open/limit/arm still reject on `kline_lag` / `feed_unhealthy`. `/zones` is read-only suggest.
 
