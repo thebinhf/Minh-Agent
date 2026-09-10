@@ -141,7 +141,7 @@ export function buildMap(
     fundingRate: map.ticker.fundingRate,
     nextFundingTime: map.ticker.nextFundingTime,
   });
-  map.liq = buildMapLiq(store, symbol, map.ticker.lastPrice);
+  map.liq = buildMapLiq(store, symbol, map.ticker.lastPrice, now, map.oi.reading);
   return map;
 }
 
