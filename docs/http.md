@@ -33,7 +33,7 @@ HTF MAP. No 15m.
 
 One symbol → a single map object. Several / watchlist → `{ ts, maps, klineLag, meta }`.
 
-Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H series + `deltaPct`) + `funding` (last 21 rates + `crowded`). `oi.note` / `funding.note` is always `quant veto — not a signal`.
+Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H + `deltaPct` + `trend` + `reading`) + `funding` (last 21 rates + `crowded`). `oi.note` / `funding.note` is always `quant veto — not a signal`.
 
 ```bash
 curl -sS http://127.0.0.1:43180/map
@@ -80,7 +80,7 @@ Open-interest history from public REST (`/v5/market/open-interest`), cached in S
 | `interval` | `240` | `5` `15` `60` `240` `D`. Else `400` `{ "error": "oi_interval" }` |
 | `limit` | 50 | Cap 200 |
 
-Bars oldest→newest. `deltaPct` is (last − first) / first × 100, or `null`. Live spot OI stays on `tickers[].openInterest`. `BYBIT_OI=0` skips REST fill.
+Bars oldest→newest. `deltaPct` is (last − first) / first × 100, or `null`. `trend` is `rising` / `falling` / `flat` when `|deltaPct|` is compared to `BYBIT_OI_EXTREME` (default `2` = 2%). `/map.oi.reading` adds the price matrix: `long_add` `short_add` `cover` `flush`. Live spot OI stays on `tickers[].openInterest`. `BYBIT_OI=0` skips REST fill.
 
 ```bash
 curl -sS 'http://127.0.0.1:43180/oi?symbol=BTCUSDT&interval=240'

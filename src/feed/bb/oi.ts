@@ -9,6 +9,10 @@ export const MAP_OI_INTERVALS = ["60", "240"] as const;
 export const MAP_OI_LIMITS = { "240": 20, "60": 24 } as const;
 
 export const OI_NOTE = "quant veto — not a signal";
+export const DEFAULT_OI_EXTREME = "2";
+
+export type OiTrend = "rising" | "falling" | "flat" | null;
+export type OiReading = "long_add" | "short_add" | "cover" | "flush" | null;
 
 const BYBIT_INTERVAL_TIME: Record<OiInterval, string> = {
   "5": "5min",
@@ -28,6 +32,10 @@ export type OiSeries = {
   bars: OiBar[];
   latest: string | null;
   deltaPct: string | null;
+  trend: OiTrend;
+  reading: OiReading;
+  priceDeltaPct: string | null;
+  extreme: string;
 };
 
 export type SnapshotOi = {
@@ -37,6 +45,10 @@ export type SnapshotOi = {
   bars: OiBar[];
   latest: string | null;
   deltaPct: string | null;
+  trend: OiTrend;
+  reading: OiReading;
+  priceDeltaPct: string | null;
+  extreme: string;
   meta: {
     db: string;
     note: typeof OI_NOTE;
@@ -48,11 +60,61 @@ export type MapOi = {
   "60": OiBar[];
   latest: string | null;
   deltaPct: string | null;
+  trend: OiTrend;
+  reading: OiReading;
+  priceDeltaPct: string | null;
+  extreme: string;
   note: typeof OI_NOTE;
 };
 
 export function oiEnabled(): boolean {
   return process.env.BYBIT_OI !== "0";
+}
+
+export function oiExtreme(): string {
+  const raw = process.env.BYBIT_OI_EXTREME?.trim();
+  if (!raw) return DEFAULT_OI_EXTREME;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? raw : DEFAULT_OI_EXTREME;
+}
+
+export function closesDeltaPct(closes: Array<string | null | undefined>): string | null {
+  const nums: number[] = [];
+  for (const raw of closes) {
+    if (raw == null || raw === "") continue;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) continue;
+    nums.push(n);
+  }
+  if (nums.length < 2 || nums[0] === 0) return null;
+  return ((nums[nums.length - 1]! - nums[0]!) / nums[0]! * 100).toFixed(4);
+}
+
+export function oiTrend(deltaPct: string | null, extreme = oiExtreme()): OiTrend {
+  if (deltaPct == null || deltaPct === "") return null;
+  const n = Number(deltaPct);
+  const floor = Number(extreme);
+  if (!Number.isFinite(n) || !Number.isFinite(floor) || floor <= 0) return null;
+  if (Math.abs(n) < floor) return "flat";
+  return n > 0 ? "rising" : "falling";
+}
+
+/**
+ * Classic OI/price matrix. Quant veto — not an entry signal.
+ * rising+up = long_add; rising+down = short_add; falling+up = cover; falling+down = flush.
+ */
+export function oiReading(
+  oiDeltaPct: string | null,
+  priceDeltaPct: string | null,
+  extreme = oiExtreme(),
+): OiReading {
+  const trend = oiTrend(oiDeltaPct, extreme);
+  if (trend !== "rising" && trend !== "falling") return null;
+  if (priceDeltaPct == null || priceDeltaPct === "") return null;
+  const px = Number(priceDeltaPct);
+  if (!Number.isFinite(px) || px === 0) return null;
+  if (trend === "rising") return px > 0 ? "long_add" : "short_add";
+  return px > 0 ? "cover" : "flush";
 }
 
 export function parseOiInterval(raw: string | undefined | null): OiInterval | null {
@@ -119,13 +181,30 @@ export function emptyMapOi(): MapOi {
     "60": [],
     latest: null,
     deltaPct: null,
+    trend: null,
+    reading: null,
+    priceDeltaPct: null,
+    extreme: oiExtreme(),
     note: OI_NOTE,
   };
 }
 
-export function summarizeOi(bars: OiBar[]): Pick<OiSeries, "latest" | "deltaPct"> {
-  const latest = bars.length ? bars[bars.length - 1]!.openInterest : null;
-  return { latest, deltaPct: oiDeltaPct(bars) };
+export function summarizeOi(
+  bars: OiBar[],
+  opts: { tickerOi?: string | null; closes?: Array<string | null | undefined> } = {},
+): Pick<OiSeries, "latest" | "deltaPct" | "trend" | "reading" | "priceDeltaPct" | "extreme"> {
+  const extreme = oiExtreme();
+  const latest = opts.tickerOi?.trim() || (bars.length ? bars[bars.length - 1]!.openInterest : null);
+  const deltaPct = oiDeltaPct(bars);
+  const priceDeltaPct = closesDeltaPct(opts.closes ?? []);
+  return {
+    latest,
+    deltaPct,
+    trend: oiTrend(deltaPct, extreme),
+    reading: oiReading(deltaPct, priceDeltaPct, extreme),
+    priceDeltaPct,
+    extreme,
+  };
 }
 
 export type OiStore = Pick<TrackerDb, "listOi">;
@@ -159,14 +238,13 @@ export function buildOi(
   const symbol = normalizeBriefSymbol(opts.symbol);
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const bars = readOiBars(store, symbol, interval, limit);
-  const { latest, deltaPct } = summarizeOi(bars);
+  const stats = summarizeOi(bars);
   return {
     symbol,
     interval,
     ts: opts.now ?? Date.now(),
     bars,
-    latest,
-    deltaPct,
+    ...stats,
     meta: { db: opts.dbPath, note: OI_NOTE },
   };
 }
@@ -175,16 +253,16 @@ export function buildMapOi(
   store: OiStore,
   symbol: string,
   tickerOi?: string | null,
+  closes?: Array<string | null | undefined>,
 ): MapOi {
   const h4 = readOiBars(store, symbol, "240", MAP_OI_LIMITS["240"]);
   const h1 = readOiBars(store, symbol, "60", MAP_OI_LIMITS["60"]);
   const primary = h4.length >= 2 ? h4 : h1;
-  const { latest, deltaPct } = summarizeOi(primary);
+  const stats = summarizeOi(primary, { tickerOi, closes });
   return {
     "240": h4,
     "60": h1,
-    latest: tickerOi?.trim() || latest,
-    deltaPct,
+    ...stats,
     note: OI_NOTE,
   };
 }

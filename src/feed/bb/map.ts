@@ -128,7 +128,12 @@ export function buildMap(
   map.klines["60"] = readBriefKlines(store, symbol, "60", limits["60"]);
   map.klines.D = readBriefKlines(store, symbol, "D", limits.D);
   map.klineLag = klineLagForSymbols(store, [symbol], { now });
-  map.oi = buildMapOi(store, symbol, map.ticker.openInterest);
+  map.oi = buildMapOi(
+    store,
+    symbol,
+    map.ticker.openInterest,
+    map.klines["240"].map((bar) => bar.close),
+  );
   map.funding = buildMapFunding(store, symbol, {
     fundingRate: map.ticker.fundingRate,
     nextFundingTime: map.ticker.nextFundingTime,

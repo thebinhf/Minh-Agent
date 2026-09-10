@@ -9,6 +9,8 @@ import {
   buildMapOi,
   buildOi,
   oiDeltaPct,
+  oiReading,
+  oiTrend,
   parseOiInterval,
   parseRestOiList,
   toBybitOiInterval,
@@ -56,6 +58,14 @@ describe("OI mapping", () => {
     ]);
     expect(oiDeltaPct(bars)).toBe("20.0000");
     expect(oiDeltaPct([{ startTs: 1, openInterest: "5" }])).toBeNull();
+    expect(oiTrend("20.0000", "2")).toBe("rising");
+    expect(oiTrend("-3", "2")).toBe("falling");
+    expect(oiTrend("1", "2")).toBe("flat");
+    expect(oiReading("10", "5", "2")).toBe("long_add");
+    expect(oiReading("10", "-5", "2")).toBe("short_add");
+    expect(oiReading("-10", "5", "2")).toBe("cover");
+    expect(oiReading("-10", "-5", "2")).toBe("flush");
+    expect(oiReading("1", "5", "2")).toBeNull();
   });
 });
 
@@ -72,11 +82,15 @@ describe("OI store + HTTP", () => {
     expect(snap.bars).toHaveLength(2);
     expect(snap.latest).toBe("110");
     expect(snap.deltaPct).toBe("10.0000");
+    expect(snap.trend).toBe("rising");
+    expect(snap.reading).toBeNull();
     expect(snap.meta.note).toBe(OI_NOTE);
 
-    const mapOi = buildMapOi(store, "BTCUSDT", "111");
+    const mapOi = buildMapOi(store, "BTCUSDT", "111", ["100", "110"]);
     expect(mapOi.latest).toBe("111");
     expect(mapOi.deltaPct).toBe("10.0000");
+    expect(mapOi.trend).toBe("rising");
+    expect(mapOi.reading).toBe("long_add");
     expect(mapOi["240"]).toHaveLength(2);
 
     const server = startHttp({
