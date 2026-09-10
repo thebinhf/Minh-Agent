@@ -15,6 +15,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Open interest history | Live | Public `GET /v5/market/open-interest` → SQLite `open_interest`. `GET /oi`, `/map.oi` (`deltaPct`, `trend`, `reading` = long_add/short_add/cover/flush). Quant veto only. `BYBIT_OI=0` off. `BYBIT_OI_EXTREME` default 2 (%). |
 | Funding rate history | Live | Public `GET /v5/market/funding/history` → SQLite `funding`. `GET /funding`, `/map.funding` (`crowded` long/short if `|rate| ≥ 0.0003`). Quant veto only. `BYBIT_FUNDING=0` off. |
 | Liquidation heatmap | Live | Public WS `allLiquidation` (BTC/ETH/SOL) → SQLite `liquidations`. `GET /liq-heatmap`, `/map.liq`. `cascade` is side+intensity+walk+fuel (OI `flush`/`cover` can confirm). Prints only. `BYBIT_LIQ=0` off. |
+| Liquidation model | Live | `GET /liq-model`: isolated MMR + 10/20/50 mix + 15m VW entries, inventory-capped at OI/2. Labeled `model — not exchange data`. Not mixed into `/liq-heatmap`. `BYBIT_LIQ_MODEL=0` off. |
 | Historical kline backfill | Live | `bun run backfill` — REST failover or JSON/CSV dump into SQLite; no WS |
 | Snapshot brief | Live | `bun run brief` / `GET /brief` — one local JSON (ticker + 15/60/240) for Minh |
 | HTF map | Live | `bun run map` / `GET /map` — ticker + 4H/1H (+ daily if backfilled) + `klineLag` (60/240). No query = watchlist (cap 10). No 15m, no S/D, no bias. `/brief` unchanged. |

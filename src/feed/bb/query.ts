@@ -6,6 +6,7 @@ import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 import { buildOi } from "./oi";
 import { buildFunding } from "./funding";
 import { buildLiqHeatmap } from "./liq";
+import { buildLiqModel } from "./liq-model";
 
 function usage(): never {
   console.log(`Usage:
@@ -18,6 +19,7 @@ function usage(): never {
   bun run query oi [SYMBOL] [INTERVAL] [--limit N]
   bun run query funding [SYMBOL] [--limit N]
   bun run query liq-heatmap [SYMBOL] [--hours N] [--bucket STEP]
+  bun run query liq-model [SYMBOL] [--bucket STEP]
   bun run query chart [SYMBOL] [INTERVAL] [--limit N] [--start TIME] [--end TIME]
   bun run query depth [SYMBOL]
   bun run query heatmap [SYMBOL] [--limit N] [--bucket STEP] [--start TIME] [--end TIME]
@@ -147,6 +149,18 @@ try {
         hours: hours != null && Number.isFinite(hours) ? hours : undefined,
         bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
         lastPrice: ticker?.last_price == null ? null : String(ticker.last_price),
+      }), null, 2));
+      break;
+    }
+    case "liq-model": {
+      const rest = process.argv.slice(3);
+      const positional = rest.filter((arg) => !arg.startsWith("--"));
+      const bucketRaw = flag(rest, "--bucket");
+      const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+      console.log(JSON.stringify(buildLiqModel(store, {
+        symbol: positional[0],
+        dbPath: config.dbPath,
+        bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
       }), null, 2));
       break;
     }
