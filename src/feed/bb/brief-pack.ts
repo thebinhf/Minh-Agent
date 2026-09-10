@@ -69,6 +69,7 @@ export type BriefPackPaper = {
   positions: BriefPackPosition[];
   pendingOrders: BriefPackPendingOrder[];
   armedAlerts: BriefPackArmedAlert[];
+  zones: unknown[];
 };
 
 export const EMPTY_BRIEF_PACK_PAPER: BriefPackPaper = {
@@ -76,6 +77,7 @@ export const EMPTY_BRIEF_PACK_PAPER: BriefPackPaper = {
   positions: [],
   pendingOrders: [],
   armedAlerts: [],
+  zones: [],
 };
 
 export const EMPTY_BRIEF_PACK_TICKER: Omit<BriefPackTicker, "symbol"> = {
@@ -105,8 +107,8 @@ export function httpPaperSource(url: string | null | undefined): string {
 }
 
 /**
- * Agent-drawn MAP zones stay empty on the pack.
- * Suggest-only cards live on GET /zones — this pack does not auto-detect or auto-arm.
+ * Suggest-only cards stay on GET /zones.
+ * Accepted cards come from the paper ledger via paperDesk — never auto-detected here.
  */
 export function readMapZones(): unknown[] {
   return [];
@@ -163,7 +165,7 @@ export function emptyBriefPack(
     klineLag,
     gates: opts.gates ?? tradingGates({ klineLagOk: klineLag.ok }),
     paper,
-    zones: readMapZones(),
+    zones: paper.zones,
     meta: {
       db: opts.dbPath,
       klinesDays: opts.klinesDays ?? null,
@@ -196,6 +198,7 @@ export function projectBriefPackPaper(snap: BriefPackPaper | null | undefined): 
     positions: asArray(snap.positions).map(projectPosition),
     pendingOrders: asArray(snap.pendingOrders).map(projectPendingOrder),
     armedAlerts: asArray(snap.armedAlerts).map(projectArmedAlert),
+    zones: asArray(snap.zones),
   };
 }
 
@@ -270,6 +273,7 @@ function filterPaperBySymbol(paper: BriefPackPaper, symbol: string | undefined):
     positions: paper.positions.filter(match),
     pendingOrders: paper.pendingOrders.filter(match),
     armedAlerts: paper.armedAlerts.filter(match),
+    zones: paper.zones.filter(match),
   };
 }
 
@@ -312,7 +316,7 @@ export function buildBriefPack(
     klineLag,
     gates: tradingGates({ feedOk, klineLagOk: klineLag.ok }),
     paper,
-    zones: readMapZones(),
+    zones: paper.zones,
     meta: {
       db: opts.config.dbPath,
       klinesDays,

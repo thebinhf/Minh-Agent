@@ -23,7 +23,7 @@ src/index.ts
          GET /map-latest (last 1H/4H close dump; 404 until first confirm)
          GET /confirm (EVENT — ticker + 20×15m or 5m; no depth)
          GET /zones    (suggest-only zone-cards from local HTF klines; no auto-arm)
-         GET /brief-pack  (tickers + kline lag + gates + open paper desk; paper injected from composition root)
+         GET /brief-pack  (tickers + kline lag + gates + paper desk + accepted zone ledger)
          GET /chart  GET /depth  GET /heatmap  GET /market
          GET /health  (WS + per 15/60/240 kline lag)
   → src/paper
@@ -33,12 +33,14 @@ src/index.ts
        → optional notify on event-once kinds (Phase 4)
        → kline replay into paper-replay.sqlite (Phase 5)
        → status / arm / day / metrics operator surface (Phase 6 + P1 + zone funnel)
+       → zone ledger (accept/reject/expire; cap 2/symbol; no auto-arm)
        → HTTP 127.0.0.1:43181 /paper/*
        → CLI  bun run paper …
 
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
 bun run map              # HTF MAP watchlist + klineLag; agent draws S/D
 bun run zones            # suggest-only zone-cards (no auto-arm)
+bun run paper zone accept FILE.json  # paper ledger; does not arm
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run brief-pack [SYMBOL]  # same JSON as GET /brief-pack; all symbols if omitted
 bun run query chart|depth|heatmap|market

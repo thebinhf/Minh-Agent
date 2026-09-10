@@ -137,7 +137,7 @@ describe("parseBriefPackArgs / zones", () => {
     expect(parseBriefPackArgs(["ethusdt"])).toEqual({ symbol: "ETHUSDT" });
   });
 
-  test("zones store does not exist — always []", () => {
+  test("readMapZones is empty — suggestions are GET /zones; ledger is paper.zones", () => {
     expect(readMapZones()).toEqual([]);
   });
 

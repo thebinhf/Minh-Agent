@@ -18,11 +18,11 @@ Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** 
 
 Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
-Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. If you take a card, `paper arm … --zone-id <zoneId>`.
+Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. Accept a card into the paper ledger (`bun run paper zone accept FILE.json` / `POST /paper/zones`). Then `paper arm … --zone-id <zoneId>` — ledger does **not** auto-arm.
 
 Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
 
-Open paper (`positions` / `pendingOrders` / `armedAlerts`) is on the brief-pack payload. Positions do **not** include `unrealizedPnl` — use `paper status` if you need PnL. `zones` on the pack is `[]` — suggestions live on **`GET /zones`** (suggest-only, paper-only). Engine does not auto-arm. Attach `--zone-id` when you `paper arm`.
+Open paper (`positions` / `pendingOrders` / `armedAlerts`) is on the brief-pack payload. Positions do **not** include `unrealizedPnl` — use `paper status` if you need PnL. `zones` on the pack is the **accepted ledger** (cap 2/symbol, expires with `expiryBars`). Suggestions stay on **`GET /zones`**. Engine does not auto-arm. Attach `--zone-id` when you `paper arm`.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 
@@ -87,7 +87,7 @@ Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT noti
 
 On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json` next to the feed DB (override `MAP_CLOSE_PATH`). Optional `MAP_CLOSE_WEBHOOK` POSTs `{ kind: "map.close", interval, map }` — same payload as `/map`, not a signal. `MAP_CLOSE=0` disables.
 
-Then Agent draws zones and `paper arm`. Engine does **not** auto-arm.
+Then Agent **accepts** 0–2 cards into the ledger (`paper zone accept`). Engine does **not** auto-arm.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 

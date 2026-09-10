@@ -39,6 +39,7 @@ export function paperDesk(engine: PaperEngine, source: string | null = null) {
     positions: engine.positions("open"),
     pendingOrders: engine.orders("pending"),
     armedAlerts: engine.alerts("armed"),
+    zones: engine.zones("accepted").map((row) => row.card),
   };
 }
 

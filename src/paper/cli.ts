@@ -19,6 +19,9 @@ export const PAPER_USAGE = `Usage:
   bun run paper open SYMBOL --side long --sl PRICE --tps PRICE:PCT,PRICE:PCT --tf 240,60,15 [--leverage 10]
   bun run paper limit SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--cross] [--invalidate PRICE] [--no-oco] [--zone-id ID]
   bun run paper arm SYMBOL --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--alert-price PRICE] [--zone-id ID]
+  bun run paper zone list [--status accepted|rejected|expired|all]
+  bun run paper zone accept FILE.json
+  bun run paper zone reject ZONEID [--code ops_cancel]
   bun run paper status
   bun run paper day [--day YYYY-MM-DD]
   bun run paper metrics [--days N]
@@ -46,6 +49,7 @@ Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
 arm = limit + alert (long → below limit, short → above). status is one JSON. day is UTC session fills/OCO/closes.
+zone accept FILE.json writes an Agent-accepted card to the paper ledger (cap 2/symbol). Does not arm. GET /zones stays suggest-only.
 metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→armed→touched→filled/cancelled→exited). Missing rates are null.
 `;
 
@@ -132,7 +136,10 @@ export type PaperCliCommand =
       fundingRate?: string;
       zoneId?: string | null;
     }
-  | { name: "replay-batch"; path: string };
+  | { name: "replay-batch"; path: string }
+  | { name: "zone-list"; status: "accepted" | "rejected" | "expired" | "all" }
+  | { name: "zone-accept"; path: string }
+  | { name: "zone-reject"; zoneId: string; code?: string };
 
 function parseTps(raw: string): Array<{ price: string; qtyPct: string }> {
   return raw.split(",").map((part) => {
@@ -337,6 +344,27 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
       fundingRate: flag(rest, "--funding-rate"),
     };
   }
+  if (command === "zone") {
+    const [sub, ...zoneRest] = rest;
+    if (sub === "list") {
+      const status = flag(zoneRest, "--status") ?? "accepted";
+      if (status !== "accepted" && status !== "rejected" && status !== "expired" && status !== "all") {
+        throw new PaperUsageError(PAPER_USAGE);
+      }
+      return { name: "zone-list", status };
+    }
+    if (sub === "accept") {
+      const path = zoneRest.find((arg) => !arg.startsWith("-"));
+      if (!path) throw new PaperUsageError(PAPER_USAGE);
+      return { name: "zone-accept", path };
+    }
+    if (sub === "reject") {
+      const zoneId = zoneRest.find((arg) => !arg.startsWith("-"));
+      if (!zoneId) throw new PaperUsageError(PAPER_USAGE);
+      return { name: "zone-reject", zoneId, code: flag(zoneRest, "--code") };
+    }
+    throw new PaperUsageError(PAPER_USAGE);
+  }
   throw new PaperUsageError(PAPER_USAGE);
 }
 
@@ -358,6 +386,16 @@ export async function runPaperCommand(engine: PaperEngine, command: PaperCliComm
   if (command.name === "status") return paperStatus(engine);
   if (command.name === "day") return paperDay(engine, command.day);
   if (command.name === "metrics") return paperMetrics(engine, command.days);
+  if (command.name === "zone-list") {
+    return { mode: "paper", zones: engine.zones(command.status) };
+  }
+  if (command.name === "zone-accept") {
+    const text = await Bun.file(command.path).text();
+    return { mode: "paper", zone: engine.acceptZone(JSON.parse(text) as unknown) };
+  }
+  if (command.name === "zone-reject") {
+    return { mode: "paper", zone: engine.rejectZone(command.zoneId, command.code) };
+  }
   if (command.name === "close") return engine.close(command.id);
   if (command.name === "cancel") return engine.cancelOrder(command.id);
   if (command.name === "alert-cancel") return engine.cancelAlert(command.id);

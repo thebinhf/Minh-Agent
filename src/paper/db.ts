@@ -18,7 +18,7 @@ import type {
   PaperStatus,
 } from "./types";
 
-export const PAPER_SCHEMA_VERSION = "6";
+export const PAPER_SCHEMA_VERSION = "7";
 
 export type PaperDb = ReturnType<typeof openPaperDb>;
 
@@ -133,6 +133,7 @@ function migrate(db: Database, seed: PaperAccountSeed) {
     CREATE INDEX IF NOT EXISTS idx_paper_events_ts ON paper_events(ts DESC);
   `);
   ensureZoneIdColumns(db);
+  ensureZoneLedger(db);
 
   const now = Date.now();
   db.prepare(
@@ -342,6 +343,23 @@ function ensureZoneIdColumns(db: Database) {
   if (!tableColumns(db, "paper_alerts").has("zone_id")) {
     db.exec("ALTER TABLE paper_alerts ADD COLUMN zone_id TEXT");
   }
+}
+
+function ensureZoneLedger(db: Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS paper_zone_ledger (
+      zone_id TEXT PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('accepted', 'rejected', 'expired')),
+      card_json TEXT NOT NULL,
+      accepted_ts INTEGER NOT NULL,
+      expires_ts INTEGER NOT NULL,
+      rejected_ts INTEGER,
+      reject_code TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_paper_zone_ledger_status
+      ON paper_zone_ledger(status, symbol);
+  `);
 }
 
 function ensurePaperOrders(db: Database) {
@@ -867,6 +885,95 @@ function wrap(db: Database) {
     },
     listEventsRange(fromTs: number, toTs: number, limit = 500): PaperEventRow[] {
       return listEventsRangeStmt.all(fromTs, toTs, Math.min(Math.max(limit, 1), 10_000)) as PaperEventRow[];
+    },
+
+    insertZoneLedger(row: {
+      zoneId: string;
+      symbol: string;
+      status: string;
+      cardJson: string;
+      acceptedTs: number;
+      expiresTs: number;
+      rejectedTs: number | null;
+      rejectCode: string | null;
+    }) {
+      db.prepare(
+        `INSERT INTO paper_zone_ledger (
+          zone_id, symbol, status, card_json, accepted_ts, expires_ts, rejected_ts, reject_code
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        row.zoneId,
+        row.symbol,
+        row.status,
+        row.cardJson,
+        row.acceptedTs,
+        row.expiresTs,
+        row.rejectedTs,
+        row.rejectCode,
+      );
+    },
+    getZoneLedger(zoneId: string): {
+      zone_id: string;
+      symbol: string;
+      status: string;
+      card_json: string;
+      accepted_ts: number;
+      expires_ts: number;
+      rejected_ts: number | null;
+      reject_code: string | null;
+    } | null {
+      return db.prepare(`SELECT * FROM paper_zone_ledger WHERE zone_id = ?`).get(zoneId) as
+        | {
+          zone_id: string;
+          symbol: string;
+          status: string;
+          card_json: string;
+          accepted_ts: number;
+          expires_ts: number;
+          rejected_ts: number | null;
+          reject_code: string | null;
+        }
+        | null;
+    },
+    listZoneLedger(status?: string): Array<{
+      zone_id: string;
+      symbol: string;
+      status: string;
+      card_json: string;
+      accepted_ts: number;
+      expires_ts: number;
+      rejected_ts: number | null;
+      reject_code: string | null;
+    }> {
+      if (status) {
+        return db.prepare(
+          `SELECT * FROM paper_zone_ledger WHERE status = ? ORDER BY accepted_ts DESC`,
+        ).all(status) as Array<{
+          zone_id: string;
+          symbol: string;
+          status: string;
+          card_json: string;
+          accepted_ts: number;
+          expires_ts: number;
+          rejected_ts: number | null;
+          reject_code: string | null;
+        }>;
+      }
+      return db.prepare(`SELECT * FROM paper_zone_ledger ORDER BY accepted_ts DESC`).all() as Array<{
+        zone_id: string;
+        symbol: string;
+        status: string;
+        card_json: string;
+        accepted_ts: number;
+        expires_ts: number;
+        rejected_ts: number | null;
+        reject_code: string | null;
+      }>;
+    },
+    updateZoneLedgerStatus(zoneId: string, status: string, ts: number, rejectCode: string | null) {
+      return db.prepare(
+        `UPDATE paper_zone_ledger SET status = ?, rejected_ts = ?, reject_code = ? WHERE zone_id = ?`,
+      ).run(status, ts, rejectCode, zoneId).changes;
     },
   };
 }
