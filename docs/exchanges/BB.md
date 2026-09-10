@@ -273,7 +273,7 @@ HTTP stays `Bun.serve` on localhost. No Elysia / Express.
 
 Confirmed klines older than `retention.klinesDays` (default 14) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
 
-Prune also truncates WAL. If free pages are ≥15% of the file (and at least an hour since the last vacuum), it `VACUUM`s so the file actually shrinks. The extra `klines(symbol, interval, start_ts DESC)` index is dropped — the primary key already covers that lookup.
+Prune also truncates WAL and `PRAGMA shrink_memory`. If free pages are ≥15% of the file (and at least an hour since the last vacuum), it `VACUUM`s so the file actually shrinks. Page cache is capped at 4 MiB (`cache_size = -4096`); `mmap_size = 0` so a large file is not mapped into RSS; WAL autocheckpoints at ~2 MiB and is hard-capped at 8 MiB. The extra `klines(symbol, interval, start_ts DESC)` index is dropped — the primary key already covers that lookup.
 
 ## Config and env overrides
 

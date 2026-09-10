@@ -8,8 +8,23 @@ import type { LiqPrint } from "./liq";
 import { serializeBook } from "./merge";
 
 export const SCHEMA_VERSION = "5";
+/** Negative cache_size is KiB. 4 MiB page cache — do not grow with DB file. */
+export const SQLITE_CACHE_KIB = 4096;
+/** ~2 MiB WAL (500 × 4 KiB pages) before autocheckpoint. */
+export const SQLITE_WAL_AUTOCHECKPOINT = 500;
+/** Hard cap on WAL file bytes. */
+export const SQLITE_JOURNAL_SIZE_LIMIT = 8 * 1024 * 1024;
 
 export type TrackerDb = ReturnType<typeof openDb>;
+
+export function applySqliteMemoryPragmas(db: Database, writable: boolean): void {
+  db.exec(`PRAGMA cache_size = -${SQLITE_CACHE_KIB};`);
+  db.exec("PRAGMA mmap_size = 0;");
+  if (writable) {
+    db.exec(`PRAGMA wal_autocheckpoint = ${SQLITE_WAL_AUTOCHECKPOINT};`);
+    db.exec(`PRAGMA journal_size_limit = ${SQLITE_JOURNAL_SIZE_LIMIT};`);
+  }
+}
 
 export function openDb(dbPath: string, readonly = false) {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -18,7 +33,10 @@ export function openDb(dbPath: string, readonly = false) {
   if (!readonly) {
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA synchronous = NORMAL;");
+    applySqliteMemoryPragmas(db, true);
     migrate(db);
+  } else {
+    applySqliteMemoryPragmas(db, false);
   }
   return wrap(db);
 }
@@ -193,6 +211,7 @@ export function reclaimSqlite(
   vacuumMinIntervalMs = 3_600_000,
 ): ReclaimResult {
   db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  db.exec("PRAGMA shrink_memory;");
   const pageCount = pragmaNum(db, "page_count");
   const freelistCount = pragmaNum(db, "freelist_count");
   const lastVacuum = Number(

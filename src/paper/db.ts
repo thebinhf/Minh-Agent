@@ -29,8 +29,13 @@ export function openPaperDb(dbPath: string, seed: PaperAccountSeed) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = NORMAL;");
   db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("PRAGMA cache_size = -4096;");
+  db.exec("PRAGMA mmap_size = 0;");
+  db.exec("PRAGMA wal_autocheckpoint = 500;");
+  db.exec("PRAGMA journal_size_limit = 8388608;");
   migrate(db, seed);
   db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  db.exec("PRAGMA shrink_memory;");
   return wrap(db);
 }
 
