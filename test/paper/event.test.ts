@@ -32,6 +32,7 @@ describe("paper event + week", () => {
     expect(week.week).toBe(true);
     expect(week.days).toBe(7);
     expect(week.metrics.funnel.accepted).toBe(0);
+    expect(week.review.families).toEqual([]);
     expect(week.standing).toEqual([]);
   });
 });

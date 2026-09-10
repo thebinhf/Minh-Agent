@@ -87,6 +87,15 @@ export function paperWeek(engine: PaperEngine, now = Date.now()) {
       noFillPct: metrics.noFillPct,
       realizedPnl: metrics.realizedPnl,
       funnel: metrics.funnel,
+      families: metrics.byFamily.map((row) => ({
+        family: row.family,
+        symbol: row.symbol,
+        tf: row.tf,
+        side: row.side,
+        score: row.score,
+        trades: row.trades,
+        winRate: row.winRate,
+      })),
     },
   };
 }

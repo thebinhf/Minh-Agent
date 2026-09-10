@@ -239,8 +239,8 @@ New open / limit / arm reject when feed WS is down (`feed_unhealthy`) or `klineL
 | `GET /paper/status` | Account + pending + open + alerts + recent events |
 | `GET /paper/event` | EVENT desk: pending OCO + armed alerts + open + accepted zones. Do not poll `/confirm` |
 | `GET /paper/day?day=YYYY-MM-DD` | UTC session fills / OCO / closes (`day` default today) |
-| `GET /paper/week` | 7-day metrics + standing ledger |
-| `GET /paper/metrics?days=N` | Funnel detected→accepted→armed→touched→filled. `days` 1–365, default 7 |
+| `GET /paper/week` | 7-day metrics + standing ledger + `review.families` |
+| `GET /paper/metrics?days=N` | Funnel detected→accepted→armed→touched→filled. `byFamily` / `score`. `days` 1–365, default 7 |
 | `GET /paper/events?limit=N` | Default 50 |
 
 ### Zones (ledger)

@@ -6,7 +6,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 | State | When | Engine | Operator |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H close | Dump `/map`. **4H** MAP_ACCEPT pick → agent policy → ledger (`MAP_ACCEPT=0` = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs) | Override: `paper zone accept` / `reject`. Mid-range → stand aside (do not close opens). Stale `klineLag` / `gates.tradingAllowed` false → no accept / no new arm |
+| **MAP** | 1H/4H close | Dump `/map`. **4H** MAP_ACCEPT pick → agent policy → ledger (`MAP_ACCEPT=0` = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs). Family paper score ranks when history exists | Override: `paper zone accept` / `reject`. Mid-range → stand aside (do not close opens). Stale `klineLag` / `gates.tradingAllowed` false → no accept / no new arm |
 | **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off) | Manual `paper arm` still works. Then **quiet** |
 | **EVENT** | Pending limit / open position | Tick: zone-bind pending (expire / deep / HTF), OCO invalidate-before-fill, cascade/crowded hold fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
 
@@ -99,9 +99,9 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 
 Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT notify + kline-lag watchdog.
 
-On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band and the last confirmed 15m agrees. `PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off. `/zones` itself still does not arm.
+On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. Family score from 7-day paper metrics ranks before the per-symbol cap when a family has enough fills/trades; missing score is not a veto (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band and the last confirmed 15m agrees. `PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off. `/zones` itself still does not arm.
 
-Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled). Override: `paper zone reject`.
+Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 
