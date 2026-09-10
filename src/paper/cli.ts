@@ -6,7 +6,8 @@ import { PaperReject, PaperSafetyError, PaperUsageError } from "./errors";
 import { httpFeed } from "./feed";
 import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
-import { paperArm, paperDay, paperStatus } from "./ops";
+import { paperArm, paperDay, paperStatus, paperWeek } from "./ops";
+import { paperEvent } from "./event";
 import { DEFAULT_METRICS_DAYS, parseMetricsDays, paperMetrics } from "./metrics";
 import { parseZoneId } from "./gates";
 import { acceptTokenKind, lookupSuggestedZone } from "./zone-accept";
@@ -24,7 +25,9 @@ export const PAPER_USAGE = `Usage:
   bun run paper zone list [--status accepted|rejected|expired|all]
   bun run paper zone reject ZONEID [--code ops_cancel]
   bun run paper status
+  bun run paper event
   bun run paper day [--day YYYY-MM-DD]
+  bun run paper week
   bun run paper metrics [--days N]
   bun run paper orders [--status pending|filled|cancelled|rejected|invalidated|all]
   bun run paper cancel ID
@@ -49,9 +52,10 @@ alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
-arm = limit + alert (long → below limit, short → above). status is one JSON. day is UTC session fills/OCO/closes.
+arm = limit + alert (long → below limit, short → above). status is one JSON. event is OCO desk (no /confirm). day is UTC session fills/OCO/closes.
 zone accept ZONEID copies a GET /zones card into the ledger (or FILE.json for a hand-drawn card). Does not arm.
-metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→armed→touched→filled/cancelled→exited). Missing rates are null.
+metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). Missing rates are null.
+week is metrics --days 7 plus standing ledger cards.
 `;
 
 export type PaperCliCommand =
@@ -96,7 +100,9 @@ export type PaperCliCommand =
   | { name: "close"; id: number }
   | { name: "mark" }
   | { name: "status" }
+  | { name: "event" }
   | { name: "day"; day?: string }
+  | { name: "week" }
   | { name: "metrics"; days: number }
   | {
       name: "arm";
@@ -220,9 +226,11 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
   }
   if (command === "mark") return { name: "mark" };
   if (command === "status") return { name: "status" };
+  if (command === "event") return { name: "event" };
   if (command === "day") {
     return { name: "day", day: flag(rest, "--day") };
   }
+  if (command === "week") return { name: "week" };
   if (command === "metrics") {
     const daysRaw = flag(rest, "--days");
     try {
@@ -389,7 +397,9 @@ export async function runPaperCommand(
   }
   if (command.name === "mark") return engine.mark();
   if (command.name === "status") return paperStatus(engine);
+  if (command.name === "event") return paperEvent(engine);
   if (command.name === "day") return paperDay(engine, command.day);
+  if (command.name === "week") return paperWeek(engine);
   if (command.name === "metrics") return paperMetrics(engine, command.days);
   if (command.name === "zone-list") {
     return { mode: "paper", zones: engine.zones(command.status) };

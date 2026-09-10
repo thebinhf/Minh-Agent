@@ -95,7 +95,7 @@ function readLatestBars(store: TrackerDb): MapCloseBar[] {
 
 /**
  * On confirmed 1H/4H bars, dump the watchlist MAP to disk (and optional webhook).
- * Does not arm paper. Does not draw S/D.
+ * Does not arm paper. Does not draw S/D. `onClose` is the composition-root hook.
  */
 export function startMapCloser(
   config: TrackerConfig,
@@ -103,6 +103,7 @@ export function startMapCloser(
   hooks: {
     write?: (path: string, body: unknown) => Promise<void>;
     webhook?: (url: string, body: unknown) => Promise<void>;
+    onClose?: (info: { interval: (typeof MAP_CLOSE_INTERVALS)[number]; path: string; map: unknown }) => Promise<void>;
   } = {},
 ): { stop: () => void } {
   if (!mapCloseEnabled()) {
@@ -137,6 +138,13 @@ export function startMapCloser(
           await post(webhook, { kind: "map.close", interval: tick.interval, path, map: body });
         } catch (error) {
           console.error("[minh:bb] map-close webhook", error instanceof Error ? error.message : error);
+        }
+      }
+      if (hooks.onClose) {
+        try {
+          await hooks.onClose({ interval: tick.interval, path, map: body });
+        } catch (error) {
+          console.error("[minh:bb] map-close onClose", error instanceof Error ? error.message : error);
         }
       }
     } catch (error) {

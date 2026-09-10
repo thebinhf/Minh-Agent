@@ -41,7 +41,9 @@ src/index.ts
 bun run brief [SYMBOL]   # same JSON as GET /brief; default BTCUSDT
 bun run map              # HTF MAP watchlist + klineLag; agent draws S/D
 bun run zones            # suggest-only zone-cards (no auto-arm)
-bun run paper zone accept FILE.json  # paper ledger; does not arm
+bun run paper zone accept ZONEID   # ledger from GET /zones; does not arm
+bun run paper event              # OCO desk — no /confirm
+bun run paper week               # 7-day funnel + standing zones
 bun run confirm [SYMBOL] # EVENT LTF snapshot (15m / 5m)
 bun run brief-pack [SYMBOL]  # same JSON as GET /brief-pack; all symbols if omitted
 bun run query chart|depth|heatmap|market

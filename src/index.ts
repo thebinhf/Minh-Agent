@@ -1,6 +1,7 @@
 import { EMPTY_BRIEF_PACK_PAPER } from "./feed/bb/brief-pack";
 import { startBybitTracker } from "./feed/bb/index";
-import { startPaper } from "./paper/index";
+import { startPaper, type PaperFeature } from "./paper/index";
+import { fetchZoneCards, lastPricesFromMap, mapAcceptEnabled, runMapAccept } from "./paper/map-accept";
 import { paperDesk } from "./paper/ops";
 
 /**
@@ -15,11 +16,26 @@ import { paperDesk } from "./paper/ops";
  * paper arrays are empty and source is null.
  */
 let paperDeskFn: (() => ReturnType<typeof paperDesk>) | null = null;
+let paperRef: PaperFeature | null = null;
 
 const bb = await startBybitTracker({
   paperDesk: () => paperDeskFn?.() ?? EMPTY_BRIEF_PACK_PAPER,
+  onMapClose: async ({ interval, map }) => {
+    if (interval !== "240") return;
+    if (!mapAcceptEnabled() || !paperRef) return;
+    try {
+      const cards = await fetchZoneCards("http://127.0.0.1:43180");
+      const result = runMapAccept(paperRef.engine, cards, lastPricesFromMap(map));
+      if (result.accepted.length) {
+        console.log(`[minh] map accept ${result.accepted.join(",")}`);
+      }
+    } catch (error) {
+      console.error("[minh] map accept", error instanceof Error ? error.message : error);
+    }
+  },
 });
 const paper = await startPaper();
+paperRef = paper;
 paperDeskFn = () => paperDesk(paper.engine, paper.url);
 
 const shutdown = () => {

@@ -2,7 +2,8 @@ import { PaperReject } from "./errors";
 import { gatesFromFeedHealth, parseZoneId } from "./gates";
 import type { PaperEngine } from "./engine";
 import { parseMetricsDays, paperMetrics } from "./metrics";
-import { paperArm, paperDay, paperStatus } from "./ops";
+import { paperArm, paperDay, paperStatus, paperWeek } from "./ops";
+import { paperEvent } from "./event";
 import { resolveAcceptPayload } from "./zone-accept";
 import type { AlertStatus, OrderStatus, PaperConfig, PaperFeed, TakeProfitPlan } from "./types";
 
@@ -202,9 +203,19 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
           return json(paperStatus(engine));
         }
 
+        if (path === "/paper/event") {
+          if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+          return json(paperEvent(engine));
+        }
+
         if (path === "/paper/day") {
           if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
           return json(paperDay(engine, url.searchParams.get("day") ?? undefined));
+        }
+
+        if (path === "/paper/week") {
+          if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+          return json(paperWeek(engine));
         }
 
         if (path === "/paper/metrics") {
