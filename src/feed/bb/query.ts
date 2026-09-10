@@ -5,6 +5,7 @@ import { parseTimeArg } from "./recovery";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 import { buildOi } from "./oi";
 import { buildFunding } from "./funding";
+import { buildFlow } from "./flow";
 import { buildLiqHeatmap } from "./liq";
 import { buildLiqModel } from "./liq-model";
 
@@ -18,6 +19,7 @@ function usage(): never {
   bun run query kline-stats [SYMBOL] [INTERVAL]
   bun run query oi [SYMBOL] [INTERVAL] [--limit N]
   bun run query funding [SYMBOL] [--limit N]
+  bun run query flow [SYMBOL]
   bun run query liq-heatmap [SYMBOL] [--hours N] [--bucket STEP]
   bun run query liq-model [SYMBOL] [--bucket STEP]
   bun run query chart [SYMBOL] [INTERVAL] [--limit N] [--start TIME] [--end TIME]
@@ -128,6 +130,13 @@ try {
             nextFundingTime: ticker.next_funding_time == null ? null : String(ticker.next_funding_time),
           }
           : undefined,
+      }), null, 2));
+      break;
+    }
+    case "flow": {
+      console.log(JSON.stringify(buildFlow(store, {
+        symbol: process.argv[3],
+        dbPath: config.dbPath,
       }), null, 2));
       break;
     }

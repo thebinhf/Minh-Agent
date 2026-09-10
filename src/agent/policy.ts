@@ -41,6 +41,7 @@ export const POLICY_REASONS = [
   "quant_crowded",
   "quant_oi",
   "quant_cascade",
+  "quant_flow",
 ] as const;
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 
@@ -194,7 +195,7 @@ function mapLagOk(map: unknown): boolean {
  * AGENT_MAP=0 → policy no-op, old MAP_ACCEPT path.
  * MAP_ACCEPT=0 → no auto-copy.
  * Stale gates → no accept / no new arm. Never closes open positions.
- * Quant veto is `quantVeto` (cascade → crowded → OI). AGENT_QUANT=0 skips it.
+ * Quant veto is `quantVeto` (cascade → crowded → OI → flow). AGENT_QUANT=0 skips it.
  */
 export async function onMapCloseAccept(
   info: MapCloseAcceptInfo,

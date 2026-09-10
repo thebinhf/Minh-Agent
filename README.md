@@ -20,6 +20,7 @@ Quiet between two 4H candles. `/confirm` is optional scalp, not required to hold
 - Public linear WebSocket + REST gap-fill / backfill (10 symbols)
 - Open-interest history (`GET /oi`, on `/map` as quant veto)
 - Funding-rate history (`GET /funding`, `/map.funding.crowded` veto)
+- Taker CVD (`GET /flow`, `/map.flow` buy_dom/sell_dom; accept-only veto)
 - Liquidation prints heatmap (`GET /liq-heatmap`, `/map.liq`)
 - Estimated liq model (`GET /liq-model`, inventory-capped; not exchange data)
 - Local WS relay (`ws://127.0.0.1:43180/ws` — ticker / kline close / liq prints)
@@ -80,6 +81,8 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_OI` | on (`0` disables) | REST OI history fill |
 | `BYBIT_OI_EXTREME` | `2` | `|deltaPct|` % for `oi.trend` / `oi.reading` |
 | `BYBIT_FUNDING` | on (`0` disables) | REST funding history fill |
+| `BYBIT_FLOW` | on (`0` disables) | WS `publicTrade` CVD → `/map.flow` |
+| `BYBIT_FLOW_EXTREME` | `0.15` | `|imbalance|` floor for `flow.reading` |
 | `BYBIT_LIQ` | on (`0` disables) | WS `allLiquidation` prints |
 | `BYBIT_LIQ_MODEL` | on (`0` disables) | Estimated `/liq-model` |
 | `BYBIT_RELAY` | on (`0` disables) | Local `ws://…/ws` push |
@@ -114,6 +117,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /zones` | Suggest-only cards (4H default; `?interval=60`) |
 | `GET /oi` | OI history + `trend` (quant veto, not a signal) |
 | `GET /funding` | Funding history (quant veto, `crowded`) |
+| `GET /flow` | Taker CVD 4H/15m (quant veto, `buy_dom`/`sell_dom`) |
 | `GET /liq-heatmap` | Actual liq prints (not orderbook `/heatmap`) |
 | `GET /liq-model` | Estimated forward map (not prints; not a target) |
 | `ws://127.0.0.1:43180/ws` | Local push: ticker / confirmed kline / liq |

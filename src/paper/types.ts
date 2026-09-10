@@ -86,6 +86,7 @@ export type PaperQuantTape = {
     side: "long" | "short" | null;
     fuel: string;
   } | null;
+  flowReading: "buy_dom" | "sell_dom" | null;
 };
 
 export type PaperFeed = {

@@ -15,11 +15,11 @@ Adapter path: `src/feed/bb/`.
 | Symbols | BTCUSDT ETHUSDT SOLUSDT ENAUSDT BNBUSDT XRPUSDT DOGEUSDT AVAXUSDT LINKUSDT HYPEUSDT |
 | Kline intervals | Live WS: 5, 15, 60, 240. REST/backfill also accept Bybit v5 `1`,`3`,`5`,`15`,`30`,`60`,`120`,`240`,`360`,`720`,`D`,`W`,`M` |
 | Orderbook | depth 50 for BTC / ETH / SOL |
-| Topics | `tickers.{symbol}`, `kline.{interval}.{symbol}`, `orderbook.50.{symbol}` |
+| Topics | `tickers.{symbol}`, `kline.{interval}.{symbol}`, `orderbook.50.{symbol}`, `allLiquidation.{symbol}`, `publicTrade.{symbol}` (book symbols) |
 | HTTP | read-only `127.0.0.1:43180` |
 | Auth | none |
 
-Topic names match Bybit V5 public docs: [connect](https://bybit-exchange.github.io/docs/v5/ws/connect), [ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker), [kline](https://bybit-exchange.github.io/docs/v5/websocket/public/kline), [orderbook](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook).
+Topic names match Bybit V5 public docs: [connect](https://bybit-exchange.github.io/docs/v5/ws/connect), [ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker), [kline](https://bybit-exchange.github.io/docs/v5/websocket/public/kline), [orderbook](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook), [public trade](https://bybit-exchange.github.io/docs/v5/websocket/public/trade).
 
 Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50 is snapshot-then-delta; size `0` deletes a level; `u=1` means the book service restarted and the payload replaces the local book. Heartbeat is a client `ping` about every 20s.
 
@@ -58,6 +58,7 @@ HTTP (read-only `127.0.0.1:43180`; full contract: [http.md](../http.md)):
 - `GET /zones` — suggest-only zone-cards (default 4H; `?interval=60`)
 - `GET /oi?symbol=BTCUSDT&interval=240` — OI history (quant veto, not a signal)
 - `GET /funding?symbol=BTCUSDT` — funding history (quant veto, `crowded`)
+- `GET /flow?symbol=BTCUSDT` — taker CVD 4H/15m (quant veto, `buy_dom`/`sell_dom`; not `/heatmap`)
 - `GET /liq-heatmap?symbol=BTCUSDT` — actual liquidation prints (not Coinglass; not `/heatmap` book)
 - `GET /liq-model?symbol=BTCUSDT` — estimated isolated map (OI-capped; `model — not exchange data`)
 - `ws://127.0.0.1:43180/ws` — local relay (`ticker.*` / `kline.240.*` / `liq.*`). Not a Bybit proxy.
@@ -124,6 +125,7 @@ Read what landed:
 | HTF map | `bun run map` or `GET /map` — watchlist (cap 10). Ticker + 20×4h / 24×1h / 30×D + klineLag 60/240 + `oi` |
 | Open interest | `bun run query oi SYMBOL [INTERVAL]` or `GET /oi` — REST `/v5/market/open-interest` cache. Quant veto. |
 | Funding | `bun run query funding SYMBOL` or `GET /funding` — REST `/v5/market/funding/history` cache. Quant veto. |
+| Flow | `bun run query flow SYMBOL` or `GET /flow` — WS `publicTrade` 1m CVD. Quant veto. |
 | Liquidation | `bun run query liq-heatmap SYMBOL` or `GET /liq-heatmap` — WS `allLiquidation` prints. Quant veto. |
 | Liq model | `bun run query liq-model SYMBOL` or `GET /liq-model` — estimated, inventory-capped. Not a signal. |
 | Zone suggest | `bun run zones` or `GET /zones` — candidate zone-cards from local 4H/1H. Suggest-only; no auto-arm. Paper ledger is `/brief-pack.zones` |

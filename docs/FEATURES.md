@@ -14,6 +14,7 @@ Verify against `src/` before treating older PRs as product scope.
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
 | Open interest history | Live | Public `GET /v5/market/open-interest` → SQLite `open_interest`. `GET /oi`, `/map.oi` (`deltaPct`, `trend`, `reading` = long_add/short_add/cover/flush). Quant veto only. `BYBIT_OI=0` off. `BYBIT_OI_EXTREME` default 2 (%). |
 | Funding rate history | Live | Public `GET /v5/market/funding/history` → SQLite `funding`. `GET /funding`, `/map.funding` (`crowded` long/short if `|rate| ≥ 0.0003`). Quant veto only. `BYBIT_FUNDING=0` off. |
+| Taker CVD / money flow | Live | Public WS `publicTrade` (BTC/ETH/SOL) → SQLite `flow_bars` (1m). `GET /flow`, `/map.flow` (`delta`, `reading` = buy_dom/sell_dom). Quant veto, accept-only (`sell_dom` vs demand / `buy_dom` vs supply). ARM skips like OI add. `BYBIT_FLOW=0` off. `BYBIT_FLOW_EXTREME` default `0.15`. Not `/heatmap`. |
 | Liquidation heatmap | Live | Public WS `allLiquidation` (BTC/ETH/SOL) → SQLite `liquidations`. `GET /liq-heatmap`, `/map.liq`. `cascade` is side+intensity+walk+fuel (OI `flush`/`cover` can confirm). Prints only. `BYBIT_LIQ=0` off. |
 | Liquidation model | Live | `GET /liq-model`: isolated MMR + 10/20/50 mix + 15m VW entries, inventory-capped at OI/2. Labeled `model — not exchange data`. Not mixed into `/liq-heatmap`. `BYBIT_LIQ_MODEL=0` off. |
 | Feed WS relay | Live | `ws://127.0.0.1:43180/ws` — ticker (1s), confirmed kline, liq bins (1s; quiet +1 window; same-side burst now). `BYBIT_RELAY=0` off. |
@@ -25,7 +26,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Proximity ARM | Live | Tick rests post-only OCO when last is in the proximal band of an **accepted** card. `PAPER_PROXIMITY_ARM=0` off. No chase through entry. |
 | LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). Optional scalp after HTF is armed. EVENT itself is OCO/tick (`/paper/event`). |
 | MAP close | Live | Confirmed 1H/4H → `map-latest.json` + optional webhook. 4H auto-accepts `/zones` via MAP_ACCEPT pick then agent policy (`MAP_ACCEPT=0` off = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs). No auto-arm. `MAP_CLOSE=0` off. |
-| MAP policy agent | Live | `src/agent/` — 4H HH/HL=bull, LH/LL=bear. `quantVeto`: cascade + crowded at accept and ARM; opposing OI add is accept-only (ARM treats zone fill as the add). `AGENT_QUANT=0` off. Paper-only. |
+| MAP policy agent | Live | `src/agent/` — 4H HH/HL=bull, LH/LL=bear. `quantVeto`: cascade + crowded at accept and ARM; opposing OI add and opposing CVD (`/map.flow`) are accept-only (ARM treats zone fill as the add). `AGENT_QUANT=0` off. Paper-only. |
 | EVENT desk | Live | `bun run paper event` / `GET /paper/event` — pending OCO + alerts + accepted zones. Do not poll `/confirm`. |
 | Paper week | Live | `bun run paper week` / `GET /paper/week` — 7-day metrics + standing ledger + funnel.accepted. |
 | Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger zones. Additive. No auto-arm. |

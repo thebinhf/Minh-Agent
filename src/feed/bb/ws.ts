@@ -3,6 +3,7 @@ import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
 import { createLiqRelayBatch, relayLiqMs, relayTickerMs, thinTicker, type RelayPush } from "./relay";
 import { defaultLiqBucket, parseLiqPrints } from "./liq";
+import { parsePublicTrades } from "./flow";
 import { fillKlineGaps, fillOiGaps, fillFundingGaps, fillRiskLimits } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
@@ -377,6 +378,12 @@ export function startTracker(config: TrackerConfig, store: TrackerDb, opts?: Tra
       if (opts?.onRelay && prints.length) {
         liqRelay?.push(parsed.symbol, prints, now);
       }
+      return;
+    }
+
+    if (parsed.kind === "publicTrade") {
+      const trades = parsePublicTrades(msg.data, parsed.symbol);
+      if (trades.length) store.saveFlowTrades(trades, now);
     }
   };
 

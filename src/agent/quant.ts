@@ -2,13 +2,13 @@ import type { ZoneSide } from "../zones/card";
 
 /**
  * AGENT_QUANT=0: skip this veto (structure policy still runs).
- * Default on. Missing tape is not a veto — do not invent crowded/OI/cascade.
+ * Default on. Missing tape is not a veto — do not invent crowded/OI/cascade/flow.
  */
 export function agentQuantEnabled(): boolean {
   return process.env.AGENT_QUANT !== "0";
 }
 
-export const QUANT_REASONS = ["ok", "quant_crowded", "quant_oi", "quant_cascade"] as const;
+export const QUANT_REASONS = ["ok", "quant_crowded", "quant_oi", "quant_cascade", "quant_flow"] as const;
 export type QuantReason = (typeof QUANT_REASONS)[number];
 
 export type QuantCascade = {
@@ -21,6 +21,7 @@ export type QuantTape = {
   crowded: "long" | "short" | null;
   oiReading: "long_add" | "short_add" | "cover" | "flush" | null;
   cascade: QuantCascade | null;
+  flowReading: "buy_dom" | "sell_dom" | null;
 };
 
 export type QuantDecision = {
@@ -31,6 +32,7 @@ export type QuantDecision = {
 export type QuantGate = "accept" | "arm";
 
 const OI_READINGS = new Set(["long_add", "short_add", "cover", "flush"]);
+const FLOW_READINGS = new Set(["buy_dom", "sell_dom"]);
 
 function asCrowded(value: unknown): QuantTape["crowded"] {
   return value === "long" || value === "short" ? value : null;
@@ -39,6 +41,12 @@ function asCrowded(value: unknown): QuantTape["crowded"] {
 function asOi(value: unknown): QuantTape["oiReading"] {
   return typeof value === "string" && OI_READINGS.has(value)
     ? value as QuantTape["oiReading"]
+    : null;
+}
+
+function asFlow(value: unknown): QuantTape["flowReading"] {
+  return typeof value === "string" && FLOW_READINGS.has(value)
+    ? value as QuantTape["flowReading"]
     : null;
 }
 
@@ -59,11 +67,13 @@ export function tapeFromMapItem(item: unknown): QuantTape | null {
     funding?: { crowded?: unknown };
     oi?: { reading?: unknown };
     liq?: { cascade?: unknown };
+    flow?: { reading?: unknown };
   };
   return {
     crowded: asCrowded(row.funding?.crowded),
     oiReading: asOi(row.oi?.reading),
     cascade: asCascade(row.liq?.cascade),
+    flowReading: asFlow(row.flow?.reading),
   };
 }
 
@@ -87,6 +97,8 @@ export function readMapQuant(map: unknown): Map<string, QuantTape> {
  * One flow. Cascade and crowded at both gates.
  * Opposing OI add (`short_add` vs demand / `long_add` vs supply) is MAP-accept
  * only — at ARM, last is already in the zone and that add is the fill, not a knife.
+ * Opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply) is the same accept-only
+ * branch — ARM skips it like OI add.
  * cover/flush confirm cascade; they are not a second veto.
  */
 export function quantVeto(
@@ -107,6 +119,9 @@ export function quantVeto(
   }
   if (gate === "accept" && tape.oiReading === (long ? "short_add" : "long_add")) {
     return { allow: false, reason: "quant_oi" };
+  }
+  if (gate === "accept" && tape.flowReading === (long ? "sell_dom" : "buy_dom")) {
+    return { allow: false, reason: "quant_flow" };
   }
   return { allow: true, reason: "ok" };
 }

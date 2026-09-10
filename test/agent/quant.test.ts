@@ -12,18 +12,28 @@ const CASCADE_LONG: QuantTape = {
   crowded: null,
   oiReading: null,
   cascade: { active: true, side: "long", fuel: "12" },
+  flowReading: null,
 };
 
 const CROWDED_LONG: QuantTape = {
   crowded: "long",
   oiReading: null,
   cascade: { active: false, side: null, fuel: "0" },
+  flowReading: null,
 };
 
 const SHORT_ADD: QuantTape = {
   crowded: null,
   oiReading: "short_add",
   cascade: { active: false, side: null, fuel: "0" },
+  flowReading: null,
+};
+
+const SELL_DOM: QuantTape = {
+  crowded: null,
+  oiReading: null,
+  cascade: { active: false, side: null, fuel: "0" },
+  flowReading: "sell_dom",
 };
 
 describe("quant veto", () => {
@@ -45,10 +55,26 @@ describe("quant veto", () => {
     expect(quantVeto("demand", SHORT_ADD).reason).toBe("quant_oi");
     expect(quantVeto("demand", SHORT_ADD, "arm").reason).toBe("ok");
     expect(quantVeto("supply", SHORT_ADD).reason).toBe("ok");
+    expect(quantVeto("demand", SELL_DOM).reason).toBe("quant_flow");
+    expect(quantVeto("demand", SELL_DOM, "arm").reason).toBe("ok");
+    expect(quantVeto("supply", SELL_DOM).reason).toBe("ok");
     expect(quantVeto("supply", {
       crowded: null,
       oiReading: "long_add",
       cascade: { active: false, side: null, fuel: "0" },
+      flowReading: null,
+    }, "arm").reason).toBe("ok");
+    expect(quantVeto("supply", {
+      crowded: null,
+      oiReading: null,
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: "buy_dom",
+    }).reason).toBe("quant_flow");
+    expect(quantVeto("supply", {
+      crowded: null,
+      oiReading: null,
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: "buy_dom",
     }, "arm").reason).toBe("ok");
     expect(quantVeto("demand", CASCADE_LONG, "arm").reason).toBe("quant_cascade");
     expect(quantVeto("demand", CROWDED_LONG, "arm").reason).toBe("quant_crowded");
@@ -56,6 +82,7 @@ describe("quant veto", () => {
       crowded: "short",
       oiReading: "long_add",
       cascade: { active: true, side: "short", fuel: "4" },
+      flowReading: null,
     }).reason).toBe("quant_cascade");
   });
 
@@ -66,12 +93,14 @@ describe("quant veto", () => {
         funding: { crowded: "long" },
         oi: { reading: "short_add" },
         liq: { cascade: { active: true, side: "long", fuel: "8" } },
+        flow: { reading: "sell_dom" },
       }],
     });
     expect(tapes.get("BTCUSDT")).toEqual({
       crowded: "long",
       oiReading: "short_add",
       cascade: { active: true, side: "long", fuel: "8" },
+      flowReading: "sell_dom",
     });
   });
 });

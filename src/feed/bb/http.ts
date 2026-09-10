@@ -8,6 +8,7 @@ import { buildOi } from "./oi";
 import { buildFunding } from "./funding";
 import { buildLiqHeatmap } from "./liq";
 import { buildLiqModel } from "./liq-model";
+import { buildFlow } from "./flow";
 import { relayEnabled, type RelayHub } from "./relay";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
@@ -259,6 +260,13 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
               nextFundingTime: ticker.next_funding_time == null ? null : String(ticker.next_funding_time),
             }
             : undefined,
+        }));
+      }
+
+      if (path === "/flow") {
+        return json(buildFlow(store, {
+          symbol: url.searchParams.get("symbol"),
+          dbPath: config.dbPath,
         }));
       }
 

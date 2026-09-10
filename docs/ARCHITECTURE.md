@@ -51,6 +51,7 @@ HTTP contract: [http.md](http.md).
 | `GET /zones` | Suggest-only cards (240 / 60) |
 | `GET /oi` | OI history (quant veto) |
 | `GET /funding` | Funding history (quant veto) |
+| `GET /flow` | Taker CVD 4H/15m (quant veto) |
 | `GET /liq-heatmap` | Actual liq prints heatmap |
 | `GET /liq-model` | Estimated forward map (inventory-capped) |
 | `ws://:43180/ws` | Local relay (ticker / kline close / liq) |
