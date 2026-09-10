@@ -5,6 +5,7 @@ import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols, resolveMapSym
 import { buildZones } from "./zones";
 import { parseZoneInterval } from "../../zones/detect";
 import { buildOi } from "./oi";
+import { buildFunding } from "./funding";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
@@ -227,6 +228,25 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
           return json(body, 400);
         }
         return json(body);
+      }
+
+      if (path === "/funding") {
+        const limitRaw = url.searchParams.get("limit");
+        const symbol = url.searchParams.get("symbol");
+        const ticker = store.listTickers(symbol ?? "BTCUSDT")[0] as
+          | { funding_rate?: unknown; next_funding_time?: unknown }
+          | undefined;
+        return json(buildFunding(store, {
+          symbol,
+          dbPath: config.dbPath,
+          limit: limitRaw ? Number(limitRaw) : undefined,
+          ticker: ticker
+            ? {
+              fundingRate: ticker.funding_rate == null ? null : String(ticker.funding_rate),
+              nextFundingTime: ticker.next_funding_time == null ? null : String(ticker.next_funding_time),
+            }
+            : undefined,
+        }));
       }
 
       if (path === "/chart") {

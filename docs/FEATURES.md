@@ -13,6 +13,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Kline lag watchdog | Live | `GET /health` `klineLag` — 15/60/240 stop advancing for `klineLagMs` (default 3m) while ticker WS is live. Log once on trip/recover. Not mid-watch PnL. |
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
 | Open interest history | Live | Public `GET /v5/market/open-interest` → SQLite `open_interest`. `GET /oi`, `/map.oi` (4H/1H + `deltaPct`). Quant veto only. `BYBIT_OI=0` off. Gap-fill after klines; `bun run backfill --oi`. |
+| Funding rate history | Live | Public `GET /v5/market/funding/history` → SQLite `funding`. `GET /funding`, `/map.funding` (`crowded` long/short if `|rate| ≥ 0.0003`). Quant veto only. `BYBIT_FUNDING=0` off. |
 | Historical kline backfill | Live | `bun run backfill` — REST failover or JSON/CSV dump into SQLite; no WS |
 | Snapshot brief | Live | `bun run brief` / `GET /brief` — one local JSON (ticker + 15/60/240) for Minh |
 | HTF map | Live | `bun run map` / `GET /map` — ticker + 4H/1H (+ daily if backfilled) + `klineLag` (60/240). No query = watchlist (cap 10). No 15m, no S/D, no bias. `/brief` unchanged. |

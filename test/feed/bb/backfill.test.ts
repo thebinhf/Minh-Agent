@@ -66,6 +66,7 @@ describe("parseBackfillArgs", () => {
       end: now,
       start: now - 14 * 86_400_000,
       oi: true,
+      funding: true,
     });
   });
 
@@ -83,6 +84,7 @@ describe("parseBackfillArgs", () => {
       end: 2000,
       now: 9_000,
       oi: false,
+      funding: false,
     });
   });
 

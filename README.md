@@ -19,6 +19,7 @@ Quiet between two 4H candles. `/confirm` is optional scalp, not required to hold
 
 - Public linear WebSocket + REST gap-fill / backfill (10 symbols)
 - Open-interest history (`GET /oi`, on `/map` as quant veto)
+- Funding-rate history (`GET /funding`, `/map.funding.crowded` veto)
 - HTF MAP (`/map`) and suggest-only zone cards (`/zones`)
 - Paper ledger with risk sizing, fees, funding, leverage, OCO limits
 - Proximity ARM on accepted cards
@@ -74,6 +75,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_DB_PATH` | paper SQLite | Ledger (must not equal the feed DB) |
 | `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
 | `BYBIT_OI` | on (`0` disables) | REST OI history fill |
+| `BYBIT_FUNDING` | on (`0` disables) | REST funding history fill |
 | `MAP_ACCEPT` | on (`0` disables) | Copy `/zones` into the ledger on 4H close |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
@@ -102,6 +104,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /map-latest` | Last 1H/4H dump (`404` until first close) |
 | `GET /zones` | Suggest-only cards (4H default; `?interval=60`) |
 | `GET /oi` | OI history (quant veto, not a signal) |
+| `GET /funding` | Funding history (quant veto, `crowded`) |
 | `GET /confirm` | Optional LTF (20×15m; scalp `5`) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
 | `GET /health` | WS + kline lag |

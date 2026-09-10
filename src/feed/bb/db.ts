@@ -3,9 +3,10 @@ import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { BybitKline, OrderBookState, TickerState } from "./types";
 import type { OiBar } from "./oi";
+import type { FundingBar } from "./funding";
 import { serializeBook } from "./merge";
 
-export const SCHEMA_VERSION = "3";
+export const SCHEMA_VERSION = "4";
 
 export type TrackerDb = ReturnType<typeof openDb>;
 
@@ -110,6 +111,14 @@ function migrate(db: Database) {
       open_interest TEXT NOT NULL,
       recv_ts INTEGER NOT NULL,
       PRIMARY KEY (symbol, interval, start_ts)
+    );
+
+    CREATE TABLE IF NOT EXISTS funding (
+      symbol TEXT NOT NULL,
+      funding_ts INTEGER NOT NULL,
+      funding_rate TEXT NOT NULL,
+      recv_ts INTEGER NOT NULL,
+      PRIMARY KEY (symbol, funding_ts)
     );
 
     CREATE TABLE IF NOT EXISTS connection_health (
@@ -277,6 +286,14 @@ function wrap(db: Database) {
       recv_ts = excluded.recv_ts
   `);
 
+  const upsertFunding = db.prepare(`
+    INSERT INTO funding (symbol, funding_ts, funding_rate, recv_ts)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(symbol, funding_ts) DO UPDATE SET
+      funding_rate = excluded.funding_rate,
+      recv_ts = excluded.recv_ts
+  `);
+
   const touchHealth = db.prepare(`
     UPDATE connection_health SET
       connected = COALESCE($connected, connected),
@@ -377,6 +394,9 @@ function wrap(db: Database) {
     saveOi(symbol: string, interval: string, bar: OiBar, recvTs: number) {
       upsertOi.run(symbol, interval, bar.startTs, bar.openInterest, recvTs);
     },
+    saveFunding(symbol: string, bar: FundingBar, recvTs: number) {
+      upsertFunding.run(symbol, bar.fundingTs, bar.fundingRate, recvTs);
+    },
     setHealth(fields: {
       connected?: number;
       endpoint?: string;
@@ -432,6 +452,12 @@ function wrap(db: Database) {
         .prepare("SELECT MAX(start_ts) AS start_ts FROM open_interest WHERE symbol = ? AND interval = ?")
         .get(symbol, interval) as { start_ts: number | null } | null;
       return row?.start_ts ?? null;
+    },
+    getLastFundingTs(symbol: string): number | null {
+      const row = db
+        .prepare("SELECT MAX(funding_ts) AS funding_ts FROM funding WHERE symbol = ?")
+        .get(symbol) as { funding_ts: number | null } | null;
+      return row?.funding_ts ?? null;
     },
     latestKlines(intervals: string[], symbol?: string) {
       if (intervals.length === 0) return [];
@@ -601,6 +627,39 @@ function wrap(db: Database) {
         recv_ts: number;
       }>;
     },
+    listFunding(opts: {
+      symbol?: string;
+      limit?: number;
+      startTs?: number;
+      endTs?: number;
+      maxLimit?: number;
+    }) {
+      const where: string[] = [];
+      const args: Array<string | number> = [];
+      if (opts.symbol) {
+        where.push("symbol = ?");
+        args.push(opts.symbol);
+      }
+      if (opts.startTs !== undefined) {
+        where.push("funding_ts >= ?");
+        args.push(opts.startTs);
+      }
+      if (opts.endTs !== undefined) {
+        where.push("funding_ts <= ?");
+        args.push(opts.endTs);
+      }
+      const cap = opts.maxLimit ?? 1000;
+      const limit = Math.min(Math.max(opts.limit ?? 50, 1), cap);
+      const sql = `SELECT * FROM funding ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY funding_ts DESC LIMIT ?`;
+      args.push(limit);
+      return db.prepare(sql).all(...args) as Array<{
+        symbol: string;
+        funding_ts: number;
+        funding_rate: string;
+        recv_ts: number;
+      }>;
+    },
     prune(now: number, retention: {
       tickerSnapshotsHours: number;
       orderbookSnapshotsHours: number;
@@ -614,9 +673,10 @@ function wrap(db: Database) {
       const bookDeleted = db.prepare("DELETE FROM orderbook_snapshots WHERE recv_ts < ?").run(bookCut).changes;
       const klineDeleted = db.prepare("DELETE FROM klines WHERE start_ts < ? AND confirm = 1").run(klineCut).changes;
       const oiDeleted = db.prepare("DELETE FROM open_interest WHERE start_ts < ?").run(klineCut).changes;
+      const fundingDeleted = db.prepare("DELETE FROM funding WHERE funding_ts < ?").run(klineCut).changes;
       setMeta(db, "last_prune_ts", String(now));
       const reclaim = reclaimSqlite(db, now, retention.vacuumMinIntervalMs ?? 3_600_000);
-      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, ...reclaim };
+      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, fundingDeleted, ...reclaim };
     },
   };
 }

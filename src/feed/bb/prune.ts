@@ -5,7 +5,7 @@ export function startPruner(config: TrackerConfig, store: TrackerDb) {
   const run = () => {
     const result = store.prune(Date.now(), config.retention);
     console.log(
-      `[minh:bb] prune ticker=${result.tickerDeleted} book=${result.bookDeleted} kline=${result.klineDeleted} oi=${result.oiDeleted}` +
+      `[minh:bb] prune ticker=${result.tickerDeleted} book=${result.bookDeleted} kline=${result.klineDeleted} oi=${result.oiDeleted} funding=${result.fundingDeleted}` +
         (result.vacuumed ? " vacuum=1" : ""),
     );
   };

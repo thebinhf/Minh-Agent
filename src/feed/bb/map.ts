@@ -16,6 +16,7 @@ import {
   type KlineLagSummary,
 } from "./health";
 import { buildMapOi, emptyMapOi, type MapOi, type OiStore } from "./oi";
+import { buildMapFunding, emptyMapFunding, type FundingStore, type MapFunding } from "./funding";
 
 /** HTF-only windows for MAP. No 15m — that stays on /brief and /chart. */
 export const MAP_KLINE_LIMITS = {
@@ -47,6 +48,7 @@ export type SnapshotMap = {
   };
   klineLag: KlineLagSummary;
   oi: MapOi;
+  funding: MapFunding;
   meta: {
     db: string;
     limits: MapLimits;
@@ -54,7 +56,7 @@ export type SnapshotMap = {
   };
 };
 
-export type MapStore = BriefStore & KlineLagStore & OiStore;
+export type MapStore = BriefStore & KlineLagStore & OiStore & FundingStore;
 
 export function emptyKlineLag(staleMs = DEFAULT_KLINE_LAG_MS): KlineLagSummary {
   return {
@@ -73,6 +75,7 @@ export function emptyMap(symbol: string, dbPath: string, ts: number, limits: Map
     klines: { "240": [], "60": [], D: [] },
     klineLag: emptyKlineLag(),
     oi: emptyMapOi(),
+    funding: emptyMapFunding(),
     meta: {
       db: dbPath,
       limits,
@@ -126,6 +129,10 @@ export function buildMap(
   map.klines.D = readBriefKlines(store, symbol, "D", limits.D);
   map.klineLag = klineLagForSymbols(store, [symbol], { now });
   map.oi = buildMapOi(store, symbol, map.ticker.openInterest);
+  map.funding = buildMapFunding(store, symbol, {
+    fundingRate: map.ticker.fundingRate,
+    nextFundingTime: map.ticker.nextFundingTime,
+  });
   return map;
 }
 
