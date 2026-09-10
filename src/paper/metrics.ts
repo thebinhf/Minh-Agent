@@ -31,6 +31,7 @@ export type PaperMetricsSource = {
   positions(status: "open" | "closed" | "all"): PositionView[];
   account(): { openPositions: number; pendingOrders: number };
   orders?(status: "pending" | "filled" | "cancelled" | "rejected" | "invalidated" | "all"): OrderView[];
+  zones?(status?: "accepted" | "rejected" | "expired" | "all"): Array<{ zoneId: string; acceptedTs: number }>;
 };
 
 function metricsWindow(days: number, now: number): { fromTs: number; toTs: number } {
@@ -64,6 +65,7 @@ function emptyCloseReasons() {
 function emptyFunnel() {
   return {
     detected: 0,
+    accepted: 0,
     armed: 0,
     touched: 0,
     filled: 0,
@@ -243,6 +245,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   }
   const funnel = {
     detected: detectedIds.size,
+    accepted: (engine.zones?.("all") ?? []).filter((row) => inWindow(row.acceptedTs, window.fromTs, window.toTs)).length,
     armed,
     touched,
     filled: counts.filled,

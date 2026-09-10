@@ -74,6 +74,23 @@ export function paperDay(engine: PaperEngine, day?: string, now = Date.now()) {
   };
 }
 
+export function paperWeek(engine: PaperEngine, now = Date.now()) {
+  const metrics = engine.metrics(7, now);
+  return {
+    mode: "paper" as const,
+    week: true as const,
+    days: 7,
+    metrics,
+    standing: engine.zones("accepted", now),
+    review: {
+      winRate: metrics.winRate,
+      noFillPct: metrics.noFillPct,
+      realizedPnl: metrics.realizedPnl,
+      funnel: metrics.funnel,
+    },
+  };
+}
+
 export type ArmRequest = LimitRequest & {
   alertPrice?: string;
   alertOp?: string;

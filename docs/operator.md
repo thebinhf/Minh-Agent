@@ -47,15 +47,21 @@ Account seed: risk 2%, `minRr` **2** (config, not an engine constant). Engine st
 
 ## EVENT
 
-Do not poll `/brief` every 30 minutes. Tick already evaluates alerts/limits/SL-TP.
+EVENT is **OCO + tick**. Do not poll `/confirm` / `/brief` / 30-minute scan. Pending limit invalidates itself; fill/SL/TP fire as events.
 
-On ping: **`GET /confirm?symbol=&interval=15`** (ticker + 20×15m). Scalp: `interval=5`. Do **not** pull `/chart` for EVENT. `/brief` unchanged.
+```text
+bun run paper event
+GET /paper/event
+```
+
+`/confirm?interval=15` is **optional scalp** after HTF is already armed — not required to hold the zone.
 
 Optional ping: `PAPER_NOTIFY=telegram` or `webhook`. Same four kinds. Log-only if unset.
 
 ```text
 bun run paper status
 bun run paper day
+bun run paper week
 bun run paper metrics --days 7
 bun run paper events --limit 20
 bun run paper cancel ID
@@ -89,9 +95,9 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 
 Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT notify + kline-lag watchdog.
 
-On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json` next to the feed DB (override `MAP_CLOSE_PATH`). Optional `MAP_CLOSE_WEBHOOK` POSTs `{ kind: "map.close", interval, map }` — same payload as `/map`, not a signal. `MAP_CLOSE=0` disables.
+On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H** the composition root copies `GET /zones` cards into the paper ledger (`MAP_ACCEPT=0` disables). Tick **proximity-arms** when last is in the proximal band. `PAPER_PROXIMITY_ARM=0` disables. `/zones` itself still does not arm.
 
-Then Agent **accepts** 0–2 cards into the ledger (`paper zone accept`). Tick **proximity-arms** when last is in the proximal band (post-only OCO). `PAPER_PROXIMITY_ARM=0` disables. Does **not** arm `GET /zones` suggestions.
+Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled). Override: `paper zone reject`.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 

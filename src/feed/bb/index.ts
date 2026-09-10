@@ -3,7 +3,7 @@ import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { startKlineLagWatchdog } from "./health";
 import { startHttp } from "./http";
-import { startMapCloser } from "./map-close";
+import { startMapCloser, type MapCloseTick } from "./map-close";
 import { startPruner } from "./prune";
 import { startTracker } from "./ws";
 
@@ -14,6 +14,12 @@ export type BybitTrackerFeature = {
 export type BybitTrackerOpts = {
   /** Optional paper desk snapshot from the composition root (same process). */
   paperDesk?: BriefPackPaperSource;
+  /** After a 1H/4H MAP dump. Feed still does not import paper. */
+  onMapClose?: (info: {
+    interval: NonNullable<MapCloseTick["interval"]>;
+    path: string;
+    map: unknown;
+  }) => Promise<void>;
 };
 
 /** Bybit public linear WS → SQLite cache. No API keys, no trading. */
@@ -24,7 +30,7 @@ export async function startBybitTracker(opts?: BybitTrackerOpts): Promise<BybitT
   const tracker = startTracker(config, store);
   const pruner = startPruner(config, store);
   const klineLag = startKlineLagWatchdog(config, store);
-  const mapClose = startMapCloser(config, store);
+  const mapClose = startMapCloser(config, store, { onClose: opts?.onMapClose });
 
   console.log(
     `[minh:bb] http://${config.httpHost}:${config.httpPort} db=${config.dbPath}`,

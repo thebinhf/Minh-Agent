@@ -19,8 +19,10 @@ Verify against `src/` before treating older PRs as product scope.
 | Zone ledger | Live | `paper zone accept ZONEID|FILE.json` / `POST /paper/zones` (`zoneId` looks up `GET /zones`, or a full card). Cap 2 accepted/symbol. Expires on `expiryBars`. `paper zone reject`. No auto-arm of suggestions. |
 | Proximity ARM | Live | Tick rests post-only OCO when last is in the proximal band of an **accepted** card. `PAPER_PROXIMITY_ARM=0` off. No chase through entry. |
 | LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). EVENT only. No depth, no S/D. |
-| MAP close | Live | Confirmed 1H/4H → write `map-latest.json` + optional webhook. No auto-arm, no S/D. `MAP_CLOSE=0` off. |
-| Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` (paper entry kill-switch) + open paper desk. Additive; does not replace `/map`. Zones `[]` (suggestions are `GET /zones`). No auto-arm. |
+| MAP close | Live | Confirmed 1H/4H → `map-latest.json` + optional webhook. 4H also auto-accepts `/zones` cards into the paper ledger (`MAP_ACCEPT=0` off). No auto-arm. `MAP_CLOSE=0` off. |
+| EVENT desk | Live | `bun run paper event` / `GET /paper/event` — pending OCO + alerts + accepted zones. Do not poll `/confirm`. |
+| Paper week | Live | `bun run paper week` / `GET /paper/week` — 7-day metrics + standing ledger + funnel.accepted. |
+| Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger zones. Additive. No auto-arm. |
 | Chart / depth / heatmap views | Live | `GET /chart` stitches kline OHLCV; `GET /depth` is the live L50 ladder; `GET /heatmap` grids snapshots (+ live book); `GET /market` is one payload. No browser UI. |
 | Paper trading | Live | `src/paper/` — virtual USDT ledger sized like Bybit linear (lot/tick/notional), 1–10% risk, MTF tags, Phase 2 fees/funding/multi-TP/leverage, isolated or cross. Phase 3: price alerts, GTC limit pending (post-only default), daemon tick evaluates alerts/limits/SL-TP. CLI + `127.0.0.1:43181`. No keys, no real orders. See [paper-trading.md](paper-trading.md). |
 | Paper alerts | Live | `bun run paper alert set SYMBOL --above|--below PRICE`. Fire-once. Log + `paper_events`; optional Telegram/webhook via `PAPER_NOTIFY`. No chat spam. |

@@ -342,6 +342,7 @@ export type PaperMetricsZone = {
 
 export type PaperMetricsFunnel = {
   detected: number;
+  accepted: number;
   armed: number;
   touched: number;
   filled: number;

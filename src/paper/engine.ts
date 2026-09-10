@@ -1293,6 +1293,10 @@ export function createPaperEngine(opts: {
         positions: (status) => store.listPositions(status).map(viewPosition),
         account: () => viewAccount(store),
         orders: (status) => store.listOrders(status).map(viewOrder),
+        zones: (status = "all") => {
+          const rows = status === "all" ? store.listZoneLedger() : store.listZoneLedger(status);
+          return rows.map((row) => ({ zoneId: row.zone_id, acceptedTs: row.accepted_ts }));
+        },
       }, days, now);
     },
 

@@ -44,6 +44,7 @@ describe("paper metrics", () => {
     expect(body.byZone).toEqual([]);
     expect(body.funnel).toEqual({
       detected: 0,
+      accepted: 0,
       armed: 0,
       touched: 0,
       filled: 0,
