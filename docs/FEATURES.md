@@ -15,7 +15,8 @@ Verify against `src/` before treating older PRs as product scope.
 | Historical kline backfill | Live | `bun run backfill` — REST failover or JSON/CSV dump into SQLite; no WS |
 | Snapshot brief | Live | `bun run brief` / `GET /brief` — one local JSON (ticker + 15/60/240) for Minh |
 | HTF map | Live | `bun run map` / `GET /map` — ticker + 4H/1H (+ daily if backfilled) + `klineLag` (60/240). No query = watchlist (cap 10). No 15m, no S/D, no bias. `/brief` unchanged. |
-| Zone suggest | Live | `bun run zones` / `GET /zones` — candidate zone-cards from local 4H/1H klines. Suggest-only. Does not arm/open/limit. `/brief-pack.zones` stays `[]`. |
+| Zone suggest | Live | `bun run zones` / `GET /zones` — candidate zone-cards from local 4H/1H klines. Suggest-only. Does not arm/open/limit. `/brief-pack.zones` is the accepted paper ledger, not this list. |
+| Zone ledger | Live | `paper zone accept FILE.json` / `POST /paper/zones`. Cap 2 accepted/symbol. Expires on `expiryBars`. `paper zone reject`. No auto-arm. |
 | LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). EVENT only. No depth, no S/D. |
 | MAP close | Live | Confirmed 1H/4H → write `map-latest.json` + optional webhook. No auto-arm, no S/D. `MAP_CLOSE=0` off. |
 | Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` (paper entry kill-switch) + open paper desk. Additive; does not replace `/map`. Zones `[]` (suggestions are `GET /zones`). No auto-arm. |

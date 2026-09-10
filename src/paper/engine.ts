@@ -2,6 +2,16 @@ import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
 import { cancelCodeForReject, parseZoneId, rejectIfEntryBlocked } from "./gates";
 import { paperMetrics } from "./metrics";
+import { ZoneCardError } from "../zones/card";
+import {
+  LEDGER_CAP_PER_SYMBOL,
+  ledgerDue,
+  parseLedgerCard,
+  parseRejectCode,
+  zoneExpiresTs,
+  type LedgerStatus,
+  type ZoneLedgerRow,
+} from "../zones/ledger";
 import type { PaperDb } from "./db";
 import {
   estimateCrossLiq,
@@ -220,6 +230,34 @@ export function viewEvent(row: PaperEventRow): EventView {
     payload,
     ts: row.ts,
     zoneId,
+  };
+}
+
+function viewLedger(row: {
+  zone_id: string;
+  symbol: string;
+  status: string;
+  card_json: string;
+  accepted_ts: number;
+  expires_ts: number;
+  rejected_ts: number | null;
+  reject_code: string | null;
+}): ZoneLedgerRow {
+  let card: ZoneLedgerRow["card"];
+  try {
+    card = parseLedgerCard(JSON.parse(row.card_json));
+  } catch {
+    throw new PaperReject("invalid_zone_card", "zone", { zoneId: row.zone_id });
+  }
+  return {
+    zoneId: row.zone_id,
+    symbol: row.symbol,
+    status: row.status as LedgerStatus,
+    card,
+    acceptedTs: row.accepted_ts,
+    expiresTs: row.expires_ts,
+    rejectedTs: row.rejected_ts,
+    rejectCode: row.reject_code as ZoneLedgerRow["rejectCode"],
   };
 }
 
@@ -1098,7 +1136,24 @@ export function createPaperEngine(opts: {
     return { stillOpen, closed, funding, events };
   }
 
+  function expireDue(now: number): ZoneLedgerRow[] {
+    const expired: ZoneLedgerRow[] = [];
+    for (const row of store.listZoneLedger("accepted")) {
+      const view = viewLedger(row);
+      if (!ledgerDue(view, now)) continue;
+      store.updateZoneLedgerStatus(view.zoneId, "expired", now, "expired");
+      expired.push({
+        ...view,
+        status: "expired",
+        rejectedTs: now,
+        rejectCode: "expired",
+      });
+    }
+    return expired;
+  }
+
   async function evaluate(now = Date.now()) {
+    expireDue(now);
     await requireHealthyFeed();
     const symbols = [...new Set([
       ...store.listOpen().map((row) => row.symbol),
@@ -1155,6 +1210,59 @@ export function createPaperEngine(opts: {
 
     eventsBetween(fromTs: number, toTs: number, limit = 500): EventView[] {
       return store.listEventsRange(fromTs, toTs, limit).map(viewEvent);
+    },
+
+    zones(status: LedgerStatus | "all" = "accepted", now = Date.now()): ZoneLedgerRow[] {
+      expireDue(now);
+      const rows = status === "all" ? store.listZoneLedger() : store.listZoneLedger(status);
+      return rows.map(viewLedger);
+    },
+
+    acceptZone(raw: unknown, now = Date.now()): ZoneLedgerRow {
+      let card: ZoneLedgerRow["card"];
+      try {
+        card = parseLedgerCard(raw);
+      } catch (error) {
+        if (error instanceof ZoneCardError) {
+          throw new PaperReject("invalid_zone_card", error.field, { value: error.value });
+        }
+        throw new PaperReject("invalid_zone_card", "zone", {});
+      }
+      expireDue(now);
+      if (store.getZoneLedger(card.zoneId)) {
+        throw new PaperReject("duplicate_zone", "zoneId", { zoneId: card.zoneId });
+      }
+      const standing = store.listZoneLedger("accepted").filter((row) => row.symbol === card.symbol);
+      if (standing.length >= LEDGER_CAP_PER_SYMBOL) {
+        throw new PaperReject("ledger_cap", "symbol", { symbol: card.symbol, cap: LEDGER_CAP_PER_SYMBOL });
+      }
+      const expiresTs = zoneExpiresTs(card, now);
+      store.insertZoneLedger({
+        zoneId: card.zoneId,
+        symbol: card.symbol,
+        status: "accepted",
+        cardJson: JSON.stringify(card),
+        acceptedTs: now,
+        expiresTs,
+        rejectedTs: null,
+        rejectCode: null,
+      });
+      return viewLedger(store.getZoneLedger(card.zoneId)!);
+    },
+
+    rejectZone(zoneId: string, code: unknown = "ops_cancel", now = Date.now()): ZoneLedgerRow {
+      expireDue(now);
+      const id = parseZoneId(zoneId);
+      if (!id) throw new PaperReject("invalid_zone_id", "zoneId", { zoneId });
+      const row = store.getZoneLedger(id);
+      if (!row) throw new PaperReject("not_found", "zoneId", { zoneId: id });
+      const view = viewLedger(row);
+      if (view.status !== "accepted") {
+        throw new PaperReject("zone_not_accepted", "status", { zoneId: id, status: view.status });
+      }
+      const rejectCode = parseRejectCode(code);
+      store.updateZoneLedgerStatus(id, "rejected", now, rejectCode);
+      return viewLedger(store.getZoneLedger(id)!);
     },
 
     metrics(days = 7, now = Date.now()) {

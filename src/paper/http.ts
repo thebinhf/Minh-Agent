@@ -212,6 +212,37 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
           return json(paperMetrics(engine, days));
         }
 
+        if (path === "/paper/zones") {
+          if (req.method === "GET") {
+            const statusRaw = url.searchParams.get("status") ?? "accepted";
+            const status = statusRaw === "rejected" || statusRaw === "expired" || statusRaw === "all" || statusRaw === "accepted"
+              ? statusRaw
+              : "accepted";
+            return json({ mode: "paper", zones: engine.zones(status) });
+          }
+          if (req.method === "POST") {
+            const body = (await req.json()) as unknown;
+            return json({ mode: "paper", zone: engine.acceptZone(body) }, 201);
+          }
+          return json({ error: "method not allowed" }, 405);
+        }
+
+        const zoneReject = /^\/paper\/zones\/([^/]+)\/reject$/.exec(path);
+        if (zoneReject) {
+          if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+          let code: unknown = "ops_cancel";
+          try {
+            const body = (await req.json()) as Record<string, unknown>;
+            if (body.code != null) code = body.code;
+          } catch {
+            // empty body is ops_cancel
+          }
+          return json({
+            mode: "paper",
+            zone: engine.rejectZone(decodeURIComponent(zoneReject[1] ?? ""), code),
+          });
+        }
+
         if (path === "/paper/arm") {
           if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
           const body = (await req.json()) as Record<string, unknown>;
