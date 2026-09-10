@@ -1387,7 +1387,20 @@ export function createPaperEngine(opts: {
         orders: (status) => store.listOrders(status).map(viewOrder),
         zones: (status = "all") => {
           const rows = status === "all" ? store.listZoneLedger() : store.listZoneLedger(status);
-          return rows.map((row) => ({ zoneId: row.zone_id, acceptedTs: row.accepted_ts }));
+          return rows.map((row) => {
+            try {
+              const view = viewLedger(row);
+              return {
+                zoneId: view.zoneId,
+                acceptedTs: view.acceptedTs,
+                symbol: view.card.symbol,
+                tf: view.card.tf,
+                side: view.card.side,
+              };
+            } catch {
+              return { zoneId: row.zone_id, acceptedTs: row.accepted_ts };
+            }
+          });
         },
       }, days, now);
     },

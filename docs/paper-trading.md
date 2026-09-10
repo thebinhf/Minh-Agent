@@ -896,7 +896,8 @@ Default `days=7` (1–365). Missing rates → `null`; counts → `0`. Stable key
 | `invalidated` / `cancelled` / `rejected` / `closed` | Event counts |
 | `closeReasons` | `{ sl, tp, liq, manual }` |
 | `realizedPnl` | Sum of close-event PnL |
-| `byZone` | Same stats grouped by operator `zoneId` (unzoned groups use `zoneId: null`). Empty `[]` if none |
+| `byZone` | Same stats grouped by operator `zoneId` (unzoned groups use `zoneId: null`). Empty `[]` if none. Each row has `score` (0–1 TEXT or `null` when cold) |
+| `byFamily` | Same stats rolled by detector family `symbol:tf:side` (`btc-4h-s-…` → `BTCUSDT:240:supply`). Operator stamps that do not parse stay on `byZone` only |
 | `funnel` | `{ detected, armed, touched, filled, cancelled, exited }` — see [§16](#16-p0--zone-card-suggest--funnel) |
 | `cancelCodes` | Counts for `never_touched` / `ops_cancel` / `deep_mitigate` / `htf_break` / `expired` / `rr_fail` / `gates_block` |
 
@@ -954,5 +955,13 @@ Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm co
 `noFillPct` is unchanged. Split: operator `paper cancel` → `ops_cancel`; OCO print through `--invalidate` / `--sl` → `never_touched`. `gates_block` / `rr_fail` count submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` rejects (no order row) via `order.rejected`. Bound pending (`zoneId`) writes `deep_mitigate` / `htf_break` / `expired` / `ops_cancel` on `order.invalidated` when the ledger card dies (deep after rest, through SL, expiry, `paper zone reject`).
 
 Kill-switch `brief-pack.gates` / paper entry gates are unchanged: new open/limit/arm still reject on `kline_lag` / `feed_unhealthy`. `/zones` is read-only suggest.
+
+### 16.3 Zone score (paper metrics)
+
+Empirical, not a signal. Does **not** change the zone-card schema.
+
+`GET /paper/metrics` `byZone[].score` and `byFamily[]` score a setup from the same window: `0.6 * fillRate + 0.4 * winRate` (TEXT 0–1). Cold start (`filled+invalidated+cancelled < 3` **and** `trades < 2`) → `null`. Missing history is **not** a veto.
+
+Family key is `SYMBOL:tf:side` from the ledger card, or from a detector `zoneId` (`btc-4h-s-20260908-01`). On 4H MAP accept, cards with a non-null family score rank **before** the per-symbol cap (2). All-null keeps detector order. Tie-break: higher card `rr`, then `zoneId`. `PAPER_ZONE_SCORE=0` skips ranking (metrics still compute scores). `/paper/week` `review.families` is the compact rollup.
 
 

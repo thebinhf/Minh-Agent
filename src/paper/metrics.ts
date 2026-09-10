@@ -1,12 +1,20 @@
 import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
 import { cancelCodeForReject } from "./gates";
-import type { EventView, OrderView, PaperMetrics, PositionView } from "./types";
+import type { EventView, OrderView, PaperMetrics, PaperMetricsFamily, PositionView } from "./types";
+import {
+  familyFromCard,
+  familyKey,
+  resolveZoneFamily,
+  zoneScore,
+  type ZoneFamily,
+} from "./score";
 import {
   bumpCancelCode,
   classifyCancelCode,
   emptyCancelCodeCounts,
   type CancelCode,
+  type ZoneSide,
 } from "../zones/card";
 
 const DAY_MS = 86_400_000;
@@ -31,7 +39,13 @@ export type PaperMetricsSource = {
   positions(status: "open" | "closed" | "all"): PositionView[];
   account(): { openPositions: number; pendingOrders: number };
   orders?(status: "pending" | "filled" | "cancelled" | "rejected" | "invalidated" | "all"): OrderView[];
-  zones?(status?: "accepted" | "rejected" | "expired" | "all"): Array<{ zoneId: string; acceptedTs: number }>;
+  zones?(status?: "accepted" | "rejected" | "expired" | "all"): Array<{
+    zoneId: string;
+    acceptedTs: number;
+    symbol?: string;
+    tf?: string;
+    side?: ZoneSide;
+  }>;
 };
 
 function metricsWindow(days: number, now: number): { fromTs: number; toTs: number } {
@@ -97,6 +111,23 @@ function emptyZoneBucket(zoneId: string | null) {
     filled: 0,
     invalidated: 0,
     cancelled: 0,
+    score: null as string | null,
+  };
+}
+
+function emptyFamilyBucket(family: ZoneFamily) {
+  return {
+    family: familyKey(family),
+    symbol: family.symbol,
+    tf: family.tf,
+    side: family.side,
+    trades: 0,
+    wins: 0,
+    losses: 0,
+    breakeven: 0,
+    filled: 0,
+    invalidated: 0,
+    cancelled: 0,
   };
 }
 
@@ -125,6 +156,16 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   const cancelCodes = emptyCancelCodeCounts();
   const detectedIds = new Set<string>();
   let touched = 0;
+  const ledgerFamilies = new Map<string, ZoneFamily>();
+  for (const row of engine.zones?.("all") ?? []) {
+    if (row.symbol && row.tf && (row.side === "demand" || row.side === "supply")) {
+      ledgerFamilies.set(row.zoneId, familyFromCard({
+        symbol: row.symbol,
+        tf: row.tf,
+        side: row.side,
+      }));
+    }
+  }
 
   function noteZone(zoneId: string | null) {
     if (zoneId) detectedIds.add(zoneId);
@@ -225,15 +266,67 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   const resolvedNoFill = counts.invalidated + counts.cancelled;
   const resolvedAttempts = limitFilled + counts.invalidated + counts.cancelled;
 
-  const zones = [...byZone.values()].map((bucket) => ({
-    ...bucket,
-    winRate: ratio(bucket.wins, bucket.trades),
-    avgRr: meanDec(rrByZone.get(zoneKey(bucket.zoneId)) ?? []),
-  }));
+  const zones = [...byZone.values()].map((bucket) => {
+    const winRate = ratio(bucket.wins, bucket.trades);
+    const avgRr = meanDec(rrByZone.get(zoneKey(bucket.zoneId)) ?? []);
+    const score = zoneScore(bucket);
+    return { ...bucket, winRate, avgRr, score };
+  });
   zones.sort((a, b) => {
     if (a.zoneId == null) return 1;
     if (b.zoneId == null) return -1;
     return a.zoneId.localeCompare(b.zoneId);
+  });
+
+  const familyAcc = new Map<string, ReturnType<typeof emptyFamilyBucket> & { rr: Dec[] }>();
+  for (const bucket of zones) {
+    const family = resolveZoneFamily(bucket.zoneId, ledgerFamilies);
+    if (!family) continue;
+    const key = familyKey(family);
+    let row = familyAcc.get(key);
+    if (!row) {
+      row = { ...emptyFamilyBucket(family), rr: [] };
+      familyAcc.set(key, row);
+    }
+    row.trades += bucket.trades;
+    row.wins += bucket.wins;
+    row.losses += bucket.losses;
+    row.breakeven += bucket.breakeven;
+    row.filled += bucket.filled;
+    row.invalidated += bucket.invalidated;
+    row.cancelled += bucket.cancelled;
+    row.rr.push(...(rrByZone.get(zoneKey(bucket.zoneId)) ?? []));
+  }
+  const byFamily: PaperMetricsFamily[] = [...familyAcc.values()].map((row) => {
+    const attempts = row.filled + row.invalidated + row.cancelled;
+    return {
+      family: row.family,
+      symbol: row.symbol,
+      tf: row.tf,
+      side: row.side,
+      trades: row.trades,
+      wins: row.wins,
+      losses: row.losses,
+      breakeven: row.breakeven,
+      winRate: ratio(row.wins, row.trades),
+      avgRr: meanDec(row.rr),
+      filled: row.filled,
+      invalidated: row.invalidated,
+      cancelled: row.cancelled,
+      noFillPct: ratio(row.invalidated + row.cancelled, attempts),
+      score: zoneScore(row),
+    };
+  });
+  byFamily.sort((a, b) => {
+    if (a.score != null && b.score != null) {
+      const cmp = Dec.from(b.score).cmp(Dec.from(a.score));
+      if (cmp !== 0) return cmp;
+    } else if (a.score != null) {
+      return -1;
+    } else if (b.score != null) {
+      return 1;
+    }
+    return a.family.localeCompare(b.family);
   });
 
   const orders = engine.orders?.("all") ?? [];
@@ -277,6 +370,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
     pendingOrders: account.pendingOrders,
     events: events.length,
     byZone: zones,
+    byFamily,
     funnel,
     cancelCodes,
   };
@@ -314,6 +408,7 @@ export function emptyPaperMetrics(days = DEFAULT_METRICS_DAYS, now = Date.now())
     pendingOrders: 0,
     events: 0,
     byZone: [],
+    byFamily: [],
     funnel: emptyFunnel(),
     cancelCodes: emptyCancelCodeCounts(),
   };
@@ -344,6 +439,7 @@ export function metricsKeys(): Array<keyof PaperMetrics> {
     "pendingOrders",
     "events",
     "byZone",
+    "byFamily",
     "funnel",
     "cancelCodes",
   ];

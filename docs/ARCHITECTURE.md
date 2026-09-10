@@ -13,7 +13,7 @@ src/index.ts
 Feed HTTP never imports paper. The composition root:
 
 1. Injects `paperDesk` into `GET /brief-pack`
-2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone`. `MAP_ACCEPT=0` = no copy. `AGENT_MAP=0` = policy no-op (old copy still runs).
+2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone`. Family paper score ranks before the per-symbol cap when history exists (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` = no copy. `AGENT_MAP=0` = policy no-op (old copy still runs).
 3. Paper tick proximity-arms accepted cards when last is in-band **and** the last confirmed 15m agrees (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off)
 
 HTTP contract: [http.md](http.md).

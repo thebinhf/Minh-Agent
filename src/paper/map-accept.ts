@@ -3,6 +3,7 @@ import type { PaperEngine } from "./engine";
 import type { ZoneCard } from "../zones/card";
 import { parseZoneCard } from "../zones/card";
 import { proximityDecision } from "../zones/proximity";
+import { familyFromCard, familyKey, rankZoneCards } from "./score";
 
 /** 4H close only. 1H dumps MAP but does not auto-accept. */
 export function mapAcceptEnabled(): boolean {
@@ -54,6 +55,8 @@ export type MapAcceptResult = {
 /**
  * Copy GET /zones cards into the paper ledger after a 4H MAP dump.
  * Does not arm. Kill switch: MAP_ACCEPT=0.
+ * When paper family scores exist, rank before the per-symbol cap (2).
+ * Missing score is not a veto. PAPER_ZONE_SCORE=0 keeps detector order.
  */
 export function runMapAccept(
   engine: PaperEngine,
@@ -64,7 +67,8 @@ export function runMapAccept(
   const accepted: string[] = [];
   let skipped = 0;
   if (!mapAcceptEnabled()) return { accepted, skipped: cards.length };
-  for (const card of pickAcceptable(cards, lastBySymbol)) {
+  const picked = rankAcceptable(engine, pickAcceptable(cards, lastBySymbol), now);
+  for (const card of picked) {
     try {
       engine.acceptZone(card, now);
       accepted.push(card.zoneId);
@@ -77,6 +81,15 @@ export function runMapAccept(
     }
   }
   return { accepted, skipped };
+}
+
+function rankAcceptable(engine: PaperEngine, cards: ZoneCard[], now: number): ZoneCard[] {
+  const metrics = engine.metrics(7, now);
+  const scores = new Map<string, string | null>();
+  for (const row of metrics.byFamily) {
+    scores.set(familyKey({ symbol: row.symbol, tf: row.tf, side: row.side }), row.score);
+  }
+  return rankZoneCards(cards, (card) => scores.get(familyKey(familyFromCard(card))) ?? null);
 }
 
 export async function fetchZoneCards(

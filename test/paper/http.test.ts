@@ -260,6 +260,7 @@ describe("paper HTTP", () => {
       expect(body.noFillPct).toBeNull();
       expect(body.trades).toBe(0);
       expect(body.byZone).toEqual([]);
+      expect(body.byFamily).toEqual([]);
       expect(body.closeReasons).toEqual({ sl: 0, tp: 0, liq: 0, manual: 0 });
 
       const bad = await fetch(`${svc.url}/paper/metrics?days=0`);

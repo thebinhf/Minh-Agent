@@ -7,11 +7,12 @@ import {
   runMapAccept,
   shouldAcceptCard,
 } from "../../src/paper/map-accept";
-import { mockFeed, paperEngine } from "./helpers";
+import { mockFeed, OPEN_LONG, paperEngine } from "./helpers";
 import type { ZoneCard } from "../../src/zones/card";
 
 const dirs: string[] = [];
 const saved = process.env.MAP_ACCEPT;
+const savedScore = process.env.PAPER_ZONE_SCORE;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -19,6 +20,8 @@ afterEach(() => {
   }
   if (saved === undefined) delete process.env.MAP_ACCEPT;
   else process.env.MAP_ACCEPT = saved;
+  if (savedScore === undefined) delete process.env.PAPER_ZONE_SCORE;
+  else process.env.PAPER_ZONE_SCORE = savedScore;
 });
 
 const SUPPLY: ZoneCard = {
@@ -46,6 +49,26 @@ const SUPPLY: ZoneCard = {
   softInvalid: 79_472,
   expiryBars: 48,
   cancelCodes: [],
+};
+
+const DEMAND: ZoneCard = {
+  ...SUPPLY,
+  zoneId: "btc-4h-d-20260908-01",
+  side: "demand",
+  distal: 79_250,
+  proximal: 79_472,
+  entry: 79_400,
+  sl: 79_100,
+  tp: 80_200,
+  rr: 2.1,
+  hardInvalid: 79_100,
+  softInvalid: 79_250,
+};
+
+const DEMAND_HIGH_RR: ZoneCard = {
+  ...DEMAND,
+  zoneId: "btc-4h-d-20260908-02",
+  rr: 3.5,
 };
 
 describe("map accept (P5)", () => {
@@ -86,5 +109,56 @@ describe("map accept (P5)", () => {
     const src = await Bun.file("src/paper/map-accept.ts").text();
     expect(src).not.toContain("paper arm");
     expect(src).not.toContain("/v5/order");
+  });
+
+  test("family score ranks before ledger cap; missing score is not a veto", async () => {
+    delete process.env.MAP_ACCEPT;
+    delete process.env.PAPER_ZONE_SCORE;
+    const feed = mockFeed({ lastPrice: "63000", markPrice: "63000" });
+    const ctx = await paperEngine(feed);
+    dirs.push(ctx.dir);
+    const now = Date.now();
+
+    async function closeAt(last: string, zoneId: string, t: number) {
+      feed.ticker = async (symbol) => ({
+        symbol,
+        lastPrice: "63000",
+        markPrice: "63000",
+        recvTs: t,
+        fundingRate: null,
+        nextFundingTime: null,
+      });
+      await ctx.engine.open({ ...OPEN_LONG, zoneId }, t);
+      feed.ticker = async (symbol) => ({
+        symbol,
+        lastPrice: last,
+        markPrice: last,
+        recvTs: t + 1,
+        fundingRate: null,
+        nextFundingTime: null,
+      });
+      await ctx.engine.mark(t + 1);
+    }
+
+    await closeAt("59000", "btc-4h-d-20260901-01", now);
+    await closeAt("59000", "btc-4h-d-20260901-02", now + 10);
+    await closeAt("67000", "btc-4h-s-20260901-01", now + 20);
+    await closeAt("67000", "btc-4h-s-20260901-02", now + 30);
+
+    const last = lastPricesFromMap({
+      maps: [{ symbol: "BTCUSDT", ticker: { lastPrice: "79600" } }],
+    });
+    const ranked = runMapAccept(ctx.engine, [DEMAND, DEMAND_HIGH_RR, SUPPLY], last, now + 40);
+    expect(ranked.accepted).toEqual([SUPPLY.zoneId, DEMAND_HIGH_RR.zoneId]);
+    expect(ranked.skipped).toBe(1);
+    expect(ctx.engine.zones("accepted").map((row) => row.zoneId).sort()).toEqual(
+      [DEMAND_HIGH_RR.zoneId, SUPPLY.zoneId].sort(),
+    );
+
+    process.env.PAPER_ZONE_SCORE = "0";
+    const ctx2 = await paperEngine(mockFeed({ lastPrice: "79600", markPrice: "79600" }));
+    dirs.push(ctx2.dir);
+    const unranked = runMapAccept(ctx2.engine, [DEMAND, DEMAND_HIGH_RR, SUPPLY], last);
+    expect(unranked.accepted).toEqual([DEMAND.zoneId, DEMAND_HIGH_RR.zoneId]);
   });
 });

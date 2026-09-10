@@ -1,4 +1,4 @@
-import type { CancelCode } from "../zones/card";
+import type { CancelCode, ZoneSide } from "../zones/card";
 
 export type PaperSide = "long" | "short";
 export type PaperStatus = "open" | "closed";
@@ -352,6 +352,25 @@ export type PaperMetricsZone = {
   filled: number;
   invalidated: number;
   cancelled: number;
+  score: string | null;
+};
+
+export type PaperMetricsFamily = {
+  family: string;
+  symbol: string;
+  tf: string;
+  side: ZoneSide;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: string | null;
+  avgRr: string | null;
+  filled: number;
+  invalidated: number;
+  cancelled: number;
+  noFillPct: string | null;
+  score: string | null;
 };
 
 export type PaperMetricsFunnel = {
@@ -388,6 +407,7 @@ export type PaperMetrics = {
   pendingOrders: number;
   events: number;
   byZone: PaperMetricsZone[];
+  byFamily: PaperMetricsFamily[];
   funnel: PaperMetricsFunnel;
   cancelCodes: Record<CancelCode, number>;
 };

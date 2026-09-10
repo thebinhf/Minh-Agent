@@ -42,6 +42,7 @@ describe("paper metrics", () => {
     expect(body.pendingOrders).toBe(0);
     expect(body.events).toBe(0);
     expect(body.byZone).toEqual([]);
+    expect(body.byFamily).toEqual([]);
     expect(body.funnel).toEqual({
       detected: 0,
       accepted: 0,
@@ -126,8 +127,10 @@ describe("paper metrics", () => {
         winRate: "0.5",
         avgRr: "1",
         filled: 2,
+        score: "0.8",
       }),
     ]);
+    expect(body.byFamily).toEqual([]);
   });
 
   test("noFillPct is pending → invalidated/cancelled without a fill", async () => {
@@ -303,5 +306,54 @@ describe("paper metrics", () => {
     expect(body.rejected).toBe(1);
     expect(body.funnel.cancelled).toBe(0);
     expect(ctx.engine.positions("open")).toEqual([]);
+  });
+
+  test("byFamily rolls detector zoneIds; operator stamps stay on byZone only", async () => {
+    const feed = mockFeed({ lastPrice: "63000", markPrice: "63000" });
+    const ctx = await paperEngine(feed);
+    dirs.push(ctx.dir);
+    const now = Date.now();
+    await ctx.engine.open({ ...OPEN_LONG, zoneId: "btc-4h-s-20260901-01" }, now);
+    feed.ticker = async (symbol) => ({
+      symbol,
+      lastPrice: "67000",
+      markPrice: "67000",
+      recvTs: now + 1,
+      fundingRate: null,
+      nextFundingTime: null,
+    });
+    await ctx.engine.mark(now + 1);
+    feed.ticker = async (symbol) => ({
+      symbol,
+      lastPrice: "63000",
+      markPrice: "63000",
+      recvTs: now + 2,
+      fundingRate: null,
+      nextFundingTime: null,
+    });
+    await ctx.engine.open({ ...OPEN_LONG, zoneId: "btc-4h-s-20260901-02" }, now + 2);
+    feed.ticker = async (symbol) => ({
+      symbol,
+      lastPrice: "67000",
+      markPrice: "67000",
+      recvTs: now + 3,
+      fundingRate: null,
+      nextFundingTime: null,
+    });
+    await ctx.engine.mark(now + 3);
+
+    const body = paperMetrics(ctx.engine, 7, now + 4);
+    expect(body.byFamily).toEqual([
+      expect.objectContaining({
+        family: "BTCUSDT:240:supply",
+        symbol: "BTCUSDT",
+        tf: "240",
+        side: "supply",
+        trades: 2,
+        wins: 2,
+        filled: 2,
+        score: "1",
+      }),
+    ]);
   });
 });
