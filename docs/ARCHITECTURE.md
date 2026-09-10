@@ -46,6 +46,7 @@ HTTP contract: [http.md](http.md).
 | `GET /map` | HTF MAP + `klineLag` (60/240). Cap 10. No 15m. |
 | `GET /map-latest` | Last 1H/4H dump |
 | `GET /zones` | Suggest-only cards (240 / 60) |
+| `GET /oi` | OI history (quant veto) |
 | `GET /confirm` | Optional LTF (15 / 5) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
 | `GET /health` | WS + kline lag |

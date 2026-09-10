@@ -69,6 +69,7 @@ describe("sqlite storage", () => {
     });
     expect(result.tickerDeleted).toBe(80);
     expect(result.klineDeleted).toBe(80);
+    expect(result.oiDeleted).toBe(0);
     expect(result.pageCount).toBeGreaterThan(0);
 
     const raw = new Database(dbPath);

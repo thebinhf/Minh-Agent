@@ -33,7 +33,7 @@ HTF MAP. No 15m.
 
 One symbol → a single map object. Several / watchlist → `{ ts, maps, klineLag, meta }`.
 
-Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240).
+Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H series + `deltaPct`). `oi.note` is always `quant veto — not a signal`.
 
 ```bash
 curl -sS http://127.0.0.1:43180/map
@@ -69,6 +69,22 @@ Optional LTF snapshot (scalp). Not required to hold an OCO zone.
 | `interval` | `15` | `15` or `5`. Else `400` `{ "error": "confirm_interval", "allowed": ["15","5"] }` |
 
 Ticker + 20 klines. No depth, no HTF, no S/D.
+
+### `GET /oi`
+
+Open-interest history from public REST (`/v5/market/open-interest`), cached in SQLite. Not a signal.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT` | |
+| `interval` | `240` | `5` `15` `60` `240` `D`. Else `400` `{ "error": "oi_interval" }` |
+| `limit` | 50 | Cap 200 |
+
+Bars oldest→newest. `deltaPct` is (last − first) / first × 100, or `null`. Live spot OI stays on `tickers[].openInterest`. `BYBIT_OI=0` skips REST fill.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/oi?symbol=BTCUSDT&interval=240'
+```
 
 ### `GET /brief`
 

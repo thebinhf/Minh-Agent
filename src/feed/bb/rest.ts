@@ -7,6 +7,14 @@ import {
   withRetries,
 } from "./recovery";
 import type { BybitKline, TrackerConfig } from "./types";
+import {
+  oiEnabled,
+  oiIntervalsFromEnv,
+  parseRestOiList,
+  toBybitOiInterval,
+  type OiBar,
+  type OiInterval,
+} from "./oi";
 
 type RestKlineRow = [string, string, string, string, string, string, string];
 
@@ -364,4 +372,245 @@ async function fillWindow(
   }
 
   return written;
+}
+
+export const REST_OI_LIMIT = 200;
+
+async function fetchLinearOiFromBase(
+  base: string,
+  config: TrackerConfig,
+  opts: {
+    symbol: string;
+    interval: OiInterval;
+    start: number;
+    end: number;
+    fetchImpl: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<OiBar[]> {
+  const recovery = config.recovery;
+  const intervalTime = toBybitOiInterval(opts.interval);
+  if (!intervalTime) return [];
+  const url = new URL("/v5/market/open-interest", base);
+  url.searchParams.set("category", "linear");
+  url.searchParams.set("symbol", opts.symbol);
+  url.searchParams.set("intervalTime", intervalTime);
+  url.searchParams.set("startTime", String(opts.start));
+  url.searchParams.set("endTime", String(opts.end));
+  url.searchParams.set("limit", String(REST_OI_LIMIT));
+
+  return withRetries(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), recovery.restTimeoutMs);
+    const onAbort = () => controller.abort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const res = await opts.fetchImpl(url.toString(), { signal: controller.signal });
+      if (!res.ok) {
+        const error = new Error(`Bybit REST OI HTTP ${res.status} (${base})`);
+        if (FAILOVER_STATUS.has(res.status)) {
+          throw Object.assign(error, { retryable: false, failover: true, status: res.status });
+        }
+        throw error;
+      }
+      const body = (await res.json()) as {
+        retCode?: number;
+        retMsg?: string;
+        result?: { list?: unknown };
+      };
+      if (body.retCode !== 0) {
+        throw new Error(`Bybit REST OI ${body.retCode}: ${body.retMsg ?? "error"}`);
+      }
+      return parseRestOiList(body.result?.list);
+    } finally {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+    }
+  }, {
+    retries: recovery.restRetries,
+    delayMs: recovery.restRetryDelayMs,
+    signal: opts.signal,
+  });
+}
+
+export async function fetchLinearOpenInterest(
+  config: TrackerConfig,
+  opts: {
+    symbol: string;
+    interval: OiInterval;
+    start: number;
+    end: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<OiBar[]> {
+  const fetchImpl = opts.fetchImpl ?? (fetch as RestFetch);
+  const bases = orderedBases(config);
+  let lastError: unknown;
+
+  for (const base of bases) {
+    try {
+      const bars = await fetchLinearOiFromBase(base, config, {
+        symbol: opts.symbol,
+        interval: opts.interval,
+        start: opts.start,
+        end: opts.end,
+        fetchImpl,
+        signal: opts.signal,
+      });
+      if (cachedWorkingBase !== base) {
+        if (cachedWorkingBase || base !== restBases(config)[0]) {
+          console.log(`[minh:bb] REST OI host ${base}`);
+        }
+        cachedWorkingBase = base;
+      }
+      return bars;
+    } catch (error) {
+      lastError = error;
+      if (opts.signal?.aborted) throw error;
+      if (!isFailoverError(error)) throw error;
+      if (base === bases[bases.length - 1]) break;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[minh:bb] ${message}; trying next REST host`);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Bybit REST OI failed on every host");
+}
+
+async function fillOiWindow(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "saveOi">,
+  opts: {
+    symbol: string;
+    interval: OiInterval;
+    start: number;
+    end: number;
+    now: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<number> {
+  let start = opts.start;
+  let end = opts.end;
+  let written = 0;
+
+  while (end > start) {
+    if (opts.signal?.aborted) break;
+    const batch = await fetchLinearOpenInterest(config, {
+      symbol: opts.symbol,
+      interval: opts.interval,
+      start,
+      end,
+      fetchImpl: opts.fetchImpl,
+      signal: opts.signal,
+    });
+    if (batch.length === 0) break;
+    for (const bar of batch) {
+      store.saveOi(opts.symbol, opts.interval, bar, opts.now);
+      written += 1;
+    }
+    if (batch.length < REST_OI_LIMIT) break;
+    const oldest = Math.min(...batch.map((bar) => bar.startTs));
+    if (oldest <= start) break;
+    end = oldest - 1;
+  }
+
+  return written;
+}
+
+export async function fillOiGaps(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "getLastOiStart" | "saveOi">,
+  opts: {
+    now?: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  } = {},
+): Promise<{ series: number; bars: number; errors: number }> {
+  if (!config.recovery.gapFill || !oiEnabled()) {
+    return { series: 0, bars: 0, errors: 0 };
+  }
+
+  const now = opts.now ?? Date.now();
+  const lookbackMs = config.retention.klinesDays * 86_400_000;
+  const intervals = oiIntervalsFromEnv();
+  let bars = 0;
+  let errors = 0;
+  let series = 0;
+
+  for (const symbol of config.symbols) {
+    for (const interval of intervals) {
+      if (opts.signal?.aborted) return { series, bars, errors };
+      series += 1;
+      try {
+        const lastStart = store.getLastOiStart(symbol, interval);
+        const written = await fillOiWindow(config, store, {
+          symbol,
+          interval,
+          start: computeGapStart(lastStart, now, lookbackMs),
+          end: now,
+          now,
+          fetchImpl: opts.fetchImpl,
+          signal: opts.signal,
+        });
+        bars += written;
+      } catch (error) {
+        errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[minh:bb] OI gap-fill ${symbol} ${interval}: ${message}`);
+      }
+    }
+  }
+
+  return { series, bars, errors };
+}
+
+export async function fillOiHistory(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "saveOi">,
+  opts: {
+    symbols: string[];
+    intervals: OiInterval[];
+    start: number;
+    end: number;
+    now?: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<{ series: number; bars: number; errors: number; host?: string }> {
+  const now = opts.now ?? Date.now();
+  let bars = 0;
+  let errors = 0;
+  let series = 0;
+
+  for (const symbol of opts.symbols) {
+    for (const interval of opts.intervals) {
+      if (opts.signal?.aborted) {
+        return { series, bars, errors, host: cachedWorkingBase };
+      }
+      series += 1;
+      try {
+        const written = await fillOiWindow(config, store, {
+          symbol,
+          interval,
+          start: opts.start,
+          end: opts.end,
+          now,
+          fetchImpl: opts.fetchImpl,
+          signal: opts.signal,
+        });
+        bars += written;
+        console.log(`[minh:bb] OI backfill ${symbol} ${interval} wrote ${written}`);
+      } catch (error) {
+        errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[minh:bb] OI backfill ${symbol} ${interval}: ${message}`);
+      }
+    }
+  }
+
+  return { series, bars, errors, host: cachedWorkingBase };
 }

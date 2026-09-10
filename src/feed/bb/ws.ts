@@ -1,7 +1,7 @@
 import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
-import { fillKlineGaps } from "./rest";
+import { fillKlineGaps, fillOiGaps } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
   BybitKline,
@@ -122,12 +122,20 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
     fillAbort = new AbortController();
     const signal = fillAbort.signal;
     void fillKlineGaps(config, store, { signal })
-      .then((result) => {
+      .then(async (result) => {
         if (signal.aborted) return;
         store.setMeta("last_gap_fill", JSON.stringify({ ...result, ts: Date.now() }));
         console.log(
           `[minh:bb] gap-fill series=${result.series} candles=${result.candles} errors=${result.errors}`,
         );
+        const oi = await fillOiGaps(config, store, { signal });
+        if (signal.aborted) return;
+        store.setMeta("last_oi_fill", JSON.stringify({ ...oi, ts: Date.now() }));
+        if (oi.series) {
+          console.log(
+            `[minh:bb] OI fill series=${oi.series} bars=${oi.bars} errors=${oi.errors}`,
+          );
+        }
       })
       .catch((error) => {
         if (signal.aborted) return;
