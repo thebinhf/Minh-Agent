@@ -143,7 +143,7 @@ Local relay. Same process as the HTTP cache. Topics:
 | --- | --- |
 | `ticker.BTCUSDT` / `ticker.*` | Thin last/mark/funding/OI, coalesced 1s (`BYBIT_RELAY_TICKER_MS`) |
 | `kline.15.BTCUSDT` / `kline.240.*` | **Confirmed** bar only |
-| `liq.BTCUSDT` / `liq.*` | Print batch (`Buy` = long liquidated) |
+| `liq.BTCUSDT` / `liq.*` | Coalesced 1s bins (`longSize`/`shortSize`/`count`). Flush immediately at 8 prints. SQLite still stores every print. `BYBIT_RELAY_LIQ_MS` |
 
 No orderbook stream (use `GET /depth`). Cascade stays on `GET /map`. Protocol: `{ op, args }` subscribe/unsubscribe/ping, same shape as Bybit. Cap 16 clients, 32 topics. `meta.note` is `local push — not Bybit`.
 

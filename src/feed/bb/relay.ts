@@ -1,7 +1,12 @@
+import { defaultLiqBucket, type LiqPrint } from "./liq";
+
 export const RELAY_NOTE = "local push — not Bybit";
 export const RELAY_MAX_CLIENTS = 16;
 export const RELAY_MAX_TOPICS = 32;
 export const DEFAULT_RELAY_TICKER_MS = 1_000;
+export const DEFAULT_RELAY_LIQ_MS = 1_000;
+export const RELAY_LIQ_FLUSH_COUNT = 8;
+export const RELAY_LIQ_MAX_BINS = 32;
 
 export type RelayPush = {
   topic: string;
@@ -24,6 +29,108 @@ export function relayTickerMs(): number {
   if (raw === undefined || raw === "") return DEFAULT_RELAY_TICKER_MS;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RELAY_TICKER_MS;
+}
+
+export function relayLiqMs(): number {
+  const raw = process.env.BYBIT_RELAY_LIQ_MS?.trim();
+  if (raw === undefined || raw === "") return DEFAULT_RELAY_LIQ_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RELAY_LIQ_MS;
+}
+
+export type LiqRelayBin = {
+  price: string;
+  longSize: string;
+  shortSize: string;
+  count: number;
+};
+
+export type LiqRelayPayload = {
+  bins: LiqRelayBin[];
+  longSize: string;
+  shortSize: string;
+  count: number;
+};
+
+/** Merge prints into price bins. Relay payload — not the SQLite ledger. */
+export function aggregateLiqPrints(prints: LiqPrint[], bucket: number): LiqRelayPayload {
+  const bins = new Map<string, { long: number; short: number; count: number }>();
+  let longSize = 0;
+  let shortSize = 0;
+  const step = bucket > 0 ? bucket : 10;
+  for (const print of prints) {
+    const n = Number(print.size);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    const raw = Number(print.price);
+    const key = Number.isFinite(raw)
+      ? String(Math.round(raw / step) * step)
+      : print.price;
+    const cell = bins.get(key) ?? { long: 0, short: 0, count: 0 };
+    if (print.side === "Buy") {
+      cell.long += n;
+      longSize += n;
+    } else {
+      cell.short += n;
+      shortSize += n;
+    }
+    cell.count += 1;
+    bins.set(key, cell);
+  }
+  const sorted = [...bins.entries()].sort((a, b) => Number(b[0]) - Number(a[0]));
+  return {
+    bins: sorted.slice(0, RELAY_LIQ_MAX_BINS).map(([price, cell]) => ({
+      price,
+      longSize: String(cell.long),
+      shortSize: String(cell.short),
+      count: cell.count,
+    })),
+    longSize: String(longSize),
+    shortSize: String(shortSize),
+    count: prints.length,
+  };
+}
+
+export function createLiqRelayBatch(opts: {
+  onFlush: (symbol: string, payload: LiqRelayPayload, ts: number) => void;
+  everyMs?: () => number;
+  flushCount?: number;
+  bucketFor?: (symbol: string) => number;
+}) {
+  const pending = new Map<string, { prints: LiqPrint[]; timer: ReturnType<typeof setTimeout> | null }>();
+  const flushCount = opts.flushCount ?? RELAY_LIQ_FLUSH_COUNT;
+
+  function flush(symbol: string, ts = Date.now()) {
+    const row = pending.get(symbol);
+    if (!row || row.prints.length === 0) return;
+    if (row.timer) clearTimeout(row.timer);
+    pending.delete(symbol);
+    const bucket = opts.bucketFor?.(symbol) ?? defaultLiqBucket(Number(row.prints[0]?.price));
+    opts.onFlush(symbol, aggregateLiqPrints(row.prints, bucket), ts);
+  }
+
+  function push(symbol: string, prints: LiqPrint[], now = Date.now()) {
+    if (prints.length === 0) return;
+    let row = pending.get(symbol);
+    if (!row) {
+      row = { prints: [], timer: null };
+      pending.set(symbol, row);
+    }
+    row.prints.push(...prints);
+    const every = opts.everyMs?.() ?? DEFAULT_RELAY_LIQ_MS;
+    if (every <= 0 || row.prints.length >= flushCount) {
+      flush(symbol, now);
+      return;
+    }
+    if (!row.timer) {
+      row.timer = setTimeout(() => flush(symbol), every);
+    }
+  }
+
+  function flushAll(now = Date.now()) {
+    for (const symbol of [...pending.keys()]) flush(symbol, now);
+  }
+
+  return { push, flush, flushAll };
 }
 
 /** ticker.BTCUSDT | ticker.* | liq.BTCUSDT | kline.15.BTCUSDT | kline.240.* */

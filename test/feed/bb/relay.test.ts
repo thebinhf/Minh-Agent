@@ -6,6 +6,8 @@ import { openDb } from "../../../src/feed/bb/db";
 import { startHttp } from "../../../src/feed/bb/http";
 import {
   RELAY_NOTE,
+  aggregateLiqPrints,
+  createLiqRelayBatch,
   createRelay,
   parseRelayArg,
   topicMatches,
@@ -108,3 +110,52 @@ describe("local /ws relay", () => {
 function bunSleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+describe("liq relay batch", () => {
+  test("aggregates same-bucket prints and keeps sides", () => {
+    const got = aggregateLiqPrints([
+      { symbol: "BTCUSDT", side: "Buy", price: "99000", size: "2", exchTs: 1 },
+      { symbol: "BTCUSDT", side: "Buy", price: "99020", size: "3", exchTs: 2 },
+      { symbol: "BTCUSDT", side: "Sell", price: "101000", size: "4", exchTs: 3 },
+    ], 50);
+    expect(got.count).toBe(3);
+    expect(got.longSize).toBe("5");
+    expect(got.shortSize).toBe("4");
+    expect(got.bins).toEqual([
+      { price: "101000", longSize: "0", shortSize: "4", count: 1 },
+      { price: "99000", longSize: "5", shortSize: "0", count: 2 },
+    ]);
+  });
+
+  test("coalesces until the window, flushes immediately at 8 prints", () => {
+    const flushed: Array<{ symbol: string; count: number }> = [];
+    const batch = createLiqRelayBatch({
+      everyMs: () => 60_000,
+      onFlush: (symbol, payload) => flushed.push({ symbol, count: payload.count }),
+    });
+    const print = { symbol: "BTCUSDT", side: "Buy" as const, price: "100000", size: "1", exchTs: 1 };
+    batch.push("BTCUSDT", [print, print, print]);
+    expect(flushed).toEqual([]);
+    batch.flush("BTCUSDT");
+    expect(flushed).toEqual([{ symbol: "BTCUSDT", count: 3 }]);
+
+    const eight = Array.from({ length: 8 }, () => print);
+    batch.push("ETHUSDT", eight);
+    expect(flushed).toEqual([
+      { symbol: "BTCUSDT", count: 3 },
+      { symbol: "ETHUSDT", count: 8 },
+    ]);
+  });
+
+  test("everyMs 0 flushes on the first push", () => {
+    const flushed: number[] = [];
+    const batch = createLiqRelayBatch({
+      everyMs: () => 0,
+      onFlush: (_symbol, payload) => flushed.push(payload.count),
+    });
+    batch.push("BTCUSDT", [
+      { symbol: "BTCUSDT", side: "Buy", price: "1", size: "1", exchTs: 1 },
+    ]);
+    expect(flushed).toEqual([1]);
+  });
+});
