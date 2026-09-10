@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, reclaimSqlite, snapshotDue, SQLITE_CACHE_KIB, SQLITE_WAL_AUTOCHECKPOINT } from "../../../src/feed/bb/db";
+import { reclaimWal } from "../../../src/sqlite";
 
 const dirs: string[] = [];
 
@@ -20,6 +21,22 @@ function tempDb() {
 }
 
 describe("sqlite storage", () => {
+  test("reclaimWal skips TRUNCATE when PASSIVE is busy", () => {
+    const busyDb = {
+      prepare(sql: string) {
+        expect(sql).toBe("PRAGMA wal_checkpoint(PASSIVE)");
+        return { get: () => ({ busy: 1, log: 40, checkpointed: 0 }) };
+      },
+      exec(sql: string) {
+        expect(sql).toBe("PRAGMA shrink_memory;");
+      },
+    };
+    const got = reclaimWal(busyDb as never);
+    expect(got.truncated).toBe(false);
+    expect(got.truncate).toBeNull();
+    expect(got.passive.busy).toBe(1);
+  });
+
   test("snapshotDue: 0 disables; interval fires once then waits", () => {
     expect(snapshotDue(0, undefined, 1000)).toBe(false);
     expect(snapshotDue(-1, undefined, 1000)).toBe(false);
@@ -104,6 +121,8 @@ describe("sqlite storage", () => {
     raw.close();
     expect(result.vacuumed).toBe(false);
     expect(result.pageCount).toBeGreaterThan(0);
+    expect(result.walBusy).toBe(0);
+    expect(result.walTruncated).toBe(true);
   });
 
   test("latestKlines returns the newest start_ts per symbol/interval", () => {
