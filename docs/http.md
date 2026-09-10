@@ -1,0 +1,207 @@
+# HTTP API
+
+Two localhost binds. JSON, `cache-control: no-store`, CORS `*`. No auth. No live orders.
+
+| Bind | Process | Methods |
+| --- | --- | --- |
+| `http://127.0.0.1:43180` | Feed — public market cache | `GET`, `OPTIONS` |
+| `http://127.0.0.1:43181` | Paper — simulated broker | `GET`, `POST`, `OPTIONS` |
+
+Unknown path → `404` `{ "error": "not found" }`. Wrong method → `405` `{ "error": "method not allowed" }`.
+
+Prices, qty, and money are **decimal strings**. Timestamps are epoch **ms**.
+
+---
+
+## Feed (`:43180`)
+
+Read-only SQLite cache. Does not arm paper.
+
+### `GET /health`
+
+WS + ticker ages + kline lag (15/60/240).
+
+`ok` is ticker/WS freshness, **not** kline lag. Use `klineLag.ok` (and paper `gates.tradingAllowed`) before drawing HTF.
+
+### `GET /map`
+
+HTF MAP. No 15m.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` / `symbols` | watchlist (10) | Cap 10. Over cap → `400` `{ "error": "map_symbols", "cap": 10 }` |
+
+One symbol → a single map object. Several / watchlist → `{ ts, maps, klineLag, meta }`.
+
+Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240).
+
+```bash
+curl -sS http://127.0.0.1:43180/map
+curl -sS 'http://127.0.0.1:43180/map?symbol=BTCUSDT'
+```
+
+### `GET /map-latest`
+
+Last 1H/4H dump (`map-latest.json`). `404` `{ "error": "map_latest_missing" }` until the first confirmed close.
+
+### `GET /zones`
+
+Suggest-only zone-cards from local HTF klines. **Does not arm.**
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` / `symbols` | watchlist | Cap 10 → `400` `map_symbols` |
+| `interval` | `240` | `240` or `60`. Else `400` `{ "error": "zones_interval", "allowed": ["240","60"] }` |
+
+Body: `{ ts, symbols, interval, zones, klineLag, meta }`. `meta.suggestOnly` is `true`. Cap 2 cards/symbol from the detector.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/zones?interval=240'
+```
+
+### `GET /confirm`
+
+Optional LTF snapshot (scalp). Not required to hold an OCO zone.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT` | |
+| `interval` | `15` | `15` or `5`. Else `400` `{ "error": "confirm_interval", "allowed": ["15","5"] }` |
+
+Ticker + 20 klines. No depth, no HTF, no S/D.
+
+### `GET /brief`
+
+One-symbol snapshot for Minh: ticker + 15/60/240. Unchanged. Default symbol `BTCUSDT`. Not the MAP candle source.
+
+### `GET /brief-pack`
+
+Tickers + kline lag + `gates` + paper desk + **accepted** ledger zones.
+
+| Query | Default |
+| --- | --- |
+| `symbol` | all watchlist tickers |
+
+`gates.tradingAllowed` is false when WS is down and/or `klineLag.ok` is false. Positions have no `unrealizedPnl`. `zones` is the paper ledger, not `GET /zones`.
+
+### `GET /chart`
+
+Stitched OHLCV.
+
+| Query | Notes |
+| --- | --- |
+| `symbol` | |
+| `interval` | |
+| `limit` | |
+| `start` `end` | epoch ms |
+
+### `GET /depth`
+
+Live L50 ladder. Query: `symbol`.
+
+### `GET /heatmap`
+
+Book snapshots + live book. Query: `symbol`, `limit`, `start`, `end`, `bucket` (price bucket; omit = raw).
+
+### `GET /market`
+
+One payload: ticker + chart + depth + heatmap.
+
+| Query | Notes |
+| --- | --- |
+| `symbol` `interval` `limit` | chart |
+| `heatmapLimit` `bucket` | heatmap |
+
+### Raw cache
+
+| Route | Query | Body |
+| --- | --- | --- |
+| `GET /tickers` | `symbol?` | `{ tickers }` |
+| `GET /orderbooks` | `symbol?` | `{ orderbooks }` L50 |
+| `GET /klines` | `symbol?` `interval?` `limit?` `confirm?` `start?` `end?` | `{ klines }` |
+| `GET /kline-stats` | `symbol?` `interval?` | `{ stats }` |
+| `GET /meta` | | `{ meta }` |
+
+`confirm` is `1`/`true` or `0`/`false`.
+
+---
+
+## Paper (`:43181`)
+
+Simulation only. Fills from `:43180`. `mode: "paper"` on mutating responses.
+
+Rejects: `400` `{ "mode": "paper", "error", "gate", … }` except `not_found` → `404`, `already_closed` → `409`.
+
+New open / limit / arm reject when feed WS is down (`feed_unhealthy`) or `klineLag.ok` is false (`kline_lag`). Open positions are **not** auto-closed.
+
+### Health and desk
+
+| Route | Notes |
+| --- | --- |
+| `GET /paper/health` | `{ ok, mode, feed, account, gates }` |
+| `GET /paper/account` | Equity, cash, risk band, leverage |
+| `GET /paper/status` | Account + pending + open + alerts + recent events |
+| `GET /paper/event` | EVENT desk: pending OCO + armed alerts + open + accepted zones. Do not poll `/confirm` |
+| `GET /paper/day?day=YYYY-MM-DD` | UTC session fills / OCO / closes (`day` default today) |
+| `GET /paper/week` | 7-day metrics + standing ledger |
+| `GET /paper/metrics?days=N` | Funnel detected→accepted→armed→touched→filled. `days` 1–365, default 7 |
+| `GET /paper/events?limit=N` | Default 50 |
+
+### Zones (ledger)
+
+`GET /zones` on the feed is suggest-only. This is the **accepted** paper list.
+
+| Route | Body / query |
+| --- | --- |
+| `GET /paper/zones` | `status=accepted\|rejected\|expired\|all` (default `accepted`) |
+| `POST /paper/zones` | `{ "zoneId": "btc-4h-s-…" }` (looks up feed `/zones`) **or** a full zone-card. `201` |
+| `POST /paper/zones/:zoneId/reject` | optional `{ "code" }` default `ops_cancel` |
+
+Cap 2 accepted / symbol. Duplicate → `duplicate_zone`. Does **not** arm.
+
+### Arm / limit / alert
+
+Shared open fields: `symbol`, `side` (`long`\|`short`), `stopLoss`, `takeProfit` or `takeProfits: [{ price, qtyPct }]`, `timeframes` (≥2), optional `riskPct`, `leverage`, `note`, `zoneId`.
+
+| Route | Body | Notes |
+| --- | --- | --- |
+| `POST /paper/arm` | open fields + `limitPrice`; optional `postOnly`, `oco`, `invalidatePrice`, `alertPrice`, `alertOp` | Limit + fire-once alert. `201` |
+| `POST /paper/orders` | same without alert | Resting GTC. `201` |
+| `GET /paper/orders` | `status=pending\|filled\|cancelled\|rejected\|invalidated\|all` | Default `pending` |
+| `POST /paper/orders/:id/cancel` | | |
+| `POST /paper/alerts` | `{ symbol, op: above\|below, price, note? }` | `201` |
+| `GET /paper/alerts` | `status=armed\|fired\|cancelled\|all` | Default `armed` |
+| `POST /paper/alerts/:id/cancel` | | |
+
+`postOnly` and `oco` default **true**. Long alert defaults `--below` at `limitPrice`; short `--above`.
+
+OCO: last through `invalidatePrice` (default SL) **before** the limit → `order.invalidated`, no fill. After fill, SL/TP run on the position.
+
+### Positions
+
+| Route | Notes |
+| --- | --- |
+| `GET /paper/positions?status=open\|closed\|all` | Default `open` |
+| `POST /paper/positions` | Market-style open at last. `201` |
+| `POST /paper/positions/:id/close` | Manual close at last |
+| `POST /paper/mark` | Tick: expire zones, fire alerts, OCO, fill limits, mark SL/TP/funding |
+
+```bash
+curl -sS http://127.0.0.1:43181/paper/event
+curl -sS -X POST http://127.0.0.1:43181/paper/zones \
+  -H 'content-type: application/json' \
+  -d '{"zoneId":"btc-4h-s-20260908-01"}'
+curl -sS http://127.0.0.1:43181/paper/week
+```
+
+---
+
+## Loop → routes
+
+| State | Feed | Paper |
+| --- | --- | --- |
+| MAP (4H close) | `GET /map`, `GET /zones` | `POST /paper/zones` (also automatic when `MAP_ACCEPT` is on) |
+| ARM | — | tick / `POST /paper/arm` |
+| EVENT | optional `GET /confirm` | `GET /paper/event` |
+
+Playbook: [operator.md](operator.md). Paper spec: [paper-trading.md](paper-trading.md). Feed internals: [exchanges/BB.md](exchanges/BB.md).

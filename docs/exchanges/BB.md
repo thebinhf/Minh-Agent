@@ -46,7 +46,7 @@ bun test
 bun run start
 ```
 
-HTTP (read-only):
+HTTP (read-only `127.0.0.1:43180`; full contract: [http.md](../http.md)):
 
 - `GET /health` — WS + ticker ages + `klineLag` (15/60/240 per symbol)
 - `GET /brief?symbol=BTCUSDT` — one snapshot for Minh (ticker + 15/60/240)
