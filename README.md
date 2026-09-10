@@ -92,6 +92,8 @@ bun run paper week            # 7-day funnel
 
 ### Feed (`127.0.0.1:43180`)
 
+Full contract: [docs/http.md](docs/http.md).
+
 | Route | Use |
 | --- | --- |
 | `GET /map` | HTF MAP + `klineLag` (watchlist, cap 10) |
@@ -121,7 +123,7 @@ bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 \
 
 Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`. Slippage 0.
 
-HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`.
+HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`. See [docs/http.md](docs/http.md).
 
 Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](docs/paper-trading.md).
 
@@ -149,6 +151,7 @@ CI is GitHub Actions on `main` and PRs (no daemon, no keys). See [docs/ci.md](do
 
 | Doc | Content |
 | --- | --- |
+| [docs/http.md](docs/http.md) | HTTP API (`:43180` / `:43181`) |
 | [docs/operator.md](docs/operator.md) | MAP / ARM / EVENT |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers |
 | [docs/paper-trading.md](docs/paper-trading.md) | Paper spec |

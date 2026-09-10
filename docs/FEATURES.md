@@ -50,9 +50,9 @@ Verify against `src/` before treating older PRs as product scope.
 
 | Doc | Purpose |
 | --- | --- |
+| [http.md](http.md) | HTTP API (`:43180` feed, `:43181` paper) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layers |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
 | [paper-trading.md](paper-trading.md) | Paper spec (risk, fees, OCO, replay) |
 | [operator.md](operator.md) | MAP / ARM / EVENT. EVENT is OCO, not `/confirm` |
 | [ci.md](ci.md) | Actions gate + host restart |
-| [ci.md](ci.md) | GitHub Actions CI + host systemd restart (no live keys) |

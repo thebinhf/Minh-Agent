@@ -1,6 +1,6 @@
 # Operator loop — Minh Agent
 
-Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
+Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week. HTTP: [http.md](http.md).
 
 ## Three states
 

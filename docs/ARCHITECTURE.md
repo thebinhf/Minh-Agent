@@ -15,6 +15,8 @@ Feed HTTP never imports paper. The composition root:
 2. On confirmed **4H** `map.close`, copies `GET /zones` into the paper ledger (`MAP_ACCEPT=0` off)
 3. Paper tick proximity-arms accepted cards (`PAPER_PROXIMITY_ARM=0` off)
 
+HTTP contract: [http.md](http.md).
+
 ## Layout
 
 | Path | Purpose |
