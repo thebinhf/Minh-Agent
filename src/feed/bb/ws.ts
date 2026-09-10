@@ -1,6 +1,7 @@
 import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
+import { parseLiqPrints } from "./liq";
 import { fillKlineGaps, fillOiGaps, fillFundingGaps } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
@@ -318,6 +319,13 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       const candles = Array.isArray(msg.data) ? (msg.data as BybitKline[]) : [];
       for (const candle of candles) {
         store.saveKline(parsed.symbol, candle, now);
+      }
+      return;
+    }
+
+    if (parsed.kind === "liquidation") {
+      for (const print of parseLiqPrints(msg.data, parsed.symbol)) {
+        store.saveLiquidation(print, now);
       }
     }
   };

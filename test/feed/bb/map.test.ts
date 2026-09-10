@@ -66,6 +66,8 @@ function expectMapShape(map: SnapshotMap, symbol = "BTCUSDT") {
   expect(map.oi.trend === null || typeof map.oi.trend === "string").toBe(true);
   expect(map.funding.note).toBe("quant veto — not a signal");
   expect(Array.isArray(map.funding.bars)).toBe(true);
+  expect(map.liq.note).toBe("quant veto — not a signal");
+  expect(typeof map.liq.cascade).toBe("boolean");
 }
 
 describe("parseMapArgs / buildMap", () => {

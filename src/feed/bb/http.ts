@@ -6,6 +6,7 @@ import { buildZones } from "./zones";
 import { parseZoneInterval } from "../../zones/detect";
 import { buildOi } from "./oi";
 import { buildFunding } from "./funding";
+import { buildLiqHeatmap } from "./liq";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
@@ -246,6 +247,24 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
               nextFundingTime: ticker.next_funding_time == null ? null : String(ticker.next_funding_time),
             }
             : undefined,
+        }));
+      }
+
+      if (path === "/liq-heatmap") {
+        const symbol = url.searchParams.get("symbol");
+        const hoursRaw = url.searchParams.get("hours");
+        const bucketRaw = url.searchParams.get("bucket");
+        const hours = hoursRaw ? Number(hoursRaw) : undefined;
+        const bucket = bucketRaw ? Number(bucketRaw) : Number.NaN;
+        const ticker = store.listTickers(symbol ?? "BTCUSDT")[0] as
+          | { last_price?: unknown }
+          | undefined;
+        return json(buildLiqHeatmap(store, {
+          symbol,
+          dbPath: config.dbPath,
+          hours: hours != null && Number.isFinite(hours) ? hours : undefined,
+          bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
+          lastPrice: ticker?.last_price == null ? null : String(ticker.last_price),
         }));
       }
 
