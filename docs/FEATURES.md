@@ -25,7 +25,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Proximity ARM | Live | Tick rests post-only OCO when last is in the proximal band of an **accepted** card. `PAPER_PROXIMITY_ARM=0` off. No chase through entry. |
 | LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). Optional scalp after HTF is armed. EVENT itself is OCO/tick (`/paper/event`). |
 | MAP close | Live | Confirmed 1H/4H → `map-latest.json` + optional webhook. 4H auto-accepts `/zones` via MAP_ACCEPT pick then agent policy (`MAP_ACCEPT=0` off = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs). No auto-arm. `MAP_CLOSE=0` off. |
-| MAP policy agent | Live | `src/agent/` — 4H HH/HL=bull, LH/LL=bear, mixed=chop; 1H must not oppose 4H. Quant veto is one flow (`quantVeto`: cascade → crowded → opposing OI add). `AGENT_QUANT=0` skips it. Paper-only. `/map` unchanged. |
+| MAP policy agent | Live | `src/agent/` — 4H HH/HL=bull, LH/LL=bear. `quantVeto`: cascade + crowded at accept and ARM; opposing OI add is accept-only (ARM treats zone fill as the add). `AGENT_QUANT=0` off. Paper-only. |
 | EVENT desk | Live | `bun run paper event` / `GET /paper/event` — pending OCO + alerts + accepted zones. Do not poll `/confirm`. |
 | Paper week | Live | `bun run paper week` / `GET /paper/week` — 7-day metrics + standing ledger + funnel.accepted. |
 | Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger zones. Additive. No auto-arm. |
