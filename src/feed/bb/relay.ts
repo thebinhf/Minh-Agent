@@ -1,4 +1,4 @@
-import { defaultLiqBucket, type LiqPrint } from "./liq";
+import { defaultLiqBucket, LIQ_SIDE_RATIO, type LiqPrint } from "./liq";
 
 export const RELAY_NOTE = "local push — not Bybit";
 export const RELAY_MAX_CLIENTS = 16;
@@ -6,6 +6,8 @@ export const RELAY_MAX_TOPICS = 32;
 export const DEFAULT_RELAY_TICKER_MS = 1_000;
 export const DEFAULT_RELAY_LIQ_MS = 1_000;
 export const RELAY_LIQ_FLUSH_COUNT = 8;
+export const RELAY_LIQ_HARD_COUNT = 32;
+export const RELAY_LIQ_QUIET_COUNT = 3;
 export const RELAY_LIQ_MAX_BINS = 32;
 
 export type RelayPush = {
@@ -52,6 +54,23 @@ export type LiqRelayPayload = {
   count: number;
 };
 
+/** Immediate flush: same-side burst (≥8, 70%) or hard cap 32. Mixed tape waits the window. */
+export function liqRelayBurst(prints: LiqPrint[], minCount = RELAY_LIQ_FLUSH_COUNT): boolean {
+  if (prints.length >= RELAY_LIQ_HARD_COUNT) return true;
+  if (prints.length < minCount) return false;
+  let long = 0;
+  let short = 0;
+  for (const print of prints) {
+    const n = Number(print.size);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (print.side === "Buy") long += n;
+    else short += n;
+  }
+  const total = long + short;
+  if (!(total > 0)) return false;
+  return Math.max(long, short) / total >= LIQ_SIDE_RATIO;
+}
+
 /** Merge prints into price bins. Relay payload — not the SQLite ledger. */
 export function aggregateLiqPrints(prints: LiqPrint[], bucket: number): LiqRelayPayload {
   const bins = new Map<string, { long: number; short: number; count: number }>();
@@ -96,7 +115,11 @@ export function createLiqRelayBatch(opts: {
   flushCount?: number;
   bucketFor?: (symbol: string) => number;
 }) {
-  const pending = new Map<string, { prints: LiqPrint[]; timer: ReturnType<typeof setTimeout> | null }>();
+  const pending = new Map<string, {
+    prints: LiqPrint[];
+    timer: ReturnType<typeof setTimeout> | null;
+    extended: boolean;
+  }>();
   const flushCount = opts.flushCount ?? RELAY_LIQ_FLUSH_COUNT;
 
   function flush(symbol: string, ts = Date.now()) {
@@ -108,21 +131,34 @@ export function createLiqRelayBatch(opts: {
     opts.onFlush(symbol, aggregateLiqPrints(row.prints, bucket), ts);
   }
 
+  function onTimer(symbol: string) {
+    const row = pending.get(symbol);
+    if (!row) return;
+    row.timer = null;
+    if (row.prints.length < RELAY_LIQ_QUIET_COUNT && !row.extended) {
+      row.extended = true;
+      const every = opts.everyMs?.() ?? DEFAULT_RELAY_LIQ_MS;
+      row.timer = setTimeout(() => onTimer(symbol), Math.max(every, 1));
+      return;
+    }
+    flush(symbol);
+  }
+
   function push(symbol: string, prints: LiqPrint[], now = Date.now()) {
     if (prints.length === 0) return;
     let row = pending.get(symbol);
     if (!row) {
-      row = { prints: [], timer: null };
+      row = { prints: [], timer: null, extended: false };
       pending.set(symbol, row);
     }
     row.prints.push(...prints);
     const every = opts.everyMs?.() ?? DEFAULT_RELAY_LIQ_MS;
-    if (every <= 0 || row.prints.length >= flushCount) {
+    if (every <= 0 || liqRelayBurst(row.prints, flushCount)) {
       flush(symbol, now);
       return;
     }
     if (!row.timer) {
-      row.timer = setTimeout(() => flush(symbol), every);
+      row.timer = setTimeout(() => onTimer(symbol), every);
     }
   }
 
