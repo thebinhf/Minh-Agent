@@ -28,3 +28,15 @@ export {
   type PolicyDecision,
   type PolicyReason,
 } from "./policy";
+
+export {
+  QUANT_REASONS,
+  agentQuantEnabled,
+  quantVeto,
+  readMapQuant,
+  tapeFromMapItem,
+  type QuantCascade,
+  type QuantDecision,
+  type QuantReason,
+  type QuantTape,
+} from "./quant";

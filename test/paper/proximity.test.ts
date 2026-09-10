@@ -7,6 +7,7 @@ import type { ZoneCard } from "../../src/zones/card";
 
 const dirs: string[] = [];
 const saved = process.env.PAPER_PROXIMITY_ARM;
+const savedQuant = process.env.AGENT_QUANT;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -14,6 +15,8 @@ afterEach(() => {
   }
   if (saved === undefined) delete process.env.PAPER_PROXIMITY_ARM;
   else process.env.PAPER_PROXIMITY_ARM = saved;
+  if (savedQuant === undefined) delete process.env.AGENT_QUANT;
+  else process.env.AGENT_QUANT = savedQuant;
 });
 
 async function engineWithLev(feed = mockFeed(), leverage = "10") {
@@ -106,5 +109,23 @@ describe("proximity arm", () => {
     expect(marked.proximity.rejected).toEqual(["btc-4h-s-20260908-01"]);
     expect(ctx.engine.zones("accepted")).toEqual([]);
     expect(ctx.engine.zones("rejected")[0]?.rejectCode).toBe("htf_break");
+  });
+
+  test("quant cascade waits — does not arm and does not reject the card", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.AGENT_QUANT;
+    const feed = mockFeed({ lastPrice: "79280", markPrice: "79280" });
+    feed.quant = async () => ({
+      crowded: null,
+      oiReading: null,
+      cascade: { active: true, side: "short", fuel: "6" },
+    });
+    const ctx = await engineWithLev(feed);
+    ctx.engine.acceptZone(SUPPLY);
+    const marked = await ctx.engine.mark();
+    expect(marked.proximity.armed).toEqual([]);
+    expect(marked.proximity.rejected).toEqual([]);
+    expect(ctx.engine.orders("pending")).toEqual([]);
+    expect(ctx.engine.zones("accepted")).toHaveLength(1);
   });
 });

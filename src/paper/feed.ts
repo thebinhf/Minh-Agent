@@ -1,4 +1,5 @@
-import type { PaperFeed, PaperFeedHealth, PaperKlineSnap, PaperTicker } from "./types";
+import type { PaperFeed, PaperFeedHealth, PaperKlineSnap, PaperQuantTape, PaperTicker } from "./types";
+import { tapeFromMapItem } from "../agent/quant";
 
 function asText(value: unknown): string | null {
   if (value == null || value === "") return null;
@@ -85,6 +86,19 @@ export function httpFeed(feedUrl: string): PaperFeed {
         startTs: asTs(row.start_ts),
         confirm: asConfirm(row.confirm),
       };
+    },
+
+    async quant(symbol: string): Promise<PaperQuantTape | null> {
+      const params = new URLSearchParams({ symbol });
+      try {
+        const res = await fetch(`${base}/map?${params}`);
+        if (!res.ok) return null;
+        const body = await res.json() as { maps?: unknown[] };
+        const item = body.maps?.[0] ?? body;
+        return tapeFromMapItem(item);
+      } catch {
+        return null;
+      }
     },
   };
 }

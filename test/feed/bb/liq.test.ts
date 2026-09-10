@@ -53,7 +53,7 @@ describe("liq prints", () => {
   });
 });
 
-describe("liq cascade v2", () => {
+describe("liq cascade", () => {
   test("mixed sides are not a cascade even when the burst is huge", () => {
     const got = liqCascade({
       now,

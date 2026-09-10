@@ -9,6 +9,7 @@ import { HEALTH_OK, mapPayload } from "./htf";
 const dirs: string[] = [];
 const savedAccept = process.env.MAP_ACCEPT;
 const savedAgent = process.env.AGENT_MAP;
+const savedQuant = process.env.AGENT_QUANT;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -18,6 +19,8 @@ afterEach(() => {
   else process.env.MAP_ACCEPT = savedAccept;
   if (savedAgent === undefined) delete process.env.AGENT_MAP;
   else process.env.AGENT_MAP = savedAgent;
+  if (savedQuant === undefined) delete process.env.AGENT_QUANT;
+  else process.env.AGENT_QUANT = savedQuant;
 });
 
 const SUPPLY: ZoneCard = {
@@ -131,6 +134,20 @@ describe("MAP policy", () => {
     expect(decideMapAccept({
       card: SUPPLY, bias: bear, last: 80_000, tradingAllowed: true,
     }).reason).toBe("htf_break");
+  });
+
+  test("quant cascade on demand is a veto; AGENT_QUANT=0 skips it", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.AGENT_QUANT;
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    const tape = { crowded: null, oiReading: null, cascade: { active: true, side: "long" as const, fuel: "9" } };
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true, tape,
+    }).reason).toBe("quant_cascade");
+    process.env.AGENT_QUANT = "0";
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true, tape,
+    }).reason).toBe("ok");
   });
 });
 

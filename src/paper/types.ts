@@ -78,11 +78,23 @@ export type PaperFeedHealth = {
   klineLagOk?: boolean;
 };
 
+export type PaperQuantTape = {
+  crowded: "long" | "short" | null;
+  oiReading: "long_add" | "short_add" | "cover" | "flush" | null;
+  cascade: {
+    active: boolean;
+    side: "long" | "short" | null;
+    fuel: string;
+  } | null;
+};
+
 export type PaperFeed = {
   health(): Promise<PaperFeedHealth>;
   ticker(symbol: string): Promise<PaperTicker | null>;
   tickers(): Promise<PaperTicker[]>;
   lastKline(symbol: string, interval: string): Promise<PaperKlineSnap | null>;
+  /** Optional /map tape for the single quant veto. Missing = do not invent. */
+  quant?(symbol: string): Promise<PaperQuantTape | null>;
 };
 
 export type PaperAccountRow = {
