@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, reclaimSqlite, snapshotDue } from "../../../src/feed/bb/db";
+import { openDb, reclaimSqlite, snapshotDue, SQLITE_CACHE_KIB, SQLITE_WAL_AUTOCHECKPOINT } from "../../../src/feed/bb/db";
 
 const dirs: string[] = [];
 
@@ -26,6 +26,20 @@ describe("sqlite storage", () => {
     expect(snapshotDue(5000, undefined, 1000)).toBe(true);
     expect(snapshotDue(5000, 1000, 5999)).toBe(false);
     expect(snapshotDue(5000, 1000, 6000)).toBe(true);
+  });
+
+  test("caps page cache, disables mmap, and limits WAL", () => {
+    const { store } = tempDb();
+    const cache = store.raw.prepare("PRAGMA cache_size").get() as Record<string, number>;
+    const mmap = store.raw.prepare("PRAGMA mmap_size").get() as Record<string, number>;
+    const wal = store.raw.prepare("PRAGMA wal_autocheckpoint").get() as Record<string, number>;
+    const cacheVal = Number(cache.cache_size ?? Object.values(cache)[0]);
+    const mmapVal = Number(mmap.mmap_size ?? Object.values(mmap)[0]);
+    const walVal = Number(wal.wal_autocheckpoint ?? Object.values(wal)[0]);
+    expect(cacheVal).toBe(-SQLITE_CACHE_KIB);
+    expect(mmapVal).toBe(0);
+    expect(walVal).toBe(SQLITE_WAL_AUTOCHECKPOINT);
+    store.close();
   });
 
   test("drops the redundant klines DESC index (PK already covers lookup)", () => {
