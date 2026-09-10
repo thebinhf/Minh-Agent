@@ -93,13 +93,28 @@ export function readMapQuant(map: unknown): Map<string, QuantTape> {
   return out;
 }
 
+function demandLong(side: ZoneSide): boolean {
+  switch (side) {
+    case "demand":
+      return true;
+    case "supply":
+      return false;
+    default: {
+      const _exhaustive: never = side;
+      return _exhaustive;
+    }
+  }
+}
+
 /**
- * One flow. Cascade and crowded at both gates.
+ * One flow. Cascade and crowded at MAP accept, proximity ARM, and pending fill.
  * Opposing OI add (`short_add` vs demand / `long_add` vs supply) is MAP-accept
- * only — at ARM, last is already in the zone and that add is the fill, not a knife.
- * Opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply) is the same accept-only
- * branch — ARM skips it like OI add.
+ * only — at ARM / pending fill, last is already in the zone and that add is the
+ * fill, not a knife. Opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply)
+ * is the same accept-only branch.
  * cover/flush confirm cascade; they are not a second veto.
+ * Cascade `active` with `side: null` is not a veto. Missing tape / missing
+ * `flow.reading` is not a veto.
  */
 export function quantVeto(
   side: ZoneSide,
@@ -109,7 +124,7 @@ export function quantVeto(
   if (!agentQuantEnabled()) return { allow: true, reason: "ok" };
   if (!tape) return { allow: true, reason: "ok" };
 
-  const long = side === "demand";
+  const long = demandLong(side);
   const cascade = tape.cascade;
   if (cascade?.active && cascade.side === (long ? "long" : "short")) {
     return { allow: false, reason: "quant_cascade" };

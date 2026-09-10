@@ -8,7 +8,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 | --- | --- | --- | --- |
 | **MAP** | 1H/4H close | Dump `/map`. **4H** MAP_ACCEPT pick → agent policy → ledger (`MAP_ACCEPT=0` = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs) | Override: `paper zone accept` / `reject`. Mid-range → stand aside (do not close opens). Stale `klineLag` / `gates.tradingAllowed` false → no accept / no new arm |
 | **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off) | Manual `paper arm` still works. Then **quiet** |
-| **EVENT** | Pending limit / open position | Tick: OCO invalidate-before-fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
+| **EVENT** | Pending limit / open position | Tick: zone-bind pending (expire / deep / HTF), OCO invalidate-before-fill, cascade/crowded hold fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
 
 ## MAP
 
@@ -24,7 +24,7 @@ Bias (from `/map` klines, not a `/map` field): 4H HH/HL = bull, LH/LL = bear, mi
 
 `MAP_ACCEPT=0` turns off the **old accept path** (no auto-copy). `AGENT_MAP=0` is a **policy no-op** — ungated P5 `runMapAccept` still copies if `MAP_ACCEPT` is on. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` (bypasses agent policy). `/zones` itself does **not** arm.
 
-Quant is a **single in-process veto** (`quantVeto`). Cascade and crowded at MAP **and** ARM. Opposing OI add (`short_add` vs demand / `long_add` vs supply) and opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply on `/map.flow`) are **MAP accept only** — at ARM that add/flow is the zone fill. Same-side add is never a veto. `cover`/`flush` confirm cascade. Demand + `liq.cascade.active && side=long` → wait reclaim (do not reject the zone). Crowded long blocks demand, not a short signal. `AGENT_QUANT=0` skips. Missing tape is not a veto. `GET /liq-model` is a labeled estimate — do not arm from it. `/heatmap` is the book grid, not CVD.
+Quant is a **single in-process veto** (`quantVeto`). Cascade and crowded at MAP **accept**, proximity **ARM**, and **pending fill**. Opposing OI add (`short_add` vs demand / `long_add` vs supply) and opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply on `/map.flow`) are **MAP accept only** — at ARM / while the OCO rests that add/flow is the zone fill. Same-side add is never a veto. `cover`/`flush` confirm cascade; they are not a second veto. Cascade `active` with `side: null` is not a veto. Demand + `liq.cascade.active && side=long` → wait reclaim (do not reject the zone; skip the fill this tick, keep the pending). Crowded long blocks demand, not a short signal. `AGENT_QUANT=0` skips. Missing tape / missing `flow.reading` is not a veto. `GET /liq-model` is a labeled estimate — do not arm from it. `/heatmap` is the book grid, not CVD.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 
@@ -50,6 +50,8 @@ Account seed: risk 2%, `minRr` **2** (config, not an engine constant). Engine st
 ## EVENT
 
 EVENT is **OCO + tick**. Do not poll `/confirm` / `/brief` / 30-minute scan. Pending limit invalidates itself; fill/SL/TP fire as events.
+
+Bound pending (`zoneId` on an accepted ledger card) dies with the zone: expiry, `deep_mitigate` (≥50% into the zone after rest), `htf_break` (through SL), or operator `paper zone reject` cancel the resting limit **and** the matching armed alert (`order.invalidated` carries that `cancelCode`). Cascade/crowded still **wait** — skip fill this tick, keep the pending, do not reject the card. Unzoned `paper limit` / `--no-oco` unchanged. Do not auto-close opens.
 
 ```text
 bun run paper event

@@ -3,7 +3,7 @@ import { paperArm } from "./ops";
 import type { PaperEngine } from "./engine";
 import type { PaperKlineSnap, PaperQuantTape } from "./types";
 import { quantVeto } from "../agent/quant";
-import type { ZoneCard } from "../zones/card";
+import type { CancelCode, ZoneCard, ZoneSide } from "../zones/card";
 import {
   armSide,
   armTimeframes,
@@ -34,14 +34,46 @@ export function confirm15Bar(card: ZoneCard, bar: PaperKlineSnap | null | undefi
   const open = Number(bar.open);
   const close = Number(bar.close);
   if (!Number.isFinite(open) || !Number.isFinite(close) || open === close) return "wait";
-  if (card.side === "demand") {
-    if (!(close > open)) return "wait";
-    if (close > card.proximal || close <= card.entry) return "wait";
-    return "ok";
+  switch (card.side) {
+    case "demand":
+      if (!(close > open)) return "wait";
+      if (close > card.proximal || close <= card.entry) return "wait";
+      return "ok";
+    case "supply":
+      if (!(close < open)) return "wait";
+      if (close < card.proximal || close >= card.entry) return "wait";
+      return "ok";
+    default: {
+      const _exhaustive: never = card.side;
+      return _exhaustive;
+    }
   }
-  if (!(close < open)) return "wait";
-  if (close < card.proximal || close >= card.entry) return "wait";
-  return "ok";
+}
+
+/** Deep / HTF on a resting zoned OCO. `wait` through entry still fills. */
+export function pendingProximityReject(card: ZoneCard, last: number): Extract<CancelCode, "deep_mitigate" | "htf_break"> | null {
+  const decision = proximityDecision(card, last);
+  switch (decision) {
+    case "deep":
+      return "deep_mitigate";
+    case "invalid":
+      return "htf_break";
+    case "wait":
+    case "arm":
+      return null;
+    default: {
+      const _exhaustive: never = decision;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Cascade / crowded hold a pending fill the same way ARM waits.
+ * OI add and CVD stay accept-only — they do not skip a resting fill.
+ */
+export function pendingQuantSkipFill(side: ZoneSide, tape: PaperQuantTape | null | undefined): boolean {
+  return !quantVeto(side, tape, "arm").allow;
 }
 
 /**
@@ -76,16 +108,23 @@ export async function runProximityArm(
     const last = lastBySymbol.get(card.symbol);
     if (last == null) continue;
     const decision = proximityDecision(card, last);
-    if (decision === "wait") continue;
-    if (decision === "deep") {
-      engine.rejectZone(card.zoneId, "deep_mitigate", now);
-      rejected.push(card.zoneId);
-      continue;
-    }
-    if (decision === "invalid") {
-      engine.rejectZone(card.zoneId, "htf_break", now);
-      rejected.push(card.zoneId);
-      continue;
+    switch (decision) {
+      case "wait":
+        continue;
+      case "deep":
+        engine.rejectZone(card.zoneId, "deep_mitigate", now);
+        rejected.push(card.zoneId);
+        continue;
+      case "invalid":
+        engine.rejectZone(card.zoneId, "htf_break", now);
+        rejected.push(card.zoneId);
+        continue;
+      case "arm":
+        break;
+      default: {
+        const _exhaustive: never = decision;
+        return _exhaustive;
+      }
     }
     if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") continue;
     const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");

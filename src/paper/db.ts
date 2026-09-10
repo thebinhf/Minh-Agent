@@ -545,7 +545,7 @@ function wrap(db: Database) {
     `UPDATE paper_orders SET status = 'rejected', reject_reason = ?, updated_ts = ? WHERE id = ? AND status = 'pending'`,
   );
   const invalidateOrderStmt = db.prepare(
-    `UPDATE paper_orders SET status = 'invalidated', reject_reason = 'invalidated', updated_ts = ? WHERE id = ? AND status = 'pending'`,
+    `UPDATE paper_orders SET status = 'invalidated', reject_reason = ?, updated_ts = ? WHERE id = ? AND status = 'pending'`,
   );
 
   const insertEventStmt = db.prepare(
@@ -866,8 +866,8 @@ function wrap(db: Database) {
     rejectOrder(id: number, reason: string, ts: number) {
       return rejectOrderStmt.run(reason, ts, id).changes;
     },
-    invalidateOrder(id: number, ts: number) {
-      return invalidateOrderStmt.run(ts, id).changes;
+    invalidateOrder(id: number, ts: number, reason = "invalidated") {
+      return invalidateOrderStmt.run(reason, ts, id).changes;
     },
 
     insertEvent(row: {

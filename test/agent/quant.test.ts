@@ -78,6 +78,34 @@ describe("quant veto", () => {
     }, "arm").reason).toBe("ok");
     expect(quantVeto("demand", CASCADE_LONG, "arm").reason).toBe("quant_cascade");
     expect(quantVeto("demand", CROWDED_LONG, "arm").reason).toBe("quant_crowded");
+    expect(quantVeto("demand", {
+      crowded: null,
+      oiReading: "cover",
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: null,
+    }).reason).toBe("ok");
+    expect(quantVeto("demand", {
+      crowded: null,
+      oiReading: "flush",
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: null,
+    }, "arm").reason).toBe("ok");
+    expect(quantVeto("demand", {
+      crowded: null,
+      oiReading: null,
+      cascade: { active: true, side: null, fuel: "12" },
+      flowReading: null,
+    }).reason).toBe("ok");
+    expect(quantVeto("demand", {
+      crowded: null,
+      oiReading: null,
+      cascade: { active: false, side: null, fuel: "0" },
+      flowReading: null,
+    }).reason).toBe("ok");
+    expect(readMapQuant({
+      symbol: "ETHUSDT",
+      flow: { delta: "1.2" },
+    }).get("ETHUSDT")?.flowReading).toBeNull();
     expect(quantVeto("supply", {
       crowded: "short",
       oiReading: "long_add",
