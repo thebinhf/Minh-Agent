@@ -148,7 +148,7 @@ export function createReplayFeed(opts: {
       if (query.toUpperCase() !== symbol) return null;
       const bar = lastBarAtOrBefore(series[interval] ?? [], cursorTs);
       if (!bar) return null;
-      return { interval, close: bar.close, startTs: bar.startTs, confirm: true };
+      return { interval, open: bar.open, close: bar.close, startTs: bar.startTs, confirm: true };
     },
   };
   return feed;

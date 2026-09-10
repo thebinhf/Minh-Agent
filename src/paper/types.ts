@@ -65,6 +65,7 @@ export type PaperTicker = {
 
 export type PaperKlineSnap = {
   interval: string;
+  open?: string | null;
   close: string | null;
   startTs: number | null;
   confirm: boolean | null;
