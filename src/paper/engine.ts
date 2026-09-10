@@ -80,6 +80,7 @@ import type {
   PaperKlineSnap,
   PaperOrderRow,
   PaperPositionRow,
+  PaperQuantTape,
   PaperSide,
   PaperStatus,
   PaperTicker,
@@ -1205,7 +1206,18 @@ export function createPaperEngine(opts: {
         // stale/missing last — wait
       }
     }
-    const proximity = await runProximityArm(host.engine, lastBySymbol, now);
+    const quantBySymbol = new Map<string, PaperQuantTape>();
+    if (feed.quant) {
+      for (const symbol of lastBySymbol.keys()) {
+        try {
+          const tape = await feed.quant(symbol);
+          if (tape) quantBySymbol.set(symbol, tape);
+        } catch {
+          // missing tape is not a veto
+        }
+      }
+    }
+    const proximity = await runProximityArm(host.engine, lastBySymbol, now, quantBySymbol);
     return { ...result, proximity };
   }
 

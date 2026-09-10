@@ -1,6 +1,8 @@
 import { PaperReject } from "./errors";
 import { paperArm } from "./ops";
 import type { PaperEngine } from "./engine";
+import type { PaperQuantTape } from "./types";
+import { quantVeto } from "../agent/quant";
 import {
   armSide,
   armTimeframes,
@@ -24,6 +26,7 @@ export async function runProximityArm(
   engine: PaperEngine,
   lastBySymbol: Map<string, number>,
   now = Date.now(),
+  quantBySymbol?: Map<string, PaperQuantTape>,
 ): Promise<ProximityArmResult> {
   const armed: string[] = [];
   const rejected: string[] = [];
@@ -56,6 +59,8 @@ export async function runProximityArm(
       rejected.push(card.zoneId);
       continue;
     }
+    const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol));
+    if (!veto.allow) continue;
     try {
       await paperArm(engine, {
         symbol: card.symbol,

@@ -13,6 +13,7 @@ import type { CancelCode, ZoneCard, ZoneSide } from "../zones/card";
 import { LEDGER_CAP_PER_SYMBOL, zoneExpiresTs } from "../zones/ledger";
 import { proximityDecision } from "../zones/proximity";
 import { isMidRange, readMapBias, type MapBias, type SymbolBias } from "./bias";
+import { quantVeto, readMapQuant, type QuantTape } from "./quant";
 
 /**
  * AGENT_MAP=0: this policy is a no-op. 4H close still uses the old MAP_ACCEPT
@@ -37,6 +38,9 @@ export const POLICY_REASONS = [
   "expired",
   "rr_fail",
   "ledger_cap",
+  "quant_crowded",
+  "quant_oi",
+  "quant_cascade",
 ] as const;
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 
@@ -92,6 +96,7 @@ export type MapPolicyInput = {
   acceptedForSymbol?: number;
   tradingAllowed?: boolean;
   now?: number;
+  tape?: QuantTape | null;
 };
 
 /**
@@ -143,6 +148,8 @@ export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
       }
     }
   }
+  const veto = quantVeto(card.side, input.tape);
+  if (!veto.allow) return { allow: false, reason: veto.reason };
   return { allow: true, reason: "ok" };
 }
 
@@ -187,6 +194,7 @@ function mapLagOk(map: unknown): boolean {
  * AGENT_MAP=0 → policy no-op, old MAP_ACCEPT path.
  * MAP_ACCEPT=0 → no auto-copy.
  * Stale gates → no accept / no new arm. Never closes open positions.
+ * Quant veto is `quantVeto` (cascade → crowded → OI). AGENT_QUANT=0 skips it.
  */
 export async function onMapCloseAccept(
   info: MapCloseAcceptInfo,
@@ -222,6 +230,7 @@ export async function onMapCloseAccept(
 
   const cards = await fetchCards(feedUrl);
   const biases = readMapBias(info.map);
+  const tapes = readMapQuant(info.map);
   const minRr = engine.account().minRr;
   const picked = pickAcceptable(cards, lastBySymbol);
   const allow: ZoneCard[] = [];
@@ -236,6 +245,7 @@ export async function onMapCloseAccept(
       acceptedForSymbol: standing + allow.filter((item) => item.symbol === card.symbol).length,
       tradingAllowed: gates.tradingAllowed,
       now,
+      tape: tapes.get(card.symbol),
     });
     if (!decision.allow) {
       skipped += 1;
