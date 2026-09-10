@@ -6,7 +6,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 | State | When | Engine | Operator |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H close | Dump `/map`. **4H** copies `/zones` into the ledger (`MAP_ACCEPT=0` off) | Override: `paper zone reject`. Mid-range → stand aside. If `klineLag.ok` / `gates.tradingAllowed` is false, do not trust candles |
+| **MAP** | 1H/4H close | Dump `/map`. **4H** copies `/zones` that pass pick **and** agent bias/playbook (`MAP_ACCEPT=0` / `AGENT_MAP=0` off) | Override: `paper zone accept` / `reject`. Mid-range → stand aside. If `klineLag.ok` / `gates.tradingAllowed` is false, do not trust candles |
 | **ARM** | Last in proximal → entry on an **accepted** card | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` off) | Manual `paper arm` still works. Then **quiet** |
 | **EVENT** | Pending limit / open position | Tick: OCO invalidate-before-fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
 
@@ -18,7 +18,7 @@ Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** 
 
 Check `klineLag.ok` before drawing (1H/4H on `/map`; 15m lag is scalp-only). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
-**`GET /zones`** (`bun run zones`) is suggest-only: it does **not** arm. 4H MAP-accept copies those cards into the paper ledger. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` `{ "zoneId" }` / full card / `FILE.json`. Cap 2/symbol. Expires with `expiryBars`. `/zones` itself does **not** arm.
+**`GET /zones`** (`bun run zones`) is suggest-only: it does **not** arm. 4H MAP-accept copies cards that pass P5 pick (not deep/invalid) **and** agent policy (4H+1H bias agree with the zone side; RR ≥ 2; not deep). `AGENT_MAP=0` skips that agent path — no auto-accept, no ungated dump. `MAP_ACCEPT=0` skips the whole auto-copy. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` `{ "zoneId" }` / full card / `FILE.json` (bypasses agent policy). Cap 2/symbol. Expires with `expiryBars`. `/zones` itself does **not** arm.
 
 Quant is a veto, not a signal: `tickers[].fundingRate`, `/map.funding.crowded`, `tickers[].openInterest`, `/map.oi.deltaPct`, `tickers[].price24hPcnt`. Crowded long (`funding.crowded=long`) does not short; it blocks a weak demand arm.
 
@@ -93,7 +93,7 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 
 Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT notify + kline-lag watchdog.
 
-On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H** the composition root copies `GET /zones` cards into the paper ledger (`MAP_ACCEPT=0` disables). Tick **proximity-arms** when last is in the proximal band. `PAPER_PROXIMITY_ARM=0` disables. `/zones` itself still does not arm.
+On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H** the composition root runs MAP_ACCEPT pick → agent policy → `acceptZone`. `MAP_ACCEPT=0` disables the whole auto-copy. `AGENT_MAP=0` skips agent policy and does not agent-accept (dump still happens; no ungated P5 fallback). Tick **proximity-arms** when last is in the proximal band. `PAPER_PROXIMITY_ARM=0` disables. `/zones` itself still does not arm.
 
 Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled). Override: `paper zone reject`.
 

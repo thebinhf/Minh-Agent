@@ -6,13 +6,14 @@ One Bun process. I/O at the feed edge. Features under `src/`. See the [README](.
 src/index.ts
   → src/feed/bb     public linear WS → SQLite → HTTP :43180
   → src/zones       zone-card schema + HTF suggest + proximity math
+  → src/agent       paper-only MAP bias + accept policy (no arm)
   → src/paper       simulated broker → SQLite → HTTP :43181
 ```
 
 Feed HTTP never imports paper. The composition root:
 
 1. Injects `paperDesk` into `GET /brief-pack`
-2. On confirmed **4H** `map.close`, copies `GET /zones` into the paper ledger (`MAP_ACCEPT=0` off)
+2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone` (`MAP_ACCEPT=0` / `AGENT_MAP=0` off)
 3. Paper tick proximity-arms accepted cards (`PAPER_PROXIMITY_ARM=0` off)
 
 HTTP contract: [http.md](http.md).
@@ -25,8 +26,9 @@ HTTP contract: [http.md](http.md).
 | `src/brief-pack.ts` | CLI for `GET /brief-pack` |
 | `src/feed/bb/` | Public WS, SQLite, read-only HTTP |
 | `src/zones/` | Zone-card v1, HTF detector, ledger helpers, proximity |
+| `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
-| `test/feed/bb/` `test/zones/` `test/paper/` | Tests |
+| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` | Tests |
 | `deploy/` | systemd + `pull-restart.sh` |
 | `.github/workflows/` | typecheck + test (no daemon, no keys) |
 
@@ -37,6 +39,7 @@ HTTP contract: [http.md](http.md).
 | App | `src/index.ts` | Boot + wire. No exchange I/O. |
 | Feed | `src/feed/bb/` | Public WS / REST / SQLite / HTTP. Owns kline lag. Does not arm. |
 | Zones | `src/zones/` | Schema + suggest. `GET /zones` is GET-only. |
+| Agent | `src/agent/` | Read MAP klines, gate 4H auto-accept. Does not arm. Does not change `/map`. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |
 
 ## Feed HTTP (`:43180`)

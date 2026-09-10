@@ -21,7 +21,8 @@ Verify against `src/` before treating older PRs as product scope.
 | Zone ledger | Live | `paper zone accept ZONEID|FILE.json` / `POST /paper/zones` (`zoneId` looks up `GET /zones`, or a full card). Cap 2 accepted/symbol. Expires on `expiryBars`. `paper zone reject`. No auto-arm of suggestions. |
 | Proximity ARM | Live | Tick rests post-only OCO when last is in the proximal band of an **accepted** card. `PAPER_PROXIMITY_ARM=0` off. No chase through entry. |
 | LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). Optional scalp after HTF is armed. EVENT itself is OCO/tick (`/paper/event`). |
-| MAP close | Live | Confirmed 1H/4H → `map-latest.json` + optional webhook. 4H also auto-accepts `/zones` cards into the paper ledger (`MAP_ACCEPT=0` off). No auto-arm. `MAP_CLOSE=0` off. |
+| MAP close | Live | Confirmed 1H/4H → `map-latest.json` + optional webhook. 4H auto-accepts `/zones` cards that pass MAP_ACCEPT pick **and** agent policy (`MAP_ACCEPT=0` / `AGENT_MAP=0` off). No auto-arm. `MAP_CLOSE=0` off. |
+| MAP policy agent | Live | `src/agent/` — bias from `/map` klines (not a `/map` field) + playbook/proximity gate **before** `acceptZone`. Paper-only. `/zones` stays suggest-only. `AGENT_MAP=0` skips the agent gate and does not agent-accept (no ungated P5 fallback). Manual `paper zone accept` still works. |
 | EVENT desk | Live | `bun run paper event` / `GET /paper/event` — pending OCO + alerts + accepted zones. Do not poll `/confirm`. |
 | Paper week | Live | `bun run paper week` / `GET /paper/week` — 7-day metrics + standing ledger + funnel.accepted. |
 | Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger zones. Additive. No auto-arm. |

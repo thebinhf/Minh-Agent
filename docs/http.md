@@ -231,7 +231,7 @@ curl -sS http://127.0.0.1:43181/paper/week
 
 | State | Feed | Paper |
 | --- | --- | --- |
-| MAP (4H close) | `GET /map`, `GET /zones` | `POST /paper/zones` (also automatic when `MAP_ACCEPT` is on) |
+| MAP (4H close) | `GET /map`, `GET /zones` | `POST /paper/zones` (automatic when `MAP_ACCEPT` and `AGENT_MAP` are on and policy allows) |
 | ARM | — | tick / `POST /paper/arm` |
 | EVENT | optional `GET /confirm` | `GET /paper/event` |
 
