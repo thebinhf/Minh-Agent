@@ -1,10 +1,12 @@
 # Paper trading — MVP spec
 
-**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **1–10%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Phase 2 thêm **fee / funding / multi-TP / leverage** từ account config (không hardcode `0.00055` / `10` trong engine). Không API key, không lệnh thật. Phase **M + 2** — implemented under `src/paper/`.
+Runtime loop, ports, and CLI: **[README](../README.md)**. Playbook: **[operator.md](operator.md)**.
 
-Simulated equity account for Minh. Fills and marks come from the **local** Bybit public cache (`src/feed/bb`), never from Bybit private API. This document is the locked product spec (An + Minh). Implementation lives under `src/paper/` (phase **M**). Do not add live orders in this module.
+This file is the locked paper **spec** (virtual USDT ledger, risk band, OCO, fees). Implementation is `src/paper/`. Do not add live orders here.
 
-**Not a trading bot.** No API keys, no private WebSocket topics, no real orders, no auto-live bridge.
+**Tóm tắt:** Paper trading là tài khoản ảo (SQLite). Risk **1–10%** equity mỗi lệnh (không hardcode 2%). R:R **không hardcode** — tính từ SL/TP, sàn tối thiểu (nếu có) nằm ở config/account. **Đánh đa khung (MTF)** — mỗi lệnh gắn ≥2 timeframe từ cache local. Fill/mark lấy giá `127.0.0.1:43180`. Phase 2 thêm **fee / funding / multi-TP / leverage** từ account config (không hardcode `0.00055` / `10` trong engine). Không API key, không lệnh thật.
+
+Simulated equity account for Minh. Fills and marks come from the **local** Bybit public cache (`src/feed/bb`), never from Bybit private API. **Not a live bot.** No API keys, no private WebSocket topics, no real orders, no auto-live bridge.
 
 ## 1. Goals / non-goals
 
@@ -36,7 +38,7 @@ Phase 2 (funding, fees, multi-TP, leverage) is locked in [§10](#10-phase-2). Da
 
 ## 2. Architecture
 
-Paper is a **future** feature module. It reads prices from the existing feed. It does not live inside `src/feed/bb/`.
+Paper is a feature module under `src/paper/`. It reads prices from the existing feed. It does not live inside `src/feed/bb/`.
 
 ```text
 src/index.ts                    # composition root (feed + paper)

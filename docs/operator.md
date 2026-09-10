@@ -4,25 +4,23 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 
 ## Three states
 
-| State | When | Minh-Agent | Agent output |
+| State | When | Engine | Operator |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H candle close | One `GET /map` (watchlist + `klineLag`). `bun run map`. Optional `GET /zones` (suggest-only). Optional `GET /brief-pack` for `gates` + desk | 5 lines/symbol: bias 4H/1H · 0–2 zones · invalid. Mid-range → **STAND ASIDE**. If `klineLag.ok` or `gates.tradingAllowed` is false, do not trust SQLite candles and do not arm |
-| **ARM** | Zone exists, same HTF bias, RR ≥ 1:2 | `paper arm` (limit + alert, post-only, OCO) | Then **quiet** |
-| **EVENT** | `alert.fired` / `order.filled` / `order.invalidated` / `position.closed` | One `GET /confirm?interval=15` (scalp: `5`) | Confirm PA → keep limit. No confirm → `paper cancel`. One line, no PnL |
+| **MAP** | 1H/4H close | Dump `/map`. **4H** copies `/zones` into the ledger (`MAP_ACCEPT=0` off) | Override: `paper zone reject`. Mid-range → stand aside. If `klineLag.ok` / `gates.tradingAllowed` is false, do not trust candles |
+| **ARM** | Last in proximal → entry on an **accepted** card | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` off) | Manual `paper arm` still works. Then **quiet** |
+| **EVENT** | Pending limit / open position | Tick: OCO invalidate-before-fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
 
 ## MAP
 
-Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. One name stays a single object. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.
+Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.
 
-`GET /brief-pack` is optional (desk: pending / alerts / positions + `gates`). Not required to draw zones. Positions have no `unrealizedPnl`. If `gates.tradingAllowed` is false (`kline_lag` and/or `feed_unhealthy`), STAND ASIDE — do not `paper arm` / `paper open`. Existing paper positions stay open; do not spam mid-range alerts.
+`GET /brief-pack` is optional (desk: pending / alerts / positions + `gates` + accepted ledger). Positions have no `unrealizedPnl`. If `gates.tradingAllowed` is false, STAND ASIDE — new arm/open/limit reject. Existing paper positions stay open.
 
-Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
+Check `klineLag.ok` before drawing (1H/4H on `/map`; 15m lag is scalp-only). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
-Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. Accept by id: `bun run paper zone accept <zoneId>` (pulls the card from `/zones`) or `POST /paper/zones` with `{ "zoneId": "…" }` / a full card. Then proximity ARM or `paper arm … --zone-id <zoneId>` — `/zones` itself does **not** auto-arm.
+**`GET /zones`** (`bun run zones`) is suggest-only: it does **not** arm. 4H MAP-accept copies those cards into the paper ledger. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` `{ "zoneId" }` / full card / `FILE.json`. Cap 2/symbol. Expires with `expiryBars`. `/zones` itself does **not** arm.
 
-Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
-
-Open paper (`positions` / `pendingOrders` / `armedAlerts`) is on the brief-pack payload. Positions do **not** include `unrealizedPnl` — use `paper status` if you need PnL. `zones` on the pack is the **accepted ledger** (cap 2/symbol, expires with `expiryBars`). Suggestions stay on **`GET /zones`**. Engine does not auto-arm. Attach `--zone-id` when you `paper arm`.
+Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 

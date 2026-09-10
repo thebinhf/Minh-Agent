@@ -18,7 +18,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Zone suggest | Live | `bun run zones` / `GET /zones` — candidate zone-cards from local 4H/1H klines. Suggest-only. Does not arm/open/limit. `/brief-pack.zones` is the accepted paper ledger, not this list. |
 | Zone ledger | Live | `paper zone accept ZONEID|FILE.json` / `POST /paper/zones` (`zoneId` looks up `GET /zones`, or a full card). Cap 2 accepted/symbol. Expires on `expiryBars`. `paper zone reject`. No auto-arm of suggestions. |
 | Proximity ARM | Live | Tick rests post-only OCO when last is in the proximal band of an **accepted** card. `PAPER_PROXIMITY_ARM=0` off. No chase through entry. |
-| LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). EVENT only. No depth, no S/D. |
+| LTF confirm | Live | `bun run confirm` / `GET /confirm` — ticker + 20×15m (scalp: 5). Optional scalp after HTF is armed. EVENT itself is OCO/tick (`/paper/event`). |
 | MAP close | Live | Confirmed 1H/4H → `map-latest.json` + optional webhook. 4H also auto-accepts `/zones` cards into the paper ledger (`MAP_ACCEPT=0` off). No auto-arm. `MAP_CLOSE=0` off. |
 | EVENT desk | Live | `bun run paper event` / `GET /paper/event` — pending OCO + alerts + accepted zones. Do not poll `/confirm`. |
 | Paper week | Live | `bun run paper week` / `GET /paper/week` — 7-day metrics + standing ledger + funnel.accepted. |
@@ -30,9 +30,9 @@ Verify against `src/` before treating older PRs as product scope.
 | SQLite storage | Live | Feed: ticker tape off by default; book snaps on timer only; drop redundant kline index; prune checkpoints WAL and VACUUMs when freelist ≥15%. |
 | Paper event notify | Live | Optional `PAPER_NOTIFY=telegram|webhook` on `alert.fired` / `order.filled` / `order.invalidated` / `position.closed`. Default log. No PnL spam. |
 | Paper replay | Live | `bun run paper replay` / `replay-batch FILE.json` — walk local klines through limit/OCO/fee/funding. Slippage 0. Same-bar TP after fill skipped. Separate `*-replay.sqlite`. No auto S/D. |
-| Paper operator surface | Live | `paper status` / `paper arm` / `paper day` — one JSON for desk, one command to rest limit+alert, UTC session counts. |
+| Paper operator surface | Live | `paper status` / `paper event` / `paper arm` / `paper day` / `paper week` — desk, OCO event, limit+alert, UTC session, 7-day funnel. |
 | Paper entry kill-switch | Live | New `paper open` / `paper limit` / `POST /paper/positions` / `POST /paper/orders` / `paper arm` reject when `GET /health` WS is down (`feed_unhealthy`) or `klineLag.ok=false` (`kline_lag`). `/brief-pack` `gates: { tradingAllowed, reasons }`. Does not auto-close opens. No extra mid-range alerts. |
-| Paper metrics | Live | SQLite `paper_events` + closed positions. `GET /paper/metrics?days=N` / `bun run paper metrics --days N`. Win rate, avg RR, no_fill%, funnel (detected→armed→touched→filled/cancelled→exited). `cancelCodes` splits noFill into `never_touched` vs `ops_cancel`; submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` increment `gates_block` / `rr_fail`. Optional `zoneId` on open/limit/arm (arm stamps an existing duplicate alert). `/zones` does not auto-arm. |
+| Paper metrics | Live | SQLite `paper_events` + closed positions. `GET /paper/metrics?days=N` / `bun run paper metrics --days N`. Win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). `cancelCodes` splits noFill into `never_touched` vs `ops_cancel`; submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` increment `gates_block` / `rr_fail`. Optional `zoneId` on open/limit/arm. `/zones` does not auto-arm. |
 | Orderbook snapshot gate | Live | Clear RAM on connect; ignore deltas until snapshot/`u=1` |
 | Subscribe + REST retry | Live | Chunked subscribe (10) + exponential retry |
 | CI | Live | GitHub Actions: `bun` typecheck + test on `main` and PRs. No keys, no daemon, no live deploy. See [ci.md](ci.md). |
@@ -41,18 +41,18 @@ Verify against `src/` before treating older PRs as product scope.
 
 | Item | Why |
 | --- | --- |
-| Express task board / static UI | Cursor environment-setup scaffold only. Removed. |
-| `apps/` monorepo packages | Tracker is a feature, not a sibling app. |
 | Trading / private Bybit topics | Public linear market data only. No API keys. |
 | Live orders / paper→live bridge | Forbidden. Paper refuses to start if Bybit key env vars are set. |
-| Browser dashboard | Greenfield Minh has no browser operator UI. |
+| Browser dashboard | No operator UI. |
+| Timer scans / ICT-as-signal | MAP is 4H close. ICT is optional confirm, not a detector. |
 
 ## Docs
 
 | Doc | Purpose |
 | --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layout |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layers |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
-| [paper-trading.md](paper-trading.md) | Paper trading spec (MVP + Phase 2–6: risk, fees, alerts/limit/OCO, notify, kline replay, operator surface) |
-| [operator.md](operator.md) | Minh Agent loop: MAP = `/map` + optional `/zones` suggest; `/brief-pack` gates/desk; EVENT = `/confirm` |
+| [paper-trading.md](paper-trading.md) | Paper spec (risk, fees, OCO, replay) |
+| [operator.md](operator.md) | MAP / ARM / EVENT. EVENT is OCO, not `/confirm` |
+| [ci.md](ci.md) | Actions gate + host restart |
 | [ci.md](ci.md) | GitHub Actions CI + host systemd restart (no live keys) |
