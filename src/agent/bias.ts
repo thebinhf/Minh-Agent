@@ -1,13 +1,13 @@
 /**
  * MAP bias from existing `/map` / map-close payloads.
  * `/map` stays "no bias" — this layer reads klines, it does not change the HTTP contract.
+ *
+ * Locked: 4H HH/HL = bull, LH/LL = bear, mixed = chop.
+ * 1H must not oppose 4H; 1H chop → stand aside.
  */
 
-export const MAP_BIASES = ["bull", "bear", "aside"] as const;
+export const MAP_BIASES = ["bull", "bear", "chop"] as const;
 export type MapBias = (typeof MAP_BIASES)[number];
-
-/** Mid-range of the recent swing → STAND ASIDE (operator playbook). */
-export const BIAS_MID_RANGE = { low: 0.35, high: 0.65 } as const;
 
 export type MapKlineLike = {
   start_ts?: unknown;
@@ -26,12 +26,23 @@ export type BiasBar = {
   close: number;
 };
 
+export type SwingPoint = {
+  index: number;
+  price: number;
+};
+
+export type SwingRange = {
+  high: number;
+  low: number;
+};
+
 export type SymbolBias = {
   symbol: string;
   "240": MapBias;
   "60": MapBias;
   htf: MapBias;
   klineLagOk: boolean;
+  nearestSwing: SwingRange | null;
 };
 
 function num(value: unknown): number | null {
@@ -60,43 +71,78 @@ export function barsFromMapKlines(rows: unknown): BiasBar[] {
   return out;
 }
 
-function rangePosition(close: number, swingHigh: number, swingLow: number): number {
-  const span = swingHigh - swingLow;
-  if (!(span > 0)) return 0.5;
-  return (close - swingLow) / span;
+/** 3-bar fractal swings. Last bar cannot confirm a swing (needs a neighbor after). */
+export function swingPoints(bars: BiasBar[]): { highs: SwingPoint[]; lows: SwingPoint[] } {
+  const highs: SwingPoint[] = [];
+  const lows: SwingPoint[] = [];
+  for (let i = 1; i < bars.length - 1; i++) {
+    const prev = bars[i - 1]!;
+    const bar = bars[i]!;
+    const next = bars[i + 1]!;
+    if (bar.high > prev.high && bar.high > next.high) {
+      highs.push({ index: i, price: bar.high });
+    }
+    if (bar.low < prev.low && bar.low < next.low) {
+      lows.push({ index: i, price: bar.low });
+    }
+  }
+  return { highs, lows };
+}
+
+export function nearestSwing(bars: BiasBar[]): SwingRange | null {
+  const { highs, lows } = swingPoints(bars);
+  if (highs.length === 0 || lows.length === 0) return null;
+  return { high: highs[highs.length - 1]!.price, low: lows[lows.length - 1]!.price };
 }
 
 /**
- * Confirmed HTF bars only. Mid-range → aside. Close vs prior close + swing location.
+ * 4H/1H structure. HH+HL = bull, LH+LL = bear, mixed or not enough swings = chop.
+ * Mid-range is a policy stand-aside, not a bias label.
  */
 export function biasFromBars(bars: BiasBar[]): MapBias {
-  if (bars.length < 2) return "aside";
-  const last = bars[bars.length - 1]!;
-  const prev = bars[bars.length - 2]!;
-  let swingHigh = -Infinity;
-  let swingLow = Infinity;
-  for (const bar of bars) {
-    if (bar.high > swingHigh) swingHigh = bar.high;
-    if (bar.low < swingLow) swingLow = bar.low;
-  }
-  const pos = rangePosition(last.close, swingHigh, swingLow);
-  if (pos > BIAS_MID_RANGE.low && pos < BIAS_MID_RANGE.high) return "aside";
-  if (pos >= BIAS_MID_RANGE.high && last.close > prev.close) return "bull";
-  if (pos <= BIAS_MID_RANGE.low && last.close < prev.close) return "bear";
-  return "aside";
+  const { highs, lows } = swingPoints(bars);
+  if (highs.length < 2 || lows.length < 2) return "chop";
+  const lastH = highs[highs.length - 1]!.price;
+  const prevH = highs[highs.length - 2]!.price;
+  const lastL = lows[lows.length - 1]!.price;
+  const prevL = lows[lows.length - 2]!.price;
+  const hh = lastH > prevH;
+  const lh = lastH < prevH;
+  const hl = lastL > prevL;
+  const ll = lastL < prevL;
+  if (hh && hl) return "bull";
+  if (lh && ll) return "bear";
+  return "chop";
 }
 
-/** 4H leads; 1H must agree. Mixed or either aside → do not fade. */
+/** Last strictly between nearest swing H and L. */
+export function isMidRange(last: number | undefined, swing: SwingRange | null): boolean {
+  if (swing == null || last == null || !Number.isFinite(last)) return false;
+  const lo = Math.min(swing.high, swing.low);
+  const hi = Math.max(swing.high, swing.low);
+  return last > lo && last < hi;
+}
+
+/** 1H chop → stand aside. 1H must not oppose 4H. Mixed 4H = chop. */
 export function combineHtfBias(bias4h: MapBias, bias1h: MapBias): MapBias {
-  switch (bias4h) {
-    case "aside":
-      return "aside";
+  switch (bias1h) {
+    case "chop":
+      return "chop";
     case "bull":
-      return bias1h === "bull" ? "bull" : "aside";
     case "bear":
-      return bias1h === "bear" ? "bear" : "aside";
+      switch (bias4h) {
+        case "chop":
+          return "chop";
+        case "bull":
+        case "bear":
+          return bias1h === bias4h ? bias4h : "chop";
+        default: {
+          const _exhaustive: never = bias4h;
+          return _exhaustive;
+        }
+      }
     default: {
-      const _exhaustive: never = bias4h;
+      const _exhaustive: never = bias1h;
       return _exhaustive;
     }
   }
@@ -132,14 +178,17 @@ export function biasFromMapItem(raw: unknown): SymbolBias | null {
   };
   const symbol = String(rec.symbol ?? "").trim().toUpperCase();
   if (!symbol) return null;
-  const bias4h = biasFromBars(barsFromMapKlines(rec.klines?.["240"]));
-  const bias1h = biasFromBars(barsFromMapKlines(rec.klines?.["60"]));
+  const bars4h = barsFromMapKlines(rec.klines?.["240"]);
+  const bars1h = barsFromMapKlines(rec.klines?.["60"]);
+  const bias4h = biasFromBars(bars4h);
+  const bias1h = biasFromBars(bars1h);
   return {
     symbol,
     "240": bias4h,
     "60": bias1h,
     htf: combineHtfBias(bias4h, bias1h),
     klineLagOk: klineLagOkFrom(rec.klineLag, symbol),
+    nearestSwing: nearestSwing(bars4h),
   };
 }
 
@@ -154,5 +203,5 @@ export function readMapBias(body: unknown): Map<string, SymbolBias> {
 }
 
 export function isMapBias(raw: unknown): raw is MapBias {
-  return raw === "bull" || raw === "bear" || raw === "aside";
+  return raw === "bull" || raw === "bear" || raw === "chop";
 }

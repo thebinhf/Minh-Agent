@@ -1,13 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import {
-  agentMapEnabled,
-  decideMapAccept,
-  onMapCloseAccept,
-} from "../../src/agent/policy";
+import { agentMapEnabled, decideMapAccept, onMapCloseAccept } from "../../src/agent/policy";
 import { readMapBias } from "../../src/agent/bias";
-import { mockFeed, paperEngine } from "../paper/helpers";
+import { mockFeed, OPEN_LONG, paperEngine } from "../paper/helpers";
 import type { ZoneCard } from "../../src/zones/card";
+import { HEALTH_OK, mapPayload } from "./htf";
 
 const dirs: string[] = [];
 const savedAccept = process.env.MAP_ACCEPT;
@@ -63,57 +60,9 @@ const DEMAND: ZoneCard = {
   softInvalid: 79_250,
 };
 
-function kline(startTs: number, open: number, high: number, low: number, close: number) {
-  return {
-    start_ts: startTs,
-    open: String(open),
-    high: String(high),
-    low: String(low),
-    close: String(close),
-    volume: "1",
-    turnover: "1",
-    confirm: true,
-  };
-}
-
-function risingKlines(count = 8) {
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    const close = 110 + i;
-    out.push(kline(1_000 + i, close - 1, 120, 100, close));
-  }
-  return out;
-}
-
-function fallingKlines(count = 8) {
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    const close = 110 - i;
-    out.push(kline(1_000 + i, close + 1, 120, 100, close));
-  }
-  return out;
-}
-
-function mapPayload(opts: {
-  direction: "bull" | "bear";
-  lastPrice: string;
-  lagOk?: boolean;
-}) {
-  const series = opts.direction === "bull" ? risingKlines() : fallingKlines();
-  return {
-    maps: [{
-      symbol: "BTCUSDT",
-      ticker: { lastPrice: opts.lastPrice },
-      klines: { "240": series, "60": series, D: [] },
-      klineLag: {
-        ok: opts.lagOk !== false,
-        rows: opts.lagOk === false
-          ? [{ symbol: "BTCUSDT", interval: "240", stale: true }]
-          : [],
-      },
-    }],
-  };
-}
+const ARM_DEMAND_LAST = 79_450;
+const MIDRANGE_WAIT_LAST = 79_600;
+const SUPPLY_ARM_LAST = 79_270;
 
 describe("MAP policy", () => {
   test("AGENT_MAP follows MAP_ACCEPT kill pattern (default on, 0 off)", () => {
@@ -123,87 +72,120 @@ describe("MAP policy", () => {
     expect(agentMapEnabled()).toBe(false);
   });
 
-  test("allows demand on bull HTF and supply on bear; rejects fade / aside / lag", () => {
+  test("bull → demand only; bear → supply only; chop / fade / gates / rr / codes drop", () => {
     delete process.env.AGENT_MAP;
-    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: "79600" })).get("BTCUSDT");
-    const bear = readMapBias(mapPayload({ direction: "bear", lastPrice: "79000" })).get("BTCUSDT");
-    expect(decideMapAccept({ card: DEMAND, bias: bull, last: 79_600 })).toEqual({ allow: true, reason: "ok" });
-    expect(decideMapAccept({ card: SUPPLY, bias: bear, last: 79_000 })).toEqual({ allow: true, reason: "ok" });
-    expect(decideMapAccept({ card: SUPPLY, bias: bull, last: 79_600 }).reason).toBe("bias_mismatch");
-    expect(decideMapAccept({ card: DEMAND, bias: undefined, last: 79_600 }).reason).toBe("bias_aside");
-    const lagged = readMapBias(mapPayload({ direction: "bull", lastPrice: "79600", lagOk: false })).get("BTCUSDT");
-    expect(decideMapAccept({ card: DEMAND, bias: lagged, last: 79_600 }).reason).toBe("kline_lag");
-    expect(decideMapAccept({ card: { ...DEMAND, tf: "60" }, bias: bull, last: 79_600 }).reason).toBe("playbook_tf");
-    expect(decideMapAccept({ card: { ...DEMAND, freshness: "deep", penetrationPct: 80 }, bias: bull, last: 79_600 }).reason).toBe("playbook_freshness");
-    expect(decideMapAccept({ card: { ...DEMAND, rr: 1.2 }, bias: bull, last: 79_600 }).reason).toBe("playbook_rr");
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    const bear = readMapBias(mapPayload({ direction: "bear", lastPrice: String(SUPPLY_ARM_LAST) })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    })).toEqual({ allow: true, reason: "ok" });
+    expect(decideMapAccept({
+      card: SUPPLY, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true,
+    })).toEqual({ allow: true, reason: "ok" });
+    expect(decideMapAccept({
+      card: SUPPLY, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("bias_mismatch");
+    expect(decideMapAccept({
+      card: DEMAND, bias: undefined, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("bias_chop");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: false,
+    }).reason).toBe("gates_block");
+    const lagged = readMapBias(mapPayload({
+      direction: "bull", lastPrice: String(ARM_DEMAND_LAST), lagOk: false,
+    })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: DEMAND, bias: lagged, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("gates_block");
+    expect(decideMapAccept({
+      card: { ...DEMAND, rr: 1.2 }, bias: bull, last: ARM_DEMAND_LAST, minRr: "2", tradingAllowed: true,
+    }).reason).toBe("rr_fail");
+    expect(decideMapAccept({
+      card: { ...DEMAND, cancelCodes: ["expired"] }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("expired");
+    expect(decideMapAccept({
+      card: { ...DEMAND, freshness: "deep", penetrationPct: 80 }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("deep_mitigate");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, acceptedForSymbol: 2, tradingAllowed: true,
+    }).reason).toBe("ledger_cap");
   });
 
-  test("reuses proximity: deep/invalid block; away wait is allowed", () => {
+  test("mid-range + not proximal→entry → stand aside; in-band same-direction still allows", () => {
+    delete process.env.AGENT_MAP;
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(MIDRANGE_WAIT_LAST) })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: MIDRANGE_WAIT_LAST, tradingAllowed: true,
+    }).reason).toBe("stand_aside");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("ok");
+  });
+
+  test("reuses proximity: deep_mitigate / htf_break", () => {
     delete process.env.AGENT_MAP;
     const bear = readMapBias(mapPayload({ direction: "bear", lastPrice: "79400" })).get("BTCUSDT");
-    expect(decideMapAccept({ card: SUPPLY, bias: bear, last: 79_400 }).reason).toBe("proximity_deep");
-    expect(decideMapAccept({ card: SUPPLY, bias: bear, last: 80_000 }).reason).toBe("proximity_invalid");
-    expect(decideMapAccept({ card: SUPPLY, bias: bear, last: 79_000 }).reason).toBe("ok");
-  });
-
-  test("AGENT_MAP=0 does not run policy allow", () => {
-    process.env.AGENT_MAP = "0";
-    expect(decideMapAccept({ card: DEMAND, bias: undefined, last: 79_600 })).toEqual({
-      allow: false,
-      reason: "agent_map_off",
-    });
+    expect(decideMapAccept({
+      card: SUPPLY, bias: bear, last: 79_400, tradingAllowed: true,
+    }).reason).toBe("deep_mitigate");
+    expect(decideMapAccept({
+      card: SUPPLY, bias: bear, last: 80_000, tradingAllowed: true,
+    }).reason).toBe("htf_break");
   });
 });
 
 describe("onMapCloseAccept wiring", () => {
-  test("4H close: policy runs before acceptZone; matching card lands, fade does not; no arm", async () => {
+  test("4H close: policy before acceptZone; demand on bull lands; fade skipped; no arm", async () => {
     delete process.env.AGENT_MAP;
     delete process.env.MAP_ACCEPT;
-    const ctx = await paperEngine(mockFeed({ lastPrice: "79600", markPrice: "79600" }));
+    const ctx = await paperEngine(mockFeed({ lastPrice: String(ARM_DEMAND_LAST), markPrice: String(ARM_DEMAND_LAST) }));
     dirs.push(ctx.dir);
-    const map = mapPayload({ direction: "bull", lastPrice: "79600" });
+    const map = mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) });
     const result = await onMapCloseAccept(
       { interval: "240", map },
       ctx.engine,
-      { fetchCards: async () => [DEMAND, SUPPLY] },
+      { fetchCards: async () => [DEMAND, SUPPLY], health: HEALTH_OK },
     );
     expect(result?.accepted).toEqual([DEMAND.zoneId]);
-    expect(result?.skipped).toBe(1);
     expect(ctx.engine.zones("accepted").map((row) => row.zoneId)).toEqual([DEMAND.zoneId]);
+    expect(ctx.engine.zones("accepted").some((row) => row.zoneId === SUPPLY.zoneId)).toBe(false);
+    expect(ctx.engine.orders("pending")).toEqual([]);
+
+    const fade = await onMapCloseAccept(
+      { interval: "240", map: mapPayload({ direction: "bull", lastPrice: String(MIDRANGE_WAIT_LAST) }) },
+      ctx.engine,
+      { fetchCards: async () => [{ ...SUPPLY, zoneId: "btc-4h-s-20260908-02" }], health: HEALTH_OK },
+    );
+    expect(fade?.accepted).toEqual([]);
+    expect(fade?.skipped).toBe(1);
+  });
+
+  test("AGENT_MAP=0 is policy no-op: old MAP_ACCEPT path still copies", async () => {
+    process.env.AGENT_MAP = "0";
+    delete process.env.MAP_ACCEPT;
+    const ctx = await paperEngine(mockFeed({ lastPrice: String(MIDRANGE_WAIT_LAST), markPrice: String(MIDRANGE_WAIT_LAST) }));
+    dirs.push(ctx.dir);
+    const result = await onMapCloseAccept(
+      { interval: "240", map: mapPayload({ direction: "bull", lastPrice: String(MIDRANGE_WAIT_LAST) }) },
+      ctx.engine,
+      { fetchCards: async () => [DEMAND, SUPPLY], health: HEALTH_OK },
+    );
+    expect(result?.accepted.sort()).toEqual([DEMAND.zoneId, SUPPLY.zoneId].sort());
+    expect(ctx.engine.zones("accepted")).toHaveLength(2);
     expect(ctx.engine.orders("pending")).toEqual([]);
   });
 
-  test("AGENT_MAP=0 skips agent policy and does not agent-accept (no P5 fallback)", async () => {
-    process.env.AGENT_MAP = "0";
-    delete process.env.MAP_ACCEPT;
-    const ctx = await paperEngine(mockFeed());
-    dirs.push(ctx.dir);
-    let fetched = 0;
-    const result = await onMapCloseAccept(
-      { interval: "240", map: mapPayload({ direction: "bull", lastPrice: "79600" }) },
-      ctx.engine,
-      {
-        fetchCards: async () => {
-          fetched += 1;
-          return [DEMAND];
-        },
-      },
-    );
-    expect(result).toEqual({ accepted: [], skipped: 0 });
-    expect(fetched).toBe(0);
-    expect(ctx.engine.zones("accepted")).toEqual([]);
-  });
-
-  test("MAP_ACCEPT=0 skips the whole accept path; 1H close is a no-op", async () => {
+  test("MAP_ACCEPT=0 skips the old accept path; 1H close is a no-op", async () => {
     delete process.env.AGENT_MAP;
     process.env.MAP_ACCEPT = "0";
     const ctx = await paperEngine(mockFeed());
     dirs.push(ctx.dir);
     let fetched = 0;
     const off = await onMapCloseAccept(
-      { interval: "240", map: mapPayload({ direction: "bull", lastPrice: "79600" }) },
+      { interval: "240", map: mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) }) },
       ctx.engine,
       {
+        health: HEALTH_OK,
         fetchCards: async () => {
           fetched += 1;
           return [DEMAND];
@@ -215,9 +197,10 @@ describe("onMapCloseAccept wiring", () => {
 
     delete process.env.MAP_ACCEPT;
     const hour = await onMapCloseAccept(
-      { interval: "60", map: mapPayload({ direction: "bull", lastPrice: "79600" }) },
+      { interval: "60", map: mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) }) },
       ctx.engine,
       {
+        health: HEALTH_OK,
         fetchCards: async () => {
           fetched += 1;
           return [DEMAND];
@@ -229,6 +212,33 @@ describe("onMapCloseAccept wiring", () => {
     expect(ctx.engine.zones("accepted")).toEqual([]);
   });
 
+  test("stale gates: no accept, does not close open positions", async () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.MAP_ACCEPT;
+    const ctx = await paperEngine(mockFeed({ lastPrice: "63000", markPrice: "63000" }));
+    dirs.push(ctx.dir);
+    const opened = await ctx.engine.open(OPEN_LONG);
+    expect(opened.position.status).toBe("open");
+    let fetched = 0;
+    const result = await onMapCloseAccept(
+      { interval: "240", map: mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) }) },
+      ctx.engine,
+      {
+        health: { ok: true, url: "http://127.0.0.1:43180/health", klineLagOk: false },
+        fetchCards: async () => {
+          fetched += 1;
+          return [DEMAND];
+        },
+      },
+    );
+    expect(result).toEqual({ accepted: [], skipped: 0 });
+    expect(fetched).toBe(0);
+    expect(ctx.engine.zones("accepted")).toEqual([]);
+    expect(ctx.engine.positions("open")).toHaveLength(1);
+    expect(ctx.engine.positions("open")[0]?.id).toBe(opened.position.id);
+    expect(ctx.engine.orders("pending")).toEqual([]);
+  });
+
   test("MAP_ACCEPT pick still drops deep last before policy/accept", async () => {
     delete process.env.AGENT_MAP;
     delete process.env.MAP_ACCEPT;
@@ -237,13 +247,13 @@ describe("onMapCloseAccept wiring", () => {
     const result = await onMapCloseAccept(
       { interval: "240", map: mapPayload({ direction: "bear", lastPrice: "79400" }) },
       ctx.engine,
-      { fetchCards: async () => [SUPPLY] },
+      { fetchCards: async () => [SUPPLY], health: HEALTH_OK },
     );
     expect(result?.accepted).toEqual([]);
     expect(ctx.engine.zones("accepted")).toEqual([]);
   });
 
-  test("source is paper-only: no arm, no private Bybit, no ICT detector, no OAuth", async () => {
+  test("source is paper-only: no arm, no private Bybit, no ICT/FVG, no OAuth", async () => {
     for (const file of ["src/agent/bias.ts", "src/agent/policy.ts", "src/agent/index.ts", "src/index.ts"]) {
       const src = await Bun.file(file).text();
       expect(src).not.toContain("paperArm");
@@ -252,6 +262,7 @@ describe("onMapCloseAccept wiring", () => {
       expect(src).not.toContain("BYBIT_API_KEY");
       expect(src).not.toContain("OAuth");
       expect(src).not.toContain("ICT");
+      expect(src).not.toContain("FVG");
     }
   });
 });

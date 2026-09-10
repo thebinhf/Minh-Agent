@@ -13,7 +13,7 @@ src/index.ts
 Feed HTTP never imports paper. The composition root:
 
 1. Injects `paperDesk` into `GET /brief-pack`
-2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone` (`MAP_ACCEPT=0` / `AGENT_MAP=0` off)
+2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone`. `MAP_ACCEPT=0` = no copy. `AGENT_MAP=0` = policy no-op (old copy still runs).
 3. Paper tick proximity-arms accepted cards (`PAPER_PROXIMITY_ARM=0` off)
 
 HTTP contract: [http.md](http.md).
@@ -39,7 +39,7 @@ HTTP contract: [http.md](http.md).
 | App | `src/index.ts` | Boot + wire. No exchange I/O. |
 | Feed | `src/feed/bb/` | Public WS / REST / SQLite / HTTP. Owns kline lag. Does not arm. |
 | Zones | `src/zones/` | Schema + suggest. `GET /zones` is GET-only. |
-| Agent | `src/agent/` | Read MAP klines, gate 4H auto-accept. Does not arm. Does not change `/map`. |
+| Agent | `src/agent/` | 4H HH/HL bias + accept policy. Does not arm. Does not change `/map`. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |
 
 ## Feed HTTP (`:43180`)

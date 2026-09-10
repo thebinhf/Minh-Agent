@@ -1,15 +1,19 @@
 export {
-  BIAS_MID_RANGE,
   MAP_BIASES,
   barsFromMapKlines,
   biasFromBars,
   biasFromMapItem,
   combineHtfBias,
   isMapBias,
+  isMidRange,
+  nearestSwing,
   readMapBias,
+  swingPoints,
   type BiasBar,
   type MapBias,
   type MapKlineLike,
+  type SwingPoint,
+  type SwingRange,
   type SymbolBias,
 } from "./bias";
 
@@ -17,6 +21,7 @@ export {
   POLICY_REASONS,
   agentMapEnabled,
   decideMapAccept,
+  loadFeedHealth,
   onMapCloseAccept,
   type MapCloseAcceptInfo,
   type MapPolicyInput,

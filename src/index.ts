@@ -1,4 +1,4 @@
-import { onMapCloseAccept } from "./agent/policy";
+import { loadFeedHealth, onMapCloseAccept } from "./agent/policy";
 import { EMPTY_BRIEF_PACK_PAPER } from "./feed/bb/brief-pack";
 import { startBybitTracker } from "./feed/bb/index";
 import { startPaper, type PaperFeature } from "./paper/index";
@@ -16,8 +16,8 @@ import { paperDesk } from "./paper/ops";
  * paper arrays are empty and source is null.
  *
  * 4H map.close → MAP_ACCEPT pick → agent policy → acceptZone.
- * AGENT_MAP=0 skips the agent gate and does not agent-accept (no ungated P5 fallback).
- * MAP_ACCEPT=0 skips the whole auto-copy. Neither path arms.
+ * AGENT_MAP=0: policy no-op; old MAP_ACCEPT path still copies if MAP_ACCEPT is on.
+ * MAP_ACCEPT=0: old accept path off. Neither path arms or closes opens.
  */
 let paperDeskFn: (() => ReturnType<typeof paperDesk>) | null = null;
 let paperRef: PaperFeature | null = null;
@@ -26,7 +26,8 @@ const bb = await startBybitTracker({
   paperDesk: () => paperDeskFn?.() ?? EMPTY_BRIEF_PACK_PAPER,
   onMapClose: async ({ interval, map }) => {
     try {
-      const result = await onMapCloseAccept({ interval, map }, paperRef?.engine ?? null);
+      const health = await loadFeedHealth();
+      const result = await onMapCloseAccept({ interval, map }, paperRef?.engine ?? null, { health });
       if (result?.accepted.length) {
         console.log(`[minh] map accept ${result.accepted.join(",")}`);
       }

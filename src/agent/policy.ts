@@ -1,4 +1,6 @@
+import { tradingGates } from "../paper/gates";
 import type { PaperEngine } from "../paper/engine";
+import type { PaperFeedHealth } from "../paper/types";
 import {
   fetchZoneCards,
   lastPricesFromMap,
@@ -7,31 +9,34 @@ import {
   runMapAccept,
   type MapAcceptResult,
 } from "../paper/map-accept";
-import type { ZoneCard, ZoneSide } from "../zones/card";
-import { ZONE_DETECT } from "../zones/detect";
+import type { CancelCode, ZoneCard, ZoneSide } from "../zones/card";
+import { LEDGER_CAP_PER_SYMBOL, zoneExpiresTs } from "../zones/ledger";
 import { proximityDecision } from "../zones/proximity";
-import { readMapBias, type MapBias, type SymbolBias } from "./bias";
+import { isMidRange, readMapBias, type MapBias, type SymbolBias } from "./bias";
 
 /**
- * AGENT_MAP=0: do not run agent policy and do not agent-accept.
- * Same env pattern as MAP_ACCEPT=0 (`!== "0"` means on). Default on.
- * Does **not** fall back to ungated P5 `runMapAccept`. Manual `paper zone accept` still works.
+ * AGENT_MAP=0: this policy is a no-op. 4H close still uses the old MAP_ACCEPT
+ * path (`runMapAccept`) when MAP_ACCEPT is on.
+ * MAP_ACCEPT=0: old accept path off (no auto-copy at all).
+ * Same env pattern (`!== "0"` means on). Default on.
  */
 export function agentMapEnabled(): boolean {
   return process.env.AGENT_MAP !== "0";
 }
 
+const DROP_CODES = ["deep_mitigate", "htf_break", "expired"] as const;
+
 export const POLICY_REASONS = [
   "ok",
-  "agent_map_off",
-  "kline_lag",
-  "bias_aside",
+  "gates_block",
+  "bias_chop",
   "bias_mismatch",
-  "proximity_deep",
-  "proximity_invalid",
-  "playbook_rr",
-  "playbook_freshness",
-  "playbook_tf",
+  "stand_aside",
+  "deep_mitigate",
+  "htf_break",
+  "expired",
+  "rr_fail",
+  "ledger_cap",
 ] as const;
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 
@@ -53,49 +58,84 @@ function biasForSide(side: ZoneSide): MapBias {
   }
 }
 
-function asideOrMismatch(htf: MapBias, side: ZoneSide): PolicyReason | null {
-  switch (htf) {
-    case "aside":
-      return "bias_aside";
-    case "bull":
-    case "bear":
-      return htf === biasForSide(side) ? null : "bias_mismatch";
-    default: {
-      const _exhaustive: never = htf;
-      return _exhaustive;
+function dropCodeReason(codes: CancelCode[]): PolicyReason | null {
+  for (const code of DROP_CODES) {
+    if (!codes.includes(code)) continue;
+    switch (code) {
+      case "deep_mitigate":
+        return "deep_mitigate";
+      case "htf_break":
+        return "htf_break";
+      case "expired":
+        return "expired";
+      default: {
+        const _exhaustive: never = code;
+        return _exhaustive;
+      }
     }
   }
+  return null;
+}
+
+function belowMinRr(cardRr: number, minRr: string | null | undefined): boolean {
+  if (minRr == null || minRr === "") return false;
+  const floor = Number(minRr);
+  if (!Number.isFinite(floor)) return false;
+  return cardRr < floor;
 }
 
 export type MapPolicyInput = {
   card: ZoneCard;
   bias: SymbolBias | undefined;
   last: number | undefined;
+  minRr?: string | null;
+  acceptedForSymbol?: number;
+  tradingAllowed?: boolean;
+  now?: number;
 };
 
 /**
  * Whether a `/zones` card may be ledger-accepted after MAP_ACCEPT's pick.
- * Does not arm. Deep/invalid reuse `proximityDecision` (away/`wait` is OK).
+ * Does not arm. Does not close open positions.
  */
 export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
-  if (!agentMapEnabled()) return { allow: false, reason: "agent_map_off" };
   const { card, bias, last } = input;
-  if (card.tf !== "240") return { allow: false, reason: "playbook_tf" };
-  if (card.freshness === "deep") return { allow: false, reason: "playbook_freshness" };
-  if (!(card.rr >= ZONE_DETECT.minRr)) return { allow: false, reason: "playbook_rr" };
-  if (bias && !bias.klineLagOk) return { allow: false, reason: "kline_lag" };
-  const htf: MapBias = bias?.htf ?? "aside";
-  const biasFail = asideOrMismatch(htf, card.side);
-  if (biasFail) return { allow: false, reason: biasFail };
+  if (input.tradingAllowed === false) return { allow: false, reason: "gates_block" };
+  if (bias && !bias.klineLagOk) return { allow: false, reason: "gates_block" };
+  const coded = dropCodeReason(card.cancelCodes);
+  if (coded) return { allow: false, reason: coded };
+  if (card.freshness === "deep") return { allow: false, reason: "deep_mitigate" };
+  const now = input.now ?? Date.now();
+  if (now >= zoneExpiresTs(card, card.baseEndTs)) return { allow: false, reason: "expired" };
+  if (belowMinRr(card.rr, input.minRr)) return { allow: false, reason: "rr_fail" };
+  if ((input.acceptedForSymbol ?? 0) >= LEDGER_CAP_PER_SYMBOL) {
+    return { allow: false, reason: "ledger_cap" };
+  }
+  const htf: MapBias = bias?.htf ?? "chop";
+  switch (htf) {
+    case "chop":
+      return { allow: false, reason: "bias_chop" };
+    case "bull":
+    case "bear":
+      if (htf !== biasForSide(card.side)) return { allow: false, reason: "bias_mismatch" };
+      break;
+    default: {
+      const _exhaustive: never = htf;
+      return _exhaustive;
+    }
+  }
   if (last != null && Number.isFinite(last)) {
     const proximity = proximityDecision(card, last);
     switch (proximity) {
       case "deep":
-        return { allow: false, reason: "proximity_deep" };
+        return { allow: false, reason: "deep_mitigate" };
       case "invalid":
-        return { allow: false, reason: "proximity_invalid" };
+        return { allow: false, reason: "htf_break" };
       case "wait":
       case "arm":
+        if (isMidRange(last, bias?.nearestSwing ?? null) && proximity !== "arm") {
+          return { allow: false, reason: "stand_aside" };
+        }
         break;
       default: {
         const _exhaustive: never = proximity;
@@ -111,9 +151,42 @@ export type MapCloseAcceptInfo = {
   map: unknown;
 };
 
+export async function loadFeedHealth(feedUrl = "http://127.0.0.1:43180"): Promise<PaperFeedHealth> {
+  const base = feedUrl.replace(/\/$/, "").replace(/\/health$/, "");
+  const url = `${base}/health`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { ok: false, url, klineLagOk: false };
+    const body = await res.json() as { ok?: unknown; klineLag?: { ok?: unknown } };
+    return {
+      ok: body.ok === true,
+      url,
+      klineLagOk: body.klineLag == null ? true : body.klineLag.ok !== false,
+    };
+  } catch {
+    return { ok: false, url, klineLagOk: false };
+  }
+}
+
+function mapLagOk(map: unknown): boolean {
+  if (!map || typeof map !== "object") return true;
+  const row = map as { klineLag?: { ok?: unknown }; maps?: unknown };
+  if (row.klineLag && row.klineLag.ok === false) return false;
+  if (Array.isArray(row.maps)) {
+    return row.maps.every((item) => {
+      if (!item || typeof item !== "object") return true;
+      const lag = (item as { klineLag?: { ok?: unknown } }).klineLag;
+      return lag?.ok !== false;
+    });
+  }
+  return true;
+}
+
 /**
  * Composition-root hook: 4H map.close → MAP_ACCEPT pick → policy → acceptZone.
- * 1H closes dump MAP only. Never arms. Never hits Bybit private API.
+ * AGENT_MAP=0 → policy no-op, old MAP_ACCEPT path.
+ * MAP_ACCEPT=0 → no auto-copy.
+ * Stale gates → no accept / no new arm. Never closes open positions.
  */
 export async function onMapCloseAccept(
   info: MapCloseAcceptInfo,
@@ -122,25 +195,47 @@ export async function onMapCloseAccept(
     now?: number;
     feedUrl?: string;
     fetchCards?: (feedUrl: string) => Promise<unknown[]>;
+    health?: PaperFeedHealth;
   } = {},
 ): Promise<MapAcceptResult | null> {
   if (info.interval !== "240") return null;
   if (!mapAcceptEnabled() || !engine) return null;
-  if (!agentMapEnabled()) return { accepted: [], skipped: 0 };
 
   const feedUrl = opts.feedUrl ?? "http://127.0.0.1:43180";
   const fetchCards = opts.fetchCards ?? fetchZoneCards;
-  const cards = await fetchCards(feedUrl);
   const lastBySymbol = lastPricesFromMap(info.map);
+  const now = opts.now ?? Date.now();
+
+  if (!agentMapEnabled()) {
+    const cards = await fetchCards(feedUrl);
+    return runMapAccept(engine, cards, lastBySymbol, now);
+  }
+
+  const lagOk = mapLagOk(info.map) && (opts.health?.klineLagOk !== false);
+  const gates = tradingGates({
+    feedOk: opts.health?.ok,
+    klineLagOk: lagOk,
+  });
+  if (!gates.tradingAllowed) {
+    return { accepted: [], skipped: 0 };
+  }
+
+  const cards = await fetchCards(feedUrl);
   const biases = readMapBias(info.map);
+  const minRr = engine.account().minRr;
   const picked = pickAcceptable(cards, lastBySymbol);
   const allow: ZoneCard[] = [];
   let skipped = 0;
   for (const card of picked) {
+    const standing = engine.zones("accepted", now).filter((row) => row.symbol === card.symbol).length;
     const decision = decideMapAccept({
       card,
       bias: biases.get(card.symbol),
       last: lastBySymbol.get(card.symbol),
+      minRr,
+      acceptedForSymbol: standing + allow.filter((item) => item.symbol === card.symbol).length,
+      tradingAllowed: gates.tradingAllowed,
+      now,
     });
     if (!decision.allow) {
       skipped += 1;
@@ -148,6 +243,6 @@ export async function onMapCloseAccept(
     }
     allow.push(card);
   }
-  const result = runMapAccept(engine, allow, lastBySymbol, opts.now);
+  const result = runMapAccept(engine, allow, lastBySymbol, now);
   return { accepted: result.accepted, skipped: skipped + result.skipped };
 }
