@@ -46,3 +46,11 @@ export {
   type LedgerStatus,
   type ZoneLedgerRow,
 } from "./ledger";
+
+export {
+  armSide,
+  armTimeframes,
+  penetrationFromLast,
+  proximityDecision,
+  type ProximityDecision,
+} from "./proximity";

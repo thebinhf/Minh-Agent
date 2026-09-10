@@ -18,7 +18,7 @@ Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** 
 
 Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
-Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. Accept a card into the paper ledger (`bun run paper zone accept FILE.json` / `POST /paper/zones`). Then `paper arm … --zone-id <zoneId>` — ledger does **not** auto-arm.
+Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. Accept by id: `bun run paper zone accept <zoneId>` (pulls the card from `/zones`) or `POST /paper/zones` with `{ "zoneId": "…" }` / a full card. Then proximity ARM or `paper arm … --zone-id <zoneId>` — `/zones` itself does **not** auto-arm.
 
 Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
 
@@ -29,6 +29,10 @@ Open paper (`positions` / `pendingOrders` / `armedAlerts`) is on the brief-pack 
 Depth/heatmap only when price is **at the zone**, not on a timer.
 
 ## ARM
+
+Accepted ledger cards rest themselves when last enters **proximal → entry** (demand last dropping in; supply last lifting in). Through entry → wait (no chase). ≥50% into the zone → `deep_mitigate`. Through SL → `htf_break`. Already pending/open on that symbol → skip. `insufficient_margin` (1x on a tight BTC stop) skips; raise account `defaultLeverage`. `PAPER_PROXIMITY_ARM=0` disables.
+
+Manual still works:
 
 ```text
 bun run paper arm BTCUSDT --side long --price 117500 \
@@ -87,7 +91,7 @@ Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT noti
 
 On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json` next to the feed DB (override `MAP_CLOSE_PATH`). Optional `MAP_CLOSE_WEBHOOK` POSTs `{ kind: "map.close", interval, map }` — same payload as `/map`, not a signal. `MAP_CLOSE=0` disables.
 
-Then Agent **accepts** 0–2 cards into the ledger (`paper zone accept`). Engine does **not** auto-arm.
+Then Agent **accepts** 0–2 cards into the ledger (`paper zone accept`). Tick **proximity-arms** when last is in the proximal band (post-only OCO). `PAPER_PROXIMITY_ARM=0` disables. Does **not** arm `GET /zones` suggestions.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 
