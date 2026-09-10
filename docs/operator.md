@@ -24,7 +24,7 @@ Bias (from `/map` klines, not a `/map` field): 4H HH/HL = bull, LH/LL = bear, mi
 
 `MAP_ACCEPT=0` turns off the **old accept path** (no auto-copy). `AGENT_MAP=0` is a **policy no-op** — ungated P5 `runMapAccept` still copies if `MAP_ACCEPT` is on. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` (bypasses agent policy). `/zones` itself does **not** arm.
 
-Quant is a veto, not a signal: `tickers[].fundingRate`, `/map.funding.crowded`, `tickers[].openInterest`, `/map.oi.deltaPct`, `tickers[].price24hPcnt`. Crowded long (`funding.crowded=long`) does not short; it blocks a weak demand arm.
+Quant is a veto, not a signal: `tickers[].fundingRate`, `/map.funding.crowded`, `tickers[].openInterest`, `/map.oi.reading` (`long_add`/`short_add`/`cover`/`flush`), `/map.oi.deltaPct`, `tickers[].price24hPcnt`. Crowded long (`funding.crowded=long`) does not short; it blocks a weak demand arm. `oi.reading=short_add` into a demand zone → stand aside.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 

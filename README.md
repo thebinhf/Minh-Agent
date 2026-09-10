@@ -75,6 +75,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_DB_PATH` | paper SQLite | Ledger (must not equal the feed DB) |
 | `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
 | `BYBIT_OI` | on (`0` disables) | REST OI history fill |
+| `BYBIT_OI_EXTREME` | `2` | `|deltaPct|` % for `oi.trend` / `oi.reading` |
 | `BYBIT_FUNDING` | on (`0` disables) | REST funding history fill |
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
@@ -104,7 +105,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /map` | HTF MAP + `klineLag` (watchlist, cap 10) |
 | `GET /map-latest` | Last 1H/4H dump (`404` until first close) |
 | `GET /zones` | Suggest-only cards (4H default; `?interval=60`) |
-| `GET /oi` | OI history (quant veto, not a signal) |
+| `GET /oi` | OI history + `trend` (quant veto, not a signal) |
 | `GET /funding` | Funding history (quant veto, `crowded`) |
 | `GET /confirm` | Optional LTF (20×15m; scalp `5`) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
