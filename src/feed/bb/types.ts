@@ -44,6 +44,8 @@ export type TrackerConfig = {
     tickerSnapshotsHours: number;
     orderbookSnapshotsHours: number;
     klinesDays: number;
+    /** Actual Bybit liq prints. Default 48. */
+    liquidationsHours: number;
     pruneIntervalMs: number;
   };
   snapshot: {

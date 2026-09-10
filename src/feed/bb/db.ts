@@ -4,9 +4,10 @@ import { mkdirSync } from "node:fs";
 import type { BybitKline, OrderBookState, TickerState } from "./types";
 import type { OiBar } from "./oi";
 import type { FundingBar } from "./funding";
+import type { LiqPrint } from "./liq";
 import { serializeBook } from "./merge";
 
-export const SCHEMA_VERSION = "4";
+export const SCHEMA_VERSION = "5";
 
 export type TrackerDb = ReturnType<typeof openDb>;
 
@@ -120,6 +121,17 @@ function migrate(db: Database) {
       recv_ts INTEGER NOT NULL,
       PRIMARY KEY (symbol, funding_ts)
     );
+
+    CREATE TABLE IF NOT EXISTS liquidations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      price TEXT NOT NULL,
+      size TEXT NOT NULL,
+      exch_ts INTEGER NOT NULL,
+      recv_ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_liq_symbol_ts ON liquidations(symbol, exch_ts);
 
     CREATE TABLE IF NOT EXISTS connection_health (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -294,6 +306,11 @@ function wrap(db: Database) {
       recv_ts = excluded.recv_ts
   `);
 
+  const insertLiq = db.prepare(`
+    INSERT INTO liquidations (symbol, side, price, size, exch_ts, recv_ts)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
   const touchHealth = db.prepare(`
     UPDATE connection_health SET
       connected = COALESCE($connected, connected),
@@ -396,6 +413,9 @@ function wrap(db: Database) {
     },
     saveFunding(symbol: string, bar: FundingBar, recvTs: number) {
       upsertFunding.run(symbol, bar.fundingTs, bar.fundingRate, recvTs);
+    },
+    saveLiquidation(print: LiqPrint, recvTs: number) {
+      insertLiq.run(print.symbol, print.side, print.price, print.size, print.exchTs, recvTs);
     },
     setHealth(fields: {
       connected?: number;
@@ -660,23 +680,62 @@ function wrap(db: Database) {
         recv_ts: number;
       }>;
     },
+    listLiquidations(opts: {
+      symbol?: string;
+      limit?: number;
+      startTs?: number;
+      endTs?: number;
+      maxLimit?: number;
+    }) {
+      const where: string[] = [];
+      const args: Array<string | number> = [];
+      if (opts.symbol) {
+        where.push("symbol = ?");
+        args.push(opts.symbol);
+      }
+      if (opts.startTs !== undefined) {
+        where.push("exch_ts >= ?");
+        args.push(opts.startTs);
+      }
+      if (opts.endTs !== undefined) {
+        where.push("exch_ts <= ?");
+        args.push(opts.endTs);
+      }
+      const cap = opts.maxLimit ?? 5_000;
+      const limit = Math.min(Math.max(opts.limit ?? 500, 1), cap);
+      const sql = `SELECT symbol, side, price, size, exch_ts, recv_ts FROM liquidations
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY exch_ts DESC LIMIT ?`;
+      args.push(limit);
+      return db.prepare(sql).all(...args) as Array<{
+        symbol: string;
+        side: string;
+        price: string;
+        size: string;
+        exch_ts: number;
+        recv_ts: number;
+      }>;
+    },
     prune(now: number, retention: {
       tickerSnapshotsHours: number;
       orderbookSnapshotsHours: number;
       klinesDays: number;
+      liquidationsHours?: number;
       vacuumMinIntervalMs?: number;
     }) {
       const tickerCut = now - retention.tickerSnapshotsHours * 3600_000;
       const bookCut = now - retention.orderbookSnapshotsHours * 3600_000;
       const klineCut = now - retention.klinesDays * 86400_000;
+      const liqCut = now - (retention.liquidationsHours ?? 48) * 3600_000;
       const tickerDeleted = db.prepare("DELETE FROM ticker_snapshots WHERE recv_ts < ?").run(tickerCut).changes;
       const bookDeleted = db.prepare("DELETE FROM orderbook_snapshots WHERE recv_ts < ?").run(bookCut).changes;
       const klineDeleted = db.prepare("DELETE FROM klines WHERE start_ts < ? AND confirm = 1").run(klineCut).changes;
       const oiDeleted = db.prepare("DELETE FROM open_interest WHERE start_ts < ?").run(klineCut).changes;
       const fundingDeleted = db.prepare("DELETE FROM funding WHERE funding_ts < ?").run(klineCut).changes;
+      const liqDeleted = db.prepare("DELETE FROM liquidations WHERE exch_ts < ?").run(liqCut).changes;
       setMeta(db, "last_prune_ts", String(now));
       const reclaim = reclaimSqlite(db, now, retention.vacuumMinIntervalMs ?? 3_600_000);
-      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, fundingDeleted, ...reclaim };
+      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, fundingDeleted, liqDeleted, ...reclaim };
     },
   };
 }

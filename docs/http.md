@@ -33,7 +33,7 @@ HTF MAP. No 15m.
 
 One symbol → a single map object. Several / watchlist → `{ ts, maps, klineLag, meta }`.
 
-Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H + `deltaPct` + `trend` + `reading`) + `funding` (last 21 rates + `crowded`). `oi.note` / `funding.note` is always `quant veto — not a signal`.
+Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H + `deltaPct` + `trend` + `reading`) + `funding` (last 21 rates + `crowded`) + `liq` (4H prints: `below`/`above`/`cascade`). `oi.note` / `funding.note` / `liq.note` is always `quant veto — not a signal`.
 
 ```bash
 curl -sS http://127.0.0.1:43180/map
@@ -99,6 +99,22 @@ Bars oldest→newest. `latest` prefers live ticker. `crowded` is `long` / `short
 
 ```bash
 curl -sS 'http://127.0.0.1:43180/funding?symbol=BTCUSDT'
+```
+
+### `GET /liq-heatmap`
+
+Actual Bybit liquidation **prints**, not Coinglass estimates. Public WS `allLiquidation.{symbol}` (BTC/ETH/SOL with the L50 book). `Buy` = long liquidated.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT` | |
+| `hours` | 24 | Cap 48 (retention) |
+| `bucket` | from last | BTC ~50, ETH ~5 |
+
+Bins: `longSize` / `shortSize` / `count`. `cascade` = last 5m size ≥ 3× window-average 5m. Not a signal. `GET /heatmap` stays the orderbook grid. `BYBIT_LIQ=0` skips the stream.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/liq-heatmap?symbol=BTCUSDT&hours=24'
 ```
 
 ### `GET /brief`

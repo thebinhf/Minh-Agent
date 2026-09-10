@@ -51,6 +51,7 @@ HTTP contract: [http.md](http.md).
 | `GET /zones` | Suggest-only cards (240 / 60) |
 | `GET /oi` | OI history (quant veto) |
 | `GET /funding` | Funding history (quant veto) |
+| `GET /liq-heatmap` | Actual liq prints heatmap |
 | `GET /confirm` | Optional LTF (15 / 5) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
 | `GET /health` | WS + kline lag |
