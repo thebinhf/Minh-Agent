@@ -9,6 +9,7 @@ import {
   aggregateLiqPrints,
   createLiqRelayBatch,
   createRelay,
+  liqRelayBurst,
   parseRelayArg,
   topicMatches,
 } from "../../../src/feed/bb/relay";
@@ -127,24 +128,50 @@ describe("liq relay batch", () => {
     ]);
   });
 
-  test("coalesces until the window, flushes immediately at 8 prints", () => {
+  test("coalesces mixed tape; same-side burst and hard cap flush now", () => {
     const flushed: Array<{ symbol: string; count: number }> = [];
     const batch = createLiqRelayBatch({
       everyMs: () => 60_000,
       onFlush: (symbol, payload) => flushed.push({ symbol, count: payload.count }),
     });
-    const print = { symbol: "BTCUSDT", side: "Buy" as const, price: "100000", size: "1", exchTs: 1 };
-    batch.push("BTCUSDT", [print, print, print]);
+    const buy = { symbol: "BTCUSDT", side: "Buy" as const, price: "100000", size: "1", exchTs: 1 };
+    const sell = { symbol: "BTCUSDT", side: "Sell" as const, price: "101000", size: "1", exchTs: 1 };
+    batch.push("BTCUSDT", [buy, buy, buy]);
     expect(flushed).toEqual([]);
-    batch.flush("BTCUSDT");
-    expect(flushed).toEqual([{ symbol: "BTCUSDT", count: 3 }]);
+    expect(liqRelayBurst(Array.from({ length: 8 }, (_, i) => (i % 2 === 0 ? buy : sell)))).toBe(false);
+    batch.push("MIXUSDT", Array.from({ length: 8 }, (_, i) => (i % 2 === 0 ? buy : sell)));
+    expect(flushed).toEqual([]);
+    batch.flush("MIXUSDT");
+    expect(flushed).toEqual([{ symbol: "MIXUSDT", count: 8 }]);
 
-    const eight = Array.from({ length: 8 }, () => print);
-    batch.push("ETHUSDT", eight);
+    batch.push("ETHUSDT", Array.from({ length: 8 }, () => buy));
     expect(flushed).toEqual([
-      { symbol: "BTCUSDT", count: 3 },
+      { symbol: "MIXUSDT", count: 8 },
       { symbol: "ETHUSDT", count: 8 },
     ]);
+
+    const mixed32 = Array.from({ length: 32 }, (_, i) => (i % 2 === 0 ? buy : sell));
+    batch.push("SOLUSDT", mixed32);
+    expect(flushed.at(-1)).toEqual({ symbol: "SOLUSDT", count: 32 });
+    batch.flushAll();
+  });
+
+  test("quiet tape extends one window; 3+ prints do not", async () => {
+    const flushed: string[] = [];
+    const batch = createLiqRelayBatch({
+      everyMs: () => 25,
+      onFlush: (symbol) => flushed.push(symbol),
+    });
+    const buy = { symbol: "BTCUSDT", side: "Buy" as const, price: "1", size: "1", exchTs: 1 };
+    batch.push("QUIET", [buy]);
+    await bunSleep(40);
+    expect(flushed).toEqual([]);
+    await bunSleep(30);
+    expect(flushed).toEqual(["QUIET"]);
+
+    batch.push("BUSY", [buy, buy, buy]);
+    await bunSleep(40);
+    expect(flushed).toEqual(["QUIET", "BUSY"]);
   });
 
   test("everyMs 0 flushes on the first push", () => {
