@@ -1,8 +1,8 @@
 import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
-import { parseLiqPrints } from "./liq";
-import { relayTickerMs, thinTicker, type RelayPush } from "./relay";
+import { createLiqRelayBatch, relayLiqMs, relayTickerMs, thinTicker, type RelayPush } from "./relay";
+import { defaultLiqBucket, parseLiqPrints } from "./liq";
 import { fillKlineGaps, fillOiGaps, fillFundingGaps, fillRiskLimits } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
@@ -38,6 +38,13 @@ export function startTracker(config: TrackerConfig, store: TrackerDb, opts?: Tra
   const lastBookSnap = new Map<string, number>();
   const lastTickerRelay = new Map<string, number>();
   const pendingSubscribe = new Map<string, PendingSubscribe>();
+  const liqRelay = opts?.onRelay
+    ? createLiqRelayBatch({
+      onFlush: (symbol, data, ts) => opts.onRelay?.({ topic: `liq.${symbol}`, ts, data }),
+      everyMs: relayLiqMs,
+      bucketFor: (symbol) => defaultLiqBucket(Number(tickers.get(symbol)?.fields.lastPrice)),
+    })
+    : null;
 
   let stopped = false;
   let ws: WebSocket | null = null;
@@ -368,11 +375,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb, opts?: Tra
         store.saveLiquidation(print, now);
       }
       if (opts?.onRelay && prints.length) {
-        opts.onRelay({
-          topic: `liq.${parsed.symbol}`,
-          ts: now,
-          data: { prints },
-        });
+        liqRelay?.push(parsed.symbol, prints, now);
       }
     }
   };
@@ -387,6 +390,7 @@ export function startTracker(config: TrackerConfig, store: TrackerDb, opts?: Tra
       stopPing();
       stopWatchdog();
       rejectPending(new Error("tracker stopped"));
+      liqRelay?.flushAll();
       ws?.close();
       store.setHealth({ connected: 0, disconnectTs: Date.now() });
     },

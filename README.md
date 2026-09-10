@@ -83,6 +83,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_LIQ` | on (`0` disables) | WS `allLiquidation` prints |
 | `BYBIT_LIQ_MODEL` | on (`0` disables) | Estimated `/liq-model` |
 | `BYBIT_RELAY` | on (`0` disables) | Local `ws://…/ws` push |
+| `BYBIT_RELAY_LIQ_MS` | 1000 | Liq relay coalesce; `0` = every batch |
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
