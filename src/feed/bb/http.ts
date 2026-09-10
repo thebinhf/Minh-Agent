@@ -8,6 +8,7 @@ import { buildOi } from "./oi";
 import { buildFunding } from "./funding";
 import { buildLiqHeatmap } from "./liq";
 import { buildLiqModel } from "./liq-model";
+import { relayEnabled, type RelayHub } from "./relay";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
@@ -76,13 +77,26 @@ function mapBook(row: Record<string, unknown>) {
 export type FeedHttpExtras = {
   /** Injected by the composition root. Feed does not import src/paper. */
   paperDesk?: BriefPackPaperSource;
+  /** Local WS hub. GET /ws upgrades when set and BYBIT_RELAY is not 0. */
+  relay?: RelayHub;
 };
 
 export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: FeedHttpExtras) {
-  const server = Bun.serve({
+  const server = Bun.serve<{ topics: Set<string> }>({
     hostname: config.httpHost,
     port: config.httpPort,
-    async fetch(req) {
+    async fetch(req, bun) {
+      const url = new URL(req.url);
+      const path = url.pathname;
+
+      if (path === "/ws") {
+        if (!extras?.relay || !relayEnabled()) {
+          return json({ error: "not found" }, 404);
+        }
+        if (bun.upgrade(req, { data: { topics: new Set<string>() } })) return;
+        return json({ error: "upgrade" }, 400);
+      }
+
       if (req.method === "OPTIONS") {
         return new Response(null, {
           headers: {
@@ -94,9 +108,6 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
       if (req.method !== "GET") {
         return json({ error: "method not allowed" }, 405);
       }
-
-      const url = new URL(req.url);
-      const path = url.pathname;
 
       if (path === "/health") {
         return json(buildFeedHealth(store, config));
@@ -331,6 +342,17 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
       }
 
       return json({ error: "not found" }, 404);
+    },
+    websocket: {
+      open(ws) {
+        extras?.relay?.attach(ws);
+      },
+      close(ws) {
+        extras?.relay?.detach(ws);
+      },
+      message(ws, message) {
+        extras?.relay?.onMessage(ws, message);
+      },
     },
   });
 

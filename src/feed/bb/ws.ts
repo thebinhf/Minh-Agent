@@ -2,6 +2,7 @@ import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
 import { parseLiqPrints } from "./liq";
+import { relayTickerMs, thinTicker, type RelayPush } from "./relay";
 import { fillKlineGaps, fillOiGaps, fillFundingGaps, fillRiskLimits } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
@@ -18,18 +19,24 @@ export type TrackerRuntime = {
   stop: () => void;
 };
 
+export type TrackerOpts = {
+  /** Local WS relay. Thin ticker / confirmed kline / liq prints. */
+  onRelay?: (msg: RelayPush) => void;
+};
+
 type PendingSubscribe = {
   resolve: () => void;
   reject: (error: Error) => void;
 };
 
-export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRuntime {
+export function startTracker(config: TrackerConfig, store: TrackerDb, opts?: TrackerOpts): TrackerRuntime {
   const topics = buildTopics(config);
   const recovery = config.recovery;
   const tickers = new Map<string, TickerState>();
   const books = new Map<string, OrderBookState>();
   const lastTickerSnap = new Map<string, number>();
   const lastBookSnap = new Map<string, number>();
+  const lastTickerRelay = new Map<string, number>();
   const pendingSubscribe = new Map<string, PendingSubscribe>();
 
   let stopped = false;
@@ -304,6 +311,16 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       const snap = snapshotDue(config.snapshot.tickerEveryMs, lastTickerSnap.get(parsed.symbol), now);
       if (snap) lastTickerSnap.set(parsed.symbol, now);
       store.saveTicker(next, now, snap);
+      const every = relayTickerMs();
+      const due = every <= 0 || snapshotDue(every, lastTickerRelay.get(parsed.symbol), now);
+      if (opts?.onRelay && due) {
+        lastTickerRelay.set(parsed.symbol, now);
+        opts.onRelay({
+          topic: `ticker.${parsed.symbol}`,
+          ts: now,
+          data: thinTicker(next.fields),
+        });
+      }
       return;
     }
 
@@ -324,13 +341,38 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
       const candles = Array.isArray(msg.data) ? (msg.data as BybitKline[]) : [];
       for (const candle of candles) {
         store.saveKline(parsed.symbol, candle, now);
+        if (opts?.onRelay && candle.confirm) {
+          opts.onRelay({
+            topic: `kline.${parsed.interval}.${parsed.symbol}`,
+            ts: now,
+            data: {
+              start: candle.start,
+              interval: candle.interval,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: candle.volume,
+              turnover: candle.turnover,
+              confirm: true,
+            },
+          });
+        }
       }
       return;
     }
 
     if (parsed.kind === "liquidation") {
-      for (const print of parseLiqPrints(msg.data, parsed.symbol)) {
+      const prints = parseLiqPrints(msg.data, parsed.symbol);
+      for (const print of prints) {
         store.saveLiquidation(print, now);
+      }
+      if (opts?.onRelay && prints.length) {
+        opts.onRelay({
+          topic: `liq.${parsed.symbol}`,
+          ts: now,
+          data: { prints },
+        });
       }
     }
   };

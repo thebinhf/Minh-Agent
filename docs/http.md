@@ -11,6 +11,8 @@ Unknown path → `404` `{ "error": "not found" }`. Wrong method → `405` `{ "er
 
 Prices, qty, and money are **decimal strings**. Timestamps are epoch **ms**.
 
+Local push: `ws://127.0.0.1:43180/ws` (same bind). Not a Bybit proxy. `BYBIT_RELAY=0` off.
+
 ---
 
 ## Feed (`:43180`)
@@ -131,6 +133,23 @@ curl -sS 'http://127.0.0.1:43180/liq-heatmap?symbol=BTCUSDT&hours=24'
 
 ```bash
 curl -sS 'http://127.0.0.1:43180/liq-model?symbol=BTCUSDT'
+```
+
+### `ws://127.0.0.1:43180/ws`
+
+Local relay. Same process as the HTTP cache. Topics:
+
+| Subscribe | Push |
+| --- | --- |
+| `ticker.BTCUSDT` / `ticker.*` | Thin last/mark/funding/OI, coalesced 1s (`BYBIT_RELAY_TICKER_MS`) |
+| `kline.15.BTCUSDT` / `kline.240.*` | **Confirmed** bar only |
+| `liq.BTCUSDT` / `liq.*` | Print batch (`Buy` = long liquidated) |
+
+No orderbook stream (use `GET /depth`). Cascade stays on `GET /map`. Protocol: `{ op, args }` subscribe/unsubscribe/ping, same shape as Bybit. Cap 16 clients, 32 topics. `meta.note` is `local push — not Bybit`.
+
+```js
+const ws = new WebSocket("ws://127.0.0.1:43180/ws");
+ws.onopen = () => ws.send(JSON.stringify({ op: "subscribe", args: ["ticker.BTCUSDT", "liq.*", "kline.240.BTCUSDT"] }));
 ```
 
 ### `GET /brief`
