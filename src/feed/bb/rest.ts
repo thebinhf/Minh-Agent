@@ -15,6 +15,11 @@ import {
   type OiBar,
   type OiInterval,
 } from "./oi";
+import {
+  fundingEnabled,
+  parseRestFundingList,
+  type FundingBar,
+} from "./funding";
 
 type RestKlineRow = [string, string, string, string, string, string, string];
 
@@ -609,6 +614,237 @@ export async function fillOiHistory(
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[minh:bb] OI backfill ${symbol} ${interval}: ${message}`);
       }
+    }
+  }
+
+  return { series, bars, errors, host: cachedWorkingBase };
+}
+
+export const REST_FUNDING_LIMIT = 200;
+
+async function fetchLinearFundingFromBase(
+  base: string,
+  config: TrackerConfig,
+  opts: {
+    symbol: string;
+    start?: number;
+    end: number;
+    fetchImpl: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<FundingBar[]> {
+  const recovery = config.recovery;
+  const url = new URL("/v5/market/funding/history", base);
+  url.searchParams.set("category", "linear");
+  url.searchParams.set("symbol", opts.symbol);
+  url.searchParams.set("endTime", String(opts.end));
+  if (opts.start != null && Number.isFinite(opts.start)) {
+    url.searchParams.set("startTime", String(opts.start));
+  }
+  url.searchParams.set("limit", String(REST_FUNDING_LIMIT));
+
+  return withRetries(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), recovery.restTimeoutMs);
+    const onAbort = () => controller.abort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const res = await opts.fetchImpl(url.toString(), { signal: controller.signal });
+      if (!res.ok) {
+        const error = new Error(`Bybit REST funding HTTP ${res.status} (${base})`);
+        if (FAILOVER_STATUS.has(res.status)) {
+          throw Object.assign(error, { retryable: false, failover: true, status: res.status });
+        }
+        throw error;
+      }
+      const body = (await res.json()) as {
+        retCode?: number;
+        retMsg?: string;
+        result?: { list?: unknown };
+      };
+      if (body.retCode !== 0) {
+        throw new Error(`Bybit REST funding ${body.retCode}: ${body.retMsg ?? "error"}`);
+      }
+      return parseRestFundingList(body.result?.list);
+    } finally {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+    }
+  }, {
+    retries: recovery.restRetries,
+    delayMs: recovery.restRetryDelayMs,
+    signal: opts.signal,
+  });
+}
+
+export async function fetchLinearFundingHistory(
+  config: TrackerConfig,
+  opts: {
+    symbol: string;
+    start?: number;
+    end: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<FundingBar[]> {
+  const fetchImpl = opts.fetchImpl ?? (fetch as RestFetch);
+  const bases = orderedBases(config);
+  let lastError: unknown;
+
+  for (const base of bases) {
+    try {
+      const bars = await fetchLinearFundingFromBase(base, config, {
+        symbol: opts.symbol,
+        start: opts.start,
+        end: opts.end,
+        fetchImpl,
+        signal: opts.signal,
+      });
+      if (cachedWorkingBase !== base) {
+        if (cachedWorkingBase || base !== restBases(config)[0]) {
+          console.log(`[minh:bb] REST funding host ${base}`);
+        }
+        cachedWorkingBase = base;
+      }
+      return bars;
+    } catch (error) {
+      lastError = error;
+      if (opts.signal?.aborted) throw error;
+      if (!isFailoverError(error)) throw error;
+      if (base === bases[bases.length - 1]) break;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[minh:bb] ${message}; trying next REST host`);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Bybit REST funding failed on every host");
+}
+
+async function fillFundingWindow(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "saveFunding">,
+  opts: {
+    symbol: string;
+    start?: number;
+    end: number;
+    now: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<number> {
+  let start = opts.start;
+  let end = opts.end;
+  let written = 0;
+  const floor = opts.start;
+
+  while (end > (start ?? 0) || start == null) {
+    if (opts.signal?.aborted) break;
+    const batch = await fetchLinearFundingHistory(config, {
+      symbol: opts.symbol,
+      start,
+      end,
+      fetchImpl: opts.fetchImpl,
+      signal: opts.signal,
+    });
+    if (batch.length === 0) break;
+    for (const bar of batch) {
+      if (floor != null && bar.fundingTs < floor) continue;
+      store.saveFunding(opts.symbol, bar, opts.now);
+      written += 1;
+    }
+    if (batch.length < REST_FUNDING_LIMIT) break;
+    const oldest = Math.min(...batch.map((bar) => bar.fundingTs));
+    if (oldest <= (start ?? 0)) break;
+    end = oldest - 1;
+    if (start == null && floor != null) start = floor;
+  }
+
+  return written;
+}
+
+export async function fillFundingGaps(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "getLastFundingTs" | "saveFunding">,
+  opts: {
+    now?: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  } = {},
+): Promise<{ series: number; bars: number; errors: number }> {
+  if (!config.recovery.gapFill || !fundingEnabled()) {
+    return { series: 0, bars: 0, errors: 0 };
+  }
+
+  const now = opts.now ?? Date.now();
+  const lookbackMs = config.retention.klinesDays * 86_400_000;
+  let bars = 0;
+  let errors = 0;
+  let series = 0;
+
+  for (const symbol of config.symbols) {
+    if (opts.signal?.aborted) return { series, bars, errors };
+    series += 1;
+    try {
+      const last = store.getLastFundingTs(symbol);
+      const start = last != null ? last + 1 : computeGapStart(null, now, lookbackMs);
+      const written = await fillFundingWindow(config, store, {
+        symbol,
+        start: last != null ? start : undefined,
+        end: now,
+        now,
+        fetchImpl: opts.fetchImpl,
+        signal: opts.signal,
+      });
+      bars += written;
+    } catch (error) {
+      errors += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[minh:bb] funding gap-fill ${symbol}: ${message}`);
+    }
+  }
+
+  return { series, bars, errors };
+}
+
+export async function fillFundingHistory(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "saveFunding">,
+  opts: {
+    symbols: string[];
+    start: number;
+    end: number;
+    now?: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  },
+): Promise<{ series: number; bars: number; errors: number; host?: string }> {
+  const now = opts.now ?? Date.now();
+  let bars = 0;
+  let errors = 0;
+  let series = 0;
+
+  for (const symbol of opts.symbols) {
+    if (opts.signal?.aborted) {
+      return { series, bars, errors, host: cachedWorkingBase };
+    }
+    series += 1;
+    try {
+      const written = await fillFundingWindow(config, store, {
+        symbol,
+        start: opts.start,
+        end: opts.end,
+        now,
+        fetchImpl: opts.fetchImpl,
+        signal: opts.signal,
+      });
+      bars += written;
+      console.log(`[minh:bb] funding backfill ${symbol} wrote ${written}`);
+    } catch (error) {
+      errors += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[minh:bb] funding backfill ${symbol}: ${message}`);
     }
   }
 

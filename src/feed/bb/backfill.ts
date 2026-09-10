@@ -2,9 +2,10 @@ import { loadConfig } from "./config";
 import { openDb } from "./db";
 import { decodeDumpBytes, inferDumpMeta, parseKlineDump } from "./dump";
 import { intervalToMs, normalizeKlineInterval, parseTimeArg } from "./recovery";
-import { fillKlineHistory, fillOiHistory, probeRestHosts, type RestFetch } from "./rest";
+import { fillKlineHistory, fillOiHistory, fillFundingHistory, probeRestHosts, type RestFetch } from "./rest";
 import { PA_KLINE_INTERVALS, type TrackerConfig } from "./types";
 import { oiEnabled, parseOiInterval, type OiInterval } from "./oi";
+import { fundingEnabled } from "./funding";
 
 export type BackfillSource = "rest" | { file: string };
 
@@ -19,11 +20,12 @@ export type BackfillOptions = {
   signal?: AbortSignal;
   /** REST only. Default set by parseBackfillArgs. */
   oi?: boolean;
+  funding?: boolean;
 };
 
 function usage(): never {
   console.log(`Usage:
-  bun run backfill [--from rest] [--symbol BTCUSDT,ETHUSDT] [--interval 15,60,240,D] [--days N] [--oi|--no-oi]
+  bun run backfill [--from rest] [--symbol BTCUSDT,ETHUSDT] [--interval 15,60,240,D] [--days N] [--oi|--no-oi] [--funding|--no-funding]
   bun run backfill --from ./klines.json --symbol BTCUSDT --interval 15
   bun run backfill --from https://public.bybit.com/kline_for_metatrader4/BTCUSDT/2025/BTCUSDT_15_2025-01-01_2025-01-31.csv.gz
   bun run backfill --probe
@@ -39,6 +41,7 @@ Public linear klines only. No API keys. Live WS is not started.
   --start TIME           Unix epoch ms (13-digit, e.g. 1725600000000), ISO-8601, or YYYY-MM-DD
   --end TIME             same formats as --start (default: now)
   --oi / --no-oi         also fill GET /v5/market/open-interest (default on for rest; BYBIT_OI=0 off)
+  --funding / --no-funding  also fill GET /v5/market/funding/history (default on for rest; BYBIT_FUNDING=0 off)
   --probe                print which public REST hosts answer /v5/market/time
 `);
   process.exit(2);
@@ -85,6 +88,7 @@ export function parseBackfillArgs(
   }
 
   const oi = argv.includes("--no-oi") ? false : argv.includes("--oi") || (from === "rest" && oiEnabled());
+  const funding = argv.includes("--no-funding") ? false : argv.includes("--funding") || (from === "rest" && fundingEnabled());
 
   return {
     source: from === "rest" ? "rest" : { file: from },
@@ -94,6 +98,7 @@ export function parseBackfillArgs(
     end,
     now,
     oi,
+    funding,
   };
 }
 
@@ -108,9 +113,9 @@ export function oiIntervalsForBackfill(intervals: string[]): OiInterval[] {
 
 export async function runBackfill(
   config: TrackerConfig,
-  store: Pick<ReturnType<typeof openDb>, "saveKline" | "saveOi" | "setMeta" | "klineStats">,
+  store: Pick<ReturnType<typeof openDb>, "saveKline" | "saveOi" | "saveFunding" | "setMeta" | "klineStats">,
   options: BackfillOptions,
-): Promise<{ series: number; candles: number; errors: number; oiBars?: number; source: string; host?: string }> {
+): Promise<{ series: number; candles: number; errors: number; oiBars?: number; fundingBars?: number; source: string; host?: string }> {
   const now = options.now ?? Date.now();
   if (options.source === "rest") {
     const result = await fillKlineHistory(config, store, {
@@ -124,6 +129,8 @@ export async function runBackfill(
     });
     let oiBars = 0;
     let oiErrors = 0;
+    let fundingBars = 0;
+    let fundingErrors = 0;
     if (options.oi && oiEnabled()) {
       const oiIntervals = oiIntervalsForBackfill(options.intervals);
       if (oiIntervals.length) {
@@ -140,16 +147,36 @@ export async function runBackfill(
         oiErrors = oi.errors;
       }
     }
+    if (options.funding && fundingEnabled()) {
+      const funding = await fillFundingHistory(config, store, {
+        symbols: options.symbols,
+        start: options.start,
+        end: options.end,
+        now,
+        fetchImpl: options.fetchImpl,
+        signal: options.signal,
+      });
+      fundingBars = funding.bars;
+      fundingErrors = funding.errors;
+    }
     store.setMeta("last_backfill", JSON.stringify({
       ...result,
       oiBars,
       oiErrors,
+      fundingBars,
+      fundingErrors,
       source: "rest",
       start: options.start,
       end: options.end,
       ts: now,
     }));
-    return { ...result, errors: result.errors + oiErrors, oiBars, source: "rest" };
+    return {
+      ...result,
+      errors: result.errors + oiErrors + fundingErrors,
+      oiBars,
+      fundingBars,
+      source: "rest",
+    };
   }
 
   const dump = await loadDump(options.source.file, options.symbols, options.intervals, now);

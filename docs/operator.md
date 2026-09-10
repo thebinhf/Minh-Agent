@@ -20,7 +20,7 @@ Check `klineLag.ok` before drawing (1H/4H on `/map`; 15m lag is scalp-only). Sta
 
 **`GET /zones`** (`bun run zones`) is suggest-only: it does **not** arm. 4H MAP-accept copies those cards into the paper ledger. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` `{ "zoneId" }` / full card / `FILE.json`. Cap 2/symbol. Expires with `expiryBars`. `/zones` itself does **not** arm.
 
-Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`.
+Quant is a veto, not a signal: `tickers[].fundingRate`, `/map.funding.crowded`, `tickers[].openInterest`, `/map.oi.deltaPct`, `tickers[].price24hPcnt`. Crowded long (`funding.crowded=long`) does not short; it blocks a weak demand arm.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 

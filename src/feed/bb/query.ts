@@ -4,6 +4,7 @@ import { buildFeedHealth } from "./health";
 import { parseTimeArg } from "./recovery";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 import { buildOi } from "./oi";
+import { buildFunding } from "./funding";
 
 function usage(): never {
   console.log(`Usage:
@@ -14,6 +15,7 @@ function usage(): never {
   bun run query klines SYMBOL [INTERVAL] [--limit N] [--confirm 0|1] [--start TIME] [--end TIME]
   bun run query kline-stats [SYMBOL] [INTERVAL]
   bun run query oi [SYMBOL] [INTERVAL] [--limit N]
+  bun run query funding [SYMBOL] [--limit N]
   bun run query chart [SYMBOL] [INTERVAL] [--limit N] [--start TIME] [--end TIME]
   bun run query depth [SYMBOL]
   bun run query heatmap [SYMBOL] [--limit N] [--bucket STEP] [--start TIME] [--end TIME]
@@ -102,6 +104,27 @@ try {
         process.exit(2);
       }
       console.log(JSON.stringify(body, null, 2));
+      break;
+    }
+    case "funding": {
+      const rest = process.argv.slice(3);
+      const positional = rest.filter((arg) => !arg.startsWith("--"));
+      const limitRaw = flag(rest, "--limit");
+      const symbol = positional[0];
+      const ticker = store.listTickers(symbol ?? "BTCUSDT")[0] as
+        | { funding_rate?: unknown; next_funding_time?: unknown }
+        | undefined;
+      console.log(JSON.stringify(buildFunding(store, {
+        symbol,
+        dbPath: config.dbPath,
+        limit: limitRaw ? Number(limitRaw) : undefined,
+        ticker: ticker
+          ? {
+            fundingRate: ticker.funding_rate == null ? null : String(ticker.funding_rate),
+            nextFundingTime: ticker.next_funding_time == null ? null : String(ticker.next_funding_time),
+          }
+          : undefined,
+      }), null, 2));
       break;
     }
     case "chart": {

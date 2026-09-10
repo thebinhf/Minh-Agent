@@ -1,7 +1,7 @@
 import { snapshotDue, type TrackerDb } from "./db";
 import { applyOrderbook, mergeTicker } from "./merge";
 import { chunkTopics, isPongStale, withRetries } from "./recovery";
-import { fillKlineGaps, fillOiGaps } from "./rest";
+import { fillKlineGaps, fillOiGaps, fillFundingGaps } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
   BybitKline,
@@ -134,6 +134,14 @@ export function startTracker(config: TrackerConfig, store: TrackerDb): TrackerRu
         if (oi.series) {
           console.log(
             `[minh:bb] OI fill series=${oi.series} bars=${oi.bars} errors=${oi.errors}`,
+          );
+        }
+        const funding = await fillFundingGaps(config, store, { signal });
+        if (signal.aborted) return;
+        store.setMeta("last_funding_fill", JSON.stringify({ ...funding, ts: Date.now() }));
+        if (funding.series) {
+          console.log(
+            `[minh:bb] funding fill series=${funding.series} bars=${funding.bars} errors=${funding.errors}`,
           );
         }
       })

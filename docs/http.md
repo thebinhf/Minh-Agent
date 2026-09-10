@@ -33,7 +33,7 @@ HTF MAP. No 15m.
 
 One symbol → a single map object. Several / watchlist → `{ ts, maps, klineLag, meta }`.
 
-Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H series + `deltaPct`). `oi.note` is always `quant veto — not a signal`.
+Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H series + `deltaPct`) + `funding` (last 21 rates + `crowded`). `oi.note` / `funding.note` is always `quant veto — not a signal`.
 
 ```bash
 curl -sS http://127.0.0.1:43180/map
@@ -84,6 +84,21 @@ Bars oldest→newest. `deltaPct` is (last − first) / first × 100, or `null`. 
 
 ```bash
 curl -sS 'http://127.0.0.1:43180/oi?symbol=BTCUSDT&interval=240'
+```
+
+### `GET /funding`
+
+Funding-rate history from public REST (`/v5/market/funding/history`), 8h settlements, cached in SQLite. Not a signal.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT` | |
+| `limit` | 21 | Cap 200 |
+
+Bars oldest→newest. `latest` prefers live ticker. `crowded` is `long` / `short` / `null` when `|latest| >= extreme` (default `0.0003`, env `BYBIT_FUNDING_EXTREME`). Positive rate = longs pay = crowded long. `BYBIT_FUNDING=0` skips REST fill.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/funding?symbol=BTCUSDT'
 ```
 
 ### `GET /brief`
