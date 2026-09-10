@@ -18,7 +18,7 @@ Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** 
 
 Check `klineLag.ok` before drawing (1H/4H only on `/map`; 15m lag is EVENT). Stale/formingStuck while ticker is live → STAND ASIDE, do not invent candles.
 
-Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. Accept a card into the paper ledger (`bun run paper zone accept FILE.json` / `POST /paper/zones`). Then `paper arm … --zone-id <zoneId>` — ledger does **not** auto-arm.
+Optional **`GET /zones`** (`bun run zones`) returns candidate zone-cards from local 4H (or `--interval 60`). Suggest-only: it does **not** arm, open, or limit. Check `klineLag` on that payload the same way as `/map`. Accept by id: `bun run paper zone accept <zoneId>` (pulls the card from `/zones`) or `POST /paper/zones` with `{ "zoneId": "…" }` / a full card. Then proximity ARM or `paper arm … --zone-id <zoneId>` — `/zones` itself does **not** auto-arm.
 
 Quant is a veto, not a signal: `tickers[].fundingRate`, `tickers[].openInterest`, `tickers[].price24hPcnt`, `tickers[].highPrice24h` / `lowPrice24h`.
 

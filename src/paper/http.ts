@@ -3,6 +3,7 @@ import { gatesFromFeedHealth, parseZoneId } from "./gates";
 import type { PaperEngine } from "./engine";
 import { parseMetricsDays, paperMetrics } from "./metrics";
 import { paperArm, paperDay, paperStatus } from "./ops";
+import { resolveAcceptPayload } from "./zone-accept";
 import type { AlertStatus, OrderStatus, PaperConfig, PaperFeed, TakeProfitPlan } from "./types";
 
 function json(data: unknown, status = 200): Response {
@@ -222,7 +223,8 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
           }
           if (req.method === "POST") {
             const body = (await req.json()) as unknown;
-            return json({ mode: "paper", zone: engine.acceptZone(body) }, 201);
+            const card = await resolveAcceptPayload(body, config.feedUrl);
+            return json({ mode: "paper", zone: engine.acceptZone(card) }, 201);
           }
           return json({ error: "method not allowed" }, 405);
         }

@@ -43,7 +43,8 @@ const CARD: ZoneCard = {
 describe("paper zone ledger", () => {
   test("CLI parses zone list / accept / reject", () => {
     expect(parsePaperArgs(["zone", "list"])).toEqual({ name: "zone-list", status: "accepted" });
-    expect(parsePaperArgs(["zone", "accept", "card.json"])).toEqual({ name: "zone-accept", path: "card.json" });
+    expect(parsePaperArgs(["zone", "accept", "card.json"])).toEqual({ name: "zone-accept", token: "card.json" });
+    expect(parsePaperArgs(["zone", "accept", "btc-4h-s-01"])).toEqual({ name: "zone-accept", token: "btc-4h-s-01" });
     expect(parsePaperArgs(["zone", "reject", "btc-4h-s-01", "--code", "htf_break"])).toEqual({
       name: "zone-reject",
       zoneId: "btc-4h-s-01",
