@@ -1,5 +1,6 @@
 import { normalizeBriefSymbol } from "./brief";
 import type { TrackerDb } from "./db";
+import type { OiReading } from "./oi";
 import { bucketPrice } from "./view";
 
 export const LIQ_NOTE = "quant veto — not a signal";
@@ -9,9 +10,14 @@ export const DEFAULT_LIQ_BAND = "0.01";
 export const DEFAULT_LIQ_HOURS = 24;
 export const LIQ_HEATMAP_MAX_PRINTS = 5_000;
 export const LIQ_HEATMAP_MAX_BINS = 300;
+export const LIQ_SIDE_RATIO = 0.7;
+export const LIQ_INTENSITY_MIN = 3;
+export const LIQ_WALK_MIN_PRINTS = 4;
+export const LIQ_COLD_MIN_PRINTS = 8;
 
 /** Bybit: Buy = long liquidated; Sell = short liquidated. */
 export type LiqSide = "Buy" | "Sell";
+export type CascadeSide = "long" | "short" | null;
 
 export type LiqPrint = {
   symbol: string;
@@ -28,6 +34,14 @@ export type LiqBin = {
   count: number;
 };
 
+export type MapLiqCascade = {
+  active: boolean;
+  side: CascadeSide;
+  intensity: string | null;
+  walk: boolean;
+  fuel: string;
+};
+
 export type SnapshotLiqHeatmap = {
   symbol: string;
   ts: number;
@@ -38,7 +52,7 @@ export type SnapshotLiqHeatmap = {
   longSize: string;
   shortSize: string;
   count: number;
-  cascade: boolean;
+  cascade: MapLiqCascade;
   meta: {
     db: string;
     note: typeof LIQ_NOTE;
@@ -51,7 +65,7 @@ export type MapLiq = {
   count: number;
   below: string;
   above: string;
-  cascade: boolean;
+  cascade: MapLiqCascade;
   note: typeof LIQ_NOTE;
 };
 
@@ -95,28 +109,6 @@ export function defaultLiqBucket(last: number): number {
   return 0.01;
 }
 
-export function liqCascade(
-  prints: Array<{ exchTs: number; size: string }>,
-  now: number,
-  windowMs = MAP_LIQ_WINDOW_MS,
-  burstMs = LIQ_BURST_MS,
-): boolean {
-  if (prints.length === 0) return false;
-  const floor = now - windowMs;
-  let windowSize = 0;
-  let burstSize = 0;
-  for (const print of prints) {
-    if (print.exchTs < floor) continue;
-    const n = Number(print.size);
-    if (!Number.isFinite(n)) continue;
-    windowSize += n;
-    if (print.exchTs >= now - burstMs) burstSize += n;
-  }
-  if (windowSize <= 0 || burstSize <= 0) return false;
-  const slots = Math.max(windowMs / burstMs, 1);
-  return burstSize >= 3 * (windowSize / slots);
-}
-
 function sumSize(prints: LiqPrint[], pred: (print: LiqPrint) => boolean): number {
   let sum = 0;
   for (const print of prints) {
@@ -127,6 +119,113 @@ function sumSize(prints: LiqPrint[], pred: (print: LiqPrint) => boolean): number
   return sum;
 }
 
+function median(nums: number[]): number | null {
+  const finite = nums.filter((n) => Number.isFinite(n));
+  if (finite.length === 0) return null;
+  const sorted = [...finite].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+export function emptyCascade(): MapLiqCascade {
+  return { active: false, side: null, intensity: null, walk: false, fuel: "0" };
+}
+
+export function liqWalk(
+  prints: LiqPrint[],
+  side: LiqSide,
+  now: number,
+  burstMs: number,
+  bucket: number,
+): boolean {
+  const burst = prints
+    .filter((print) => print.side === side && print.exchTs >= now - burstMs && print.exchTs <= now)
+    .sort((a, b) => a.exchTs - b.exchTs);
+  if (burst.length < LIQ_WALK_MIN_PRINTS || !(bucket > 0)) return false;
+  const mid = Math.floor(burst.length / 2);
+  const first = median(burst.slice(0, mid).map((print) => Number(print.price)));
+  const last = median(burst.slice(mid).map((print) => Number(print.price)));
+  if (first == null || last == null) return false;
+  if (side === "Buy") return last <= first - bucket;
+  return last >= first + bucket;
+}
+
+function oiConfirms(side: "long" | "short", reading?: OiReading): boolean {
+  if (side === "long") return reading === "flush";
+  return reading === "cover";
+}
+
+/**
+ * Cascade = same-side burst + (price walk OR matching OI flush/cover).
+ * Intensity uses baseline *outside* the 5m burst so a quiet tape cannot trip.
+ * Fuel is remaining same-side prints near last — not the burst itself.
+ */
+export function liqCascade(opts: {
+  prints: LiqPrint[];
+  now: number;
+  windowMs?: number;
+  burstMs?: number;
+  lastPrice?: number | null;
+  below?: number;
+  above?: number;
+  oiReading?: OiReading;
+}): MapLiqCascade {
+  const windowMs = opts.windowMs ?? MAP_LIQ_WINDOW_MS;
+  const burstMs = opts.burstMs ?? LIQ_BURST_MS;
+  const windowPrints = opts.prints.filter((print) =>
+    print.exchTs >= opts.now - windowMs && print.exchTs <= opts.now
+  );
+  const burstPrints = windowPrints.filter((print) => print.exchTs >= opts.now - burstMs);
+  const burstLong = sumSize(burstPrints, (print) => print.side === "Buy");
+  const burstShort = sumSize(burstPrints, (print) => print.side === "Sell");
+  const burstTotal = burstLong + burstShort;
+  if (burstTotal <= 0) return emptyCascade();
+
+  let side: "long" | "short" | null = null;
+  let liqSide: LiqSide | null = null;
+  if (burstLong / burstTotal >= LIQ_SIDE_RATIO) {
+    side = "long";
+    liqSide = "Buy";
+  } else if (burstShort / burstTotal >= LIQ_SIDE_RATIO) {
+    side = "short";
+    liqSide = "Sell";
+  }
+
+  const burstSize = side === "long" ? burstLong : side === "short" ? burstShort : burstTotal;
+  const baselinePrints = windowPrints.filter((print) => print.exchTs < opts.now - burstMs);
+  const baselineSize = liqSide
+    ? sumSize(baselinePrints, (print) => print.side === liqSide)
+    : sumSize(baselinePrints, () => true);
+  const slots = Math.max(windowMs / burstMs, 1);
+  const baselineAvg = baselineSize / Math.max(slots - 1, 1);
+  const intensity = baselineAvg > 0 ? burstSize / baselineAvg : null;
+  const last = opts.lastPrice != null && Number.isFinite(opts.lastPrice) && opts.lastPrice > 0
+    ? opts.lastPrice
+    : median(burstPrints.map((print) => Number(print.price)));
+  const walk = liqSide != null
+    ? liqWalk(burstPrints, liqSide, opts.now, burstMs, defaultLiqBucket(last ?? 0))
+    : false;
+  const fuel = side === "long"
+    ? String(opts.below ?? 0)
+    : side === "short"
+      ? String(opts.above ?? 0)
+      : "0";
+  const burstCount = liqSide
+    ? burstPrints.filter((print) => print.side === liqSide).length
+    : burstPrints.length;
+  const strong = intensity != null && intensity >= LIQ_INTENSITY_MIN;
+  const confirmed = walk || (side != null && oiConfirms(side, opts.oiReading));
+  const coldStart = intensity == null && walk && burstCount >= LIQ_COLD_MIN_PRINTS;
+
+  return {
+    active: side != null && ((strong && confirmed) || coldStart),
+    side,
+    intensity: intensity == null ? null : intensity.toFixed(2),
+    walk,
+    fuel,
+  };
+}
+
 export function emptyMapLiq(): MapLiq {
   return {
     longSize: "0",
@@ -134,7 +233,7 @@ export function emptyMapLiq(): MapLiq {
     count: 0,
     below: "0",
     above: "0",
-    cascade: false,
+    cascade: emptyCascade(),
     note: LIQ_NOTE,
   };
 }
@@ -163,11 +262,22 @@ function rowsToPrints(rows: Array<{
   return out;
 }
 
+function nearLast(prints: LiqPrint[], last: number, band: number): { below: number; above: number } {
+  if (!Number.isFinite(last) || last <= 0) return { below: 0, above: 0 };
+  const lo = last * (1 - band);
+  const hi = last * (1 + band);
+  return {
+    below: sumSize(prints, (print) => print.side === "Buy" && Number(print.price) <= last && Number(print.price) >= lo),
+    above: sumSize(prints, (print) => print.side === "Sell" && Number(print.price) >= last && Number(print.price) <= hi),
+  };
+}
+
 export function buildMapLiq(
   store: LiqStore,
   symbol: string,
   lastPrice: string | null | undefined,
   now = Date.now(),
+  oiReading?: OiReading,
 ): MapLiq {
   const rows = store.listLiquidations({
     symbol,
@@ -177,24 +287,23 @@ export function buildMapLiq(
   });
   const prints = rowsToPrints(rows);
   const last = Number(lastPrice);
-  const band = liqBand();
-  const longSize = sumSize(prints, (p) => p.side === "Buy");
-  const shortSize = sumSize(prints, (p) => p.side === "Sell");
-  let below = 0;
-  let above = 0;
-  if (Number.isFinite(last) && last > 0) {
-    const lo = last * (1 - band);
-    const hi = last * (1 + band);
-    below = sumSize(prints, (p) => p.side === "Buy" && Number(p.price) <= last && Number(p.price) >= lo);
-    above = sumSize(prints, (p) => p.side === "Sell" && Number(p.price) >= last && Number(p.price) <= hi);
-  }
+  const near = nearLast(prints, last, liqBand());
+  const longSize = sumSize(prints, (print) => print.side === "Buy");
+  const shortSize = sumSize(prints, (print) => print.side === "Sell");
   return {
     longSize: String(longSize),
     shortSize: String(shortSize),
     count: prints.length,
-    below: String(below),
-    above: String(above),
-    cascade: liqCascade(prints, now),
+    below: String(near.below),
+    above: String(near.above),
+    cascade: liqCascade({
+      prints,
+      now,
+      lastPrice: Number.isFinite(last) ? last : null,
+      below: near.below,
+      above: near.above,
+      oiReading,
+    }),
     note: LIQ_NOTE,
   };
 }
@@ -208,6 +317,7 @@ export function buildLiqHeatmap(
     hours?: number;
     bucket?: number | null;
     lastPrice?: string | null;
+    oiReading?: OiReading;
   },
 ): SnapshotLiqHeatmap {
   const symbol = normalizeBriefSymbol(opts.symbol);
@@ -244,6 +354,7 @@ export function buildLiqHeatmap(
   }
   const sorted = [...bins.entries()].sort((a, b) => Number(b[0]) - Number(a[0]));
   const trimmed = sorted.slice(0, LIQ_HEATMAP_MAX_BINS);
+  const near = nearLast(prints, last, liqBand());
   return {
     symbol,
     ts: now,
@@ -259,7 +370,15 @@ export function buildLiqHeatmap(
     longSize: String(longSize),
     shortSize: String(shortSize),
     count: prints.length,
-    cascade: liqCascade(prints, now, windowMs),
+    cascade: liqCascade({
+      prints,
+      now,
+      windowMs,
+      lastPrice: Number.isFinite(last) ? last : null,
+      below: near.below,
+      above: near.above,
+      oiReading: opts.oiReading,
+    }),
     meta: { db: opts.dbPath, note: LIQ_NOTE },
   };
 }
