@@ -1207,6 +1207,7 @@ export function createPaperEngine(opts: {
       }
     }
     const quantBySymbol = new Map<string, PaperQuantTape>();
+    const kline15BySymbol = new Map<string, PaperKlineSnap>();
     if (feed.quant) {
       for (const symbol of lastBySymbol.keys()) {
         try {
@@ -1217,7 +1218,21 @@ export function createPaperEngine(opts: {
         }
       }
     }
-    const proximity = await runProximityArm(host.engine, lastBySymbol, now, quantBySymbol);
+    for (const symbol of lastBySymbol.keys()) {
+      try {
+        const bar = await feed.lastKline(symbol, "15");
+        if (bar) kline15BySymbol.set(symbol, bar);
+      } catch {
+        // missing 15m is wait, not reject
+      }
+    }
+    const proximity = await runProximityArm(
+      host.engine,
+      lastBySymbol,
+      now,
+      quantBySymbol,
+      kline15BySymbol,
+    );
     return { ...result, proximity };
   }
 

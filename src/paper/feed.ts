@@ -74,7 +74,7 @@ export function httpFeed(feedUrl: string): PaperFeed {
     },
 
     async lastKline(symbol: string, interval: string): Promise<PaperKlineSnap | null> {
-      const params = new URLSearchParams({ symbol, interval, limit: "1" });
+      const params = new URLSearchParams({ symbol, interval, limit: "1", confirm: "true" });
       const res = await fetch(`${base}/klines?${params}`);
       if (!res.ok) return null;
       const body = (await res.json()) as { klines?: Array<Record<string, unknown>> };
@@ -82,6 +82,7 @@ export function httpFeed(feedUrl: string): PaperFeed {
       if (!row) return null;
       return {
         interval,
+        open: asText(row.open),
         close: asText(row.close),
         startTs: asTs(row.start_ts),
         confirm: asConfirm(row.confirm),

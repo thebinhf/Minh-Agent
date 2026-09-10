@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { createPaperEngine } from "../../src/paper/engine";
 import { openPaperDb } from "../../src/paper/db";
+import { confirm15Bar } from "../../src/paper/proximity";
 import { mockFeed, paperConfig, tempDir, UNIVERSE } from "./helpers";
 import type { ZoneCard } from "../../src/zones/card";
 
 const dirs: string[] = [];
 const saved = process.env.PAPER_PROXIMITY_ARM;
 const savedQuant = process.env.AGENT_QUANT;
+const savedConfirm = process.env.PAPER_CONFIRM_15;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -17,6 +19,8 @@ afterEach(() => {
   else process.env.PAPER_PROXIMITY_ARM = saved;
   if (savedQuant === undefined) delete process.env.AGENT_QUANT;
   else process.env.AGENT_QUANT = savedQuant;
+  if (savedConfirm === undefined) delete process.env.PAPER_CONFIRM_15;
+  else process.env.PAPER_CONFIRM_15 = savedConfirm;
 });
 
 async function engineWithLev(feed = mockFeed(), leverage = "10") {
@@ -57,10 +61,44 @@ const SUPPLY: ZoneCard = {
   cancelCodes: [],
 };
 
+const SUPPLY_15 = {
+  interval: "15",
+  open: "79320",
+  close: "79280",
+  startTs: 1_788_808_800_000,
+  confirm: true as const,
+};
+
+function armFeed() {
+  return mockFeed({
+    lastPrice: "79280",
+    markPrice: "79280",
+    klines: { "15": SUPPLY_15 },
+  });
+}
+
+describe("confirm15Bar", () => {
+  test("forming / doji / opposite / close through entry wait; bear in-band ok; kill skips", () => {
+    delete process.env.PAPER_CONFIRM_15;
+    expect(confirm15Bar(SUPPLY, { ...SUPPLY_15, confirm: false })).toBe("wait");
+    expect(confirm15Bar(SUPPLY, { ...SUPPLY_15, open: "79280" })).toBe("wait");
+    expect(confirm15Bar(SUPPLY, { ...SUPPLY_15, open: "79240", close: "79280" })).toBe("wait");
+    expect(confirm15Bar(SUPPLY, { ...SUPPLY_15, close: "79310" })).toBe("wait");
+    expect(confirm15Bar(SUPPLY, SUPPLY_15)).toBe("ok");
+    process.env.PAPER_CONFIRM_15 = "0";
+    expect(confirm15Bar(SUPPLY, { ...SUPPLY_15, confirm: false })).toBe("ok");
+  });
+});
+
 describe("proximity arm", () => {
   test("does not arm until last is in the proximal band; then rests post-only OCO once", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
-    const feed = mockFeed({ lastPrice: "79600", markPrice: "79600" });
+    delete process.env.PAPER_CONFIRM_15;
+    const feed = mockFeed({
+      lastPrice: "79600",
+      markPrice: "79600",
+      klines: { "15": SUPPLY_15 },
+    });
     const ctx = await engineWithLev(feed);
     ctx.engine.acceptZone(SUPPLY);
     await ctx.engine.mark();
@@ -111,10 +149,28 @@ describe("proximity arm", () => {
     expect(ctx.engine.zones("rejected")[0]?.rejectCode).toBe("htf_break");
   });
 
+  test("forming 15m waits — does not arm and does not reject", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.PAPER_CONFIRM_15;
+    const feed = mockFeed({
+      lastPrice: "79280",
+      markPrice: "79280",
+      klines: { "15": { ...SUPPLY_15, confirm: false } },
+    });
+    const ctx = await engineWithLev(feed);
+    ctx.engine.acceptZone(SUPPLY);
+    const marked = await ctx.engine.mark();
+    expect(marked.proximity.armed).toEqual([]);
+    expect(marked.proximity.rejected).toEqual([]);
+    expect(ctx.engine.orders("pending")).toEqual([]);
+    expect(ctx.engine.zones("accepted")).toHaveLength(1);
+  });
+
   test("quant cascade waits — does not arm and does not reject the card", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
     delete process.env.AGENT_QUANT;
-    const feed = mockFeed({ lastPrice: "79280", markPrice: "79280" });
+    delete process.env.PAPER_CONFIRM_15;
+    const feed = armFeed();
     feed.quant = async () => ({
       crowded: null,
       oiReading: null,
@@ -133,7 +189,8 @@ describe("proximity arm", () => {
   test("opposing OI add does not block ARM (zone fill)", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
     delete process.env.AGENT_QUANT;
-    const feed = mockFeed({ lastPrice: "79280", markPrice: "79280" });
+    delete process.env.PAPER_CONFIRM_15;
+    const feed = armFeed();
     feed.quant = async () => ({
       crowded: null,
       oiReading: "long_add",
@@ -150,7 +207,8 @@ describe("proximity arm", () => {
   test("opposing CVD does not block ARM (like OI add)", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
     delete process.env.AGENT_QUANT;
-    const feed = mockFeed({ lastPrice: "79280", markPrice: "79280" });
+    delete process.env.PAPER_CONFIRM_15;
+    const feed = armFeed();
     feed.quant = async () => ({
       crowded: null,
       oiReading: null,

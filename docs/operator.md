@@ -7,7 +7,7 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 | State | When | Engine | Operator |
 | --- | --- | --- | --- |
 | **MAP** | 1H/4H close | Dump `/map`. **4H** MAP_ACCEPT pick → agent policy → ledger (`MAP_ACCEPT=0` = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs) | Override: `paper zone accept` / `reject`. Mid-range → stand aside (do not close opens). Stale `klineLag` / `gates.tradingAllowed` false → no accept / no new arm |
-| **ARM** | Last in proximal → entry on an **accepted** card | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` off) | Manual `paper arm` still works. Then **quiet** |
+| **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off) | Manual `paper arm` still works. Then **quiet** |
 | **EVENT** | Pending limit / open position | Tick: OCO invalidate-before-fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
 
 ## MAP
@@ -32,7 +32,7 @@ Depth/heatmap only when price is **at the zone**, not on a timer.
 
 ## ARM
 
-Accepted ledger cards rest themselves when last enters **proximal → entry** (demand last dropping in; supply last lifting in). Through entry → wait (no chase). ≥50% into the zone → `deep_mitigate`. Through SL → `htf_break`. Already pending/open on that symbol → skip. `insufficient_margin` (1x on a tight BTC stop) skips; raise account `defaultLeverage`. `PAPER_PROXIMITY_ARM=0` disables.
+Accepted ledger cards rest themselves when last enters **proximal → entry** (demand last dropping in; supply last lifting in) **and** the last confirmed 15m closes with the zone (demand bull, supply bear) still inside that band. Forming / opposite / doji → wait (do not reject). Through entry → wait (no chase). ≥50% into the zone → `deep_mitigate`. Through SL → `htf_break`. Already pending/open on that symbol → skip. `insufficient_margin` (1x on a tight BTC stop) skips; raise account `defaultLeverage`. `PAPER_PROXIMITY_ARM=0` disables ARM. `PAPER_CONFIRM_15=0` skips the 15m gate.
 
 Manual still works:
 
@@ -97,7 +97,7 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 
 Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT notify + kline-lag watchdog.
 
-On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band. `PAPER_PROXIMITY_ARM=0` disables. `/zones` itself still does not arm.
+On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band and the last confirmed 15m agrees. `PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off. `/zones` itself still does not arm.
 
 Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled). Override: `paper zone reject`.
 

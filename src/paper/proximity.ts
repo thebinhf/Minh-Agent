@@ -1,8 +1,9 @@
 import { PaperReject } from "./errors";
 import { paperArm } from "./ops";
 import type { PaperEngine } from "./engine";
-import type { PaperQuantTape } from "./types";
+import type { PaperKlineSnap, PaperQuantTape } from "./types";
 import { quantVeto } from "../agent/quant";
+import type { ZoneCard } from "../zones/card";
 import {
   armSide,
   armTimeframes,
@@ -13,20 +14,47 @@ export function proximityArmEnabled(): boolean {
   return process.env.PAPER_PROXIMITY_ARM !== "0";
 }
 
+export function confirm15Enabled(): boolean {
+  return process.env.PAPER_CONFIRM_15 !== "0";
+}
+
 export type ProximityArmResult = {
   armed: string[];
   rejected: string[];
 };
 
 /**
- * Rest limit+alert for accepted ledger cards when last is in the proximal band.
- * Does not read GET /zones. Kill switch: PAPER_PROXIMITY_ARM=0.
+ * Latest confirmed 15m must close with the zone (demand bull, supply bear)
+ * and still sit in proximal → entry. Forming / doji / opposite / missing → wait.
+ * Does not reject the card. PAPER_CONFIRM_15=0 skips.
+ */
+export function confirm15Bar(card: ZoneCard, bar: PaperKlineSnap | null | undefined): "ok" | "wait" {
+  if (!confirm15Enabled()) return "ok";
+  if (!bar || bar.confirm !== true) return "wait";
+  const open = Number(bar.open);
+  const close = Number(bar.close);
+  if (!Number.isFinite(open) || !Number.isFinite(close) || open === close) return "wait";
+  if (card.side === "demand") {
+    if (!(close > open)) return "wait";
+    if (close > card.proximal || close <= card.entry) return "wait";
+    return "ok";
+  }
+  if (!(close < open)) return "wait";
+  if (close < card.proximal || close >= card.entry) return "wait";
+  return "ok";
+}
+
+/**
+ * Rest limit+alert for accepted ledger cards when last is in the proximal band
+ * and the last confirmed 15m agrees. Does not read GET /zones.
+ * Kill: PAPER_PROXIMITY_ARM=0. 15m: PAPER_CONFIRM_15=0.
  */
 export async function runProximityArm(
   engine: PaperEngine,
   lastBySymbol: Map<string, number>,
   now = Date.now(),
   quantBySymbol?: Map<string, PaperQuantTape>,
+  kline15BySymbol?: Map<string, PaperKlineSnap>,
 ): Promise<ProximityArmResult> {
   const armed: string[] = [];
   const rejected: string[] = [];
@@ -59,6 +87,7 @@ export async function runProximityArm(
       rejected.push(card.zoneId);
       continue;
     }
+    if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") continue;
     const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
     if (!veto.allow) continue;
     try {
