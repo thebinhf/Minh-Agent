@@ -4,6 +4,7 @@ import { buildConfirm, parseConfirmInterval } from "./confirm";
 import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols, resolveMapSymbols } from "./map";
 import { buildZones } from "./zones";
 import { parseZoneInterval } from "../../zones/detect";
+import { buildOi } from "./oi";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
@@ -211,6 +212,21 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
           dbPath: config.dbPath,
           interval,
         }));
+      }
+
+      if (path === "/oi") {
+        const interval = url.searchParams.get("interval");
+        const limitRaw = url.searchParams.get("limit");
+        const body = buildOi(store, {
+          symbol: url.searchParams.get("symbol"),
+          interval,
+          dbPath: config.dbPath,
+          limit: limitRaw ? Number(limitRaw) : undefined,
+        });
+        if ("error" in body) {
+          return json(body, 400);
+        }
+        return json(body);
       }
 
       if (path === "/chart") {

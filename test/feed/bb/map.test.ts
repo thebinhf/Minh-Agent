@@ -60,6 +60,9 @@ function expectMapShape(map: SnapshotMap, symbol = "BTCUSDT") {
   expect(map.meta.limits).toEqual({ ...MAP_KLINE_LIMITS });
   expect(map.klineLag.ok).toBe(true);
   expect(map.klineLag.intervals).toEqual([...MAP_LAG_INTERVALS]);
+  expect(map.oi.note).toBe("quant veto — not a signal");
+  expect(Array.isArray(map.oi["240"])).toBe(true);
+  expect(Array.isArray(map.oi["60"])).toBe(true);
 }
 
 describe("parseMapArgs / buildMap", () => {

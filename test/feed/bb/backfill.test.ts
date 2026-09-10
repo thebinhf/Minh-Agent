@@ -65,6 +65,7 @@ describe("parseBackfillArgs", () => {
       intervals: [...PA_KLINE_INTERVALS],
       end: now,
       start: now - 14 * 86_400_000,
+      oi: true,
     });
   });
 
@@ -81,6 +82,7 @@ describe("parseBackfillArgs", () => {
       start: 1000,
       end: 2000,
       now: 9_000,
+      oi: false,
     });
   });
 

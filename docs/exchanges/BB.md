@@ -56,6 +56,7 @@ HTTP (read-only `127.0.0.1:43180`; full contract: [http.md](../http.md)):
 - `GET /map?symbols=BTCUSDT,ETHUSDT,SOLUSDT` — `{ maps, klineLag }`
 - `GET /confirm?symbol=BTCUSDT&interval=15` — optional LTF (ticker + 20×15m; scalp `interval=5`)
 - `GET /zones` — suggest-only zone-cards (default 4H; `?interval=60`)
+- `GET /oi?symbol=BTCUSDT&interval=240` — OI history (quant veto, not a signal)
 - `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger
 - `GET /chart?symbol=BTCUSDT&interval=15&limit=200` — stitched kline OHLCV for a chart
 - `GET /depth?symbol=ETHUSDT` — live L50 ladder with cumulative size
@@ -116,7 +117,8 @@ Read what landed:
 | Surface | How |
 | --- | --- |
 | Snapshot brief | `bun run brief SYMBOL` or `GET /brief?symbol=` — ticker + last 80×15m / 48×1h / 30×4h |
-| HTF map | `bun run map` or `GET /map` — watchlist (cap 10). Ticker + 20×4h / 24×1h / 30×D + klineLag 60/240 |
+| HTF map | `bun run map` or `GET /map` — watchlist (cap 10). Ticker + 20×4h / 24×1h / 30×D + klineLag 60/240 + `oi` |
+| Open interest | `bun run query oi SYMBOL [INTERVAL]` or `GET /oi` — REST `/v5/market/open-interest` cache. Quant veto. |
 | Zone suggest | `bun run zones` or `GET /zones` — candidate zone-cards from local 4H/1H. Suggest-only; no auto-arm. Paper ledger is `/brief-pack.zones` |
 | LTF confirm | `bun run confirm SYMBOL` or `GET /confirm?symbol=&interval=15` — optional scalp snapshot |
 | Brief pack | `bun run brief-pack [SYMBOL]` or `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted zones |

@@ -3,6 +3,7 @@ import { openDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { parseTimeArg } from "./recovery";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
+import { buildOi } from "./oi";
 
 function usage(): never {
   console.log(`Usage:
@@ -12,6 +13,7 @@ function usage(): never {
   bun run query orderbooks [SYMBOL]
   bun run query klines SYMBOL [INTERVAL] [--limit N] [--confirm 0|1] [--start TIME] [--end TIME]
   bun run query kline-stats [SYMBOL] [INTERVAL]
+  bun run query oi [SYMBOL] [INTERVAL] [--limit N]
   bun run query chart [SYMBOL] [INTERVAL] [--limit N] [--start TIME] [--end TIME]
   bun run query depth [SYMBOL]
   bun run query heatmap [SYMBOL] [--limit N] [--bucket STEP] [--start TIME] [--end TIME]
@@ -85,6 +87,23 @@ try {
     case "kline-stats":
       console.log(JSON.stringify(store.klineStats(process.argv[3], process.argv[4]), null, 2));
       break;
+    case "oi": {
+      const rest = process.argv.slice(3);
+      const positional = rest.filter((arg) => !arg.startsWith("--"));
+      const limitRaw = flag(rest, "--limit");
+      const body = buildOi(store, {
+        symbol: positional[0],
+        interval: positional[1],
+        dbPath: config.dbPath,
+        limit: limitRaw ? Number(limitRaw) : undefined,
+      });
+      if ("error" in body) {
+        console.error(JSON.stringify(body, null, 2));
+        process.exit(2);
+      }
+      console.log(JSON.stringify(body, null, 2));
+      break;
+    }
     case "chart": {
       const rest = process.argv.slice(3);
       const positional = rest.filter((arg) => !arg.startsWith("--"));

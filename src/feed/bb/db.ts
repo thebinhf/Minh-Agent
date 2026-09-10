@@ -2,9 +2,10 @@ import { Database } from "bun:sqlite";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { BybitKline, OrderBookState, TickerState } from "./types";
+import type { OiBar } from "./oi";
 import { serializeBook } from "./merge";
 
-export const SCHEMA_VERSION = "2";
+export const SCHEMA_VERSION = "3";
 
 export type TrackerDb = ReturnType<typeof openDb>;
 
@@ -98,6 +99,15 @@ function migrate(db: Database) {
       turnover TEXT,
       confirm INTEGER NOT NULL DEFAULT 0,
       candle_ts INTEGER,
+      recv_ts INTEGER NOT NULL,
+      PRIMARY KEY (symbol, interval, start_ts)
+    );
+
+    CREATE TABLE IF NOT EXISTS open_interest (
+      symbol TEXT NOT NULL,
+      interval TEXT NOT NULL,
+      start_ts INTEGER NOT NULL,
+      open_interest TEXT NOT NULL,
       recv_ts INTEGER NOT NULL,
       PRIMARY KEY (symbol, interval, start_ts)
     );
@@ -259,6 +269,14 @@ function wrap(db: Database) {
       recv_ts = excluded.recv_ts
   `);
 
+  const upsertOi = db.prepare(`
+    INSERT INTO open_interest (symbol, interval, start_ts, open_interest, recv_ts)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(symbol, interval, start_ts) DO UPDATE SET
+      open_interest = excluded.open_interest,
+      recv_ts = excluded.recv_ts
+  `);
+
   const touchHealth = db.prepare(`
     UPDATE connection_health SET
       connected = COALESCE($connected, connected),
@@ -356,6 +374,9 @@ function wrap(db: Database) {
         recvTs,
       );
     },
+    saveOi(symbol: string, interval: string, bar: OiBar, recvTs: number) {
+      upsertOi.run(symbol, interval, bar.startTs, bar.openInterest, recvTs);
+    },
     setHealth(fields: {
       connected?: number;
       endpoint?: string;
@@ -403,6 +424,12 @@ function wrap(db: Database) {
     getLastKlineStart(symbol: string, interval: string): number | null {
       const row = db
         .prepare("SELECT MAX(start_ts) AS start_ts FROM klines WHERE symbol = ? AND interval = ?")
+        .get(symbol, interval) as { start_ts: number | null } | null;
+      return row?.start_ts ?? null;
+    },
+    getLastOiStart(symbol: string, interval: string): number | null {
+      const row = db
+        .prepare("SELECT MAX(start_ts) AS start_ts FROM open_interest WHERE symbol = ? AND interval = ?")
         .get(symbol, interval) as { start_ts: number | null } | null;
       return row?.start_ts ?? null;
     },
@@ -535,6 +562,45 @@ function wrap(db: Database) {
       args.push(limit);
       return db.prepare(sql).all(...args);
     },
+    listOi(opts: {
+      symbol?: string;
+      interval?: string;
+      limit?: number;
+      startTs?: number;
+      endTs?: number;
+      maxLimit?: number;
+    }) {
+      const where: string[] = [];
+      const args: Array<string | number> = [];
+      if (opts.symbol) {
+        where.push("symbol = ?");
+        args.push(opts.symbol);
+      }
+      if (opts.interval) {
+        where.push("interval = ?");
+        args.push(opts.interval);
+      }
+      if (opts.startTs !== undefined) {
+        where.push("start_ts >= ?");
+        args.push(opts.startTs);
+      }
+      if (opts.endTs !== undefined) {
+        where.push("start_ts <= ?");
+        args.push(opts.endTs);
+      }
+      const cap = opts.maxLimit ?? 1000;
+      const limit = Math.min(Math.max(opts.limit ?? 50, 1), cap);
+      const sql = `SELECT * FROM open_interest ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY start_ts DESC LIMIT ?`;
+      args.push(limit);
+      return db.prepare(sql).all(...args) as Array<{
+        symbol: string;
+        interval: string;
+        start_ts: number;
+        open_interest: string;
+        recv_ts: number;
+      }>;
+    },
     prune(now: number, retention: {
       tickerSnapshotsHours: number;
       orderbookSnapshotsHours: number;
@@ -547,9 +613,10 @@ function wrap(db: Database) {
       const tickerDeleted = db.prepare("DELETE FROM ticker_snapshots WHERE recv_ts < ?").run(tickerCut).changes;
       const bookDeleted = db.prepare("DELETE FROM orderbook_snapshots WHERE recv_ts < ?").run(bookCut).changes;
       const klineDeleted = db.prepare("DELETE FROM klines WHERE start_ts < ? AND confirm = 1").run(klineCut).changes;
+      const oiDeleted = db.prepare("DELETE FROM open_interest WHERE start_ts < ?").run(klineCut).changes;
       setMeta(db, "last_prune_ts", String(now));
       const reclaim = reclaimSqlite(db, now, retention.vacuumMinIntervalMs ?? 3_600_000);
-      return { tickerDeleted, bookDeleted, klineDeleted, ...reclaim };
+      return { tickerDeleted, bookDeleted, klineDeleted, oiDeleted, ...reclaim };
     },
   };
 }
