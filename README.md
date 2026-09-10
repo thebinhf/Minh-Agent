@@ -2,60 +2,87 @@
 
 [![CI](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml)
 
-24/7 **paper** PA + Supply/Demand engine. One Bun process: public Bybit linear cache + simulated ledger.
+Public Bybit linear market cache and a **paper** PA + Supply/Demand engine. One Bun process. No API keys, no live orders, no paper→live.
 
-**No API keys. No live orders. No paper→live.**
+## Overview
 
-## Loop
+Minh runs 24/7 on a host:
 
-```text
-4H close
-  → dump GET /map
-  → copy GET /zones into paper ledger   (MAP_ACCEPT=0 off)
-  → tick waits for last in proximal → entry
-  → rest post-only GTC + OCO            (PAPER_PROXIMITY_ARM=0 off)
-  → fill at limit  |  invalidate if last prints through SL first
-  → SL / TP on the open position
-```
+1. Cache public Bybit linear data in SQLite (`:43180`).
+2. On each confirmed 4H close, suggest HTF supply/demand cards and copy them into a paper ledger.
+3. When last price enters the proximal band of an accepted card, rest a post-only GTC limit with OCO.
+4. Tick fills at the limit, or invalidates if last prints through SL first. Open positions use SL/TP.
 
-Quiet between two 4H candles. No 30-minute scan. `/confirm` is optional scalp, not required to hold the zone.
+Quiet between two 4H candles. `/confirm` is optional scalp, not required to hold a zone.
 
-Override a card: `bun run paper zone reject ZONEID`. Review: `bun run paper week`.
+## Features
 
-## Process
+- Public linear WebSocket + REST gap-fill / backfill (10 symbols)
+- HTF MAP (`/map`) and suggest-only zone cards (`/zones`)
+- Paper ledger with risk sizing, fees, funding, leverage, OCO limits
+- Proximity ARM on accepted cards
+- Replay on local klines (separate DB, slippage 0)
+- Event-once notify (log / Telegram / webhook)
+- systemd host + GitHub Actions typecheck/test
+
+## Architecture
 
 ```text
 src/index.ts
-  src/feed/bb     :43180   public WS → SQLite → GET /map /zones /health …
-  src/zones                zone-card schema + HTF suggest (no paper writes)
-  src/paper       :43181   ledger, OCO limits, tick, metrics
+├── src/feed/bb     :43180   public WS → SQLite → HTTP
+├── src/zones                zone-card schema + HTF suggest
+└── src/paper       :43181   ledger, OCO, tick, metrics
 ```
 
-Feed never imports paper. The composition root injects the paper desk into `/brief-pack` and runs MAP-accept on 4H close.
+Feed HTTP never imports paper. The composition root injects the paper desk into `/brief-pack` and accepts `/zones` cards on 4H close.
 
-| Bind | Role |
-| --- | --- |
-| `127.0.0.1:43180` | Read-only market cache |
-| `127.0.0.1:43181` | Paper broker |
-
-Default watchlist (10): BTC ETH SOL ENA BNB XRP DOGE AVAX LINK HYPE.
-
-## Layout
-
-| Path | Purpose |
+| Path | Role |
 | --- | --- |
 | [`src/index.ts`](src/index.ts) | Composition root |
 | [`src/feed/bb/`](src/feed/bb/) | Bybit public WS, SQLite, HTTP |
-| [`src/zones/`](src/zones/) | Zone-card v1 + HTF detector + proximity math |
-| [`src/paper/`](src/paper/) | Paper ledger, arm, tick, replay |
+| [`src/zones/`](src/zones/) | Zone-card v1, detector, proximity |
+| [`src/paper/`](src/paper/) | Paper broker |
 | [`deploy/`](deploy/) | systemd unit + `pull-restart.sh` |
-| [`docs/operator.md`](docs/operator.md) | MAP / ARM / EVENT playbook |
 
-## Quick start
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Requirements
+
+- [Bun](https://bun.sh) >= 1.4
+- TypeScript 7.x (dev)
+- Linux host for the systemd unit (optional)
+
+## Installation
 
 ```bash
+git clone https://github.com/thebinhf/Minh-Agent.git
+cd Minh-Agent
 bun install
-bun test
+bun run ci
+```
+
+## Configuration
+
+Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/paper/config.json`](src/paper/config.json). Override with env.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BYBIT_HTTP_HOST` / `BYBIT_HTTP_PORT` | `127.0.0.1` / `43180` | Feed bind |
+| `BYBIT_DB_PATH` | feed SQLite | Market cache |
+| `PAPER_HTTP_HOST` / `PAPER_HTTP_PORT` | `127.0.0.1` / `43181` | Paper bind |
+| `PAPER_DB_PATH` | paper SQLite | Ledger (must not equal the feed DB) |
+| `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
+| `MAP_ACCEPT` | on (`0` disables) | Copy `/zones` into the ledger on 4H close |
+| `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
+| `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
+
+`BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper refuses to start if they are set.
+
+Tight BTC stops at `defaultLeverage=1` skip with `insufficient_margin`. Seed **10x** if those cards should rest.
+
+## Usage
+
+```bash
 bun run start                 # feed :43180 + paper :43181
 bun run map                   # HTF watchlist + klineLag
 bun run zones                 # suggest-only cards (does not arm)
@@ -63,37 +90,24 @@ bun run paper event           # pending OCO + alerts + accepted zones
 bun run paper week            # 7-day funnel
 ```
 
-Daemon (host): `deploy/bybit-tracker.service` (`Restart=always`). After a green merge: `deploy/pull-restart.sh`.
-
-## HTTP
-
-**Feed** `:43180`
+### Feed (`127.0.0.1:43180`)
 
 | Route | Use |
 | --- | --- |
-| `GET /map` | HTF MAP (ticker + 20×4H + 24×1H + D) + `klineLag` |
+| `GET /map` | HTF MAP + `klineLag` (watchlist, cap 10) |
 | `GET /map-latest` | Last 1H/4H dump (`404` until first close) |
-| `GET /zones` | Suggest-only zone-cards (4H default, `?interval=60`) |
-| `GET /confirm` | Optional LTF (20×15m, scalp `5`) |
+| `GET /zones` | Suggest-only cards (4H default; `?interval=60`) |
+| `GET /confirm` | Optional LTF (20×15m; scalp `5`) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
-| `GET /health` | WS + kline lag. `gates.tradingAllowed` follows this |
-| `GET /brief` `/chart` `/depth` `/heatmap` `/market` | Unchanged snapshots |
+| `GET /health` | WS + kline lag |
+| `GET /brief` `/chart` `/depth` `/heatmap` `/market` | Snapshots |
 
-**Paper** `:43181`
+Watchlist: BTC ETH SOL ENA BNB XRP DOGE AVAX LINK HYPE.
 
-| Route | Use |
-| --- | --- |
-| `GET /paper/event` | EVENT desk (OCO pending + alerts + ledger) |
-| `GET /paper/week` | 7-day metrics + standing cards |
-| `POST /paper/zones` | Accept `{ zoneId }` or a full card |
-| `POST /paper/arm` | Manual limit + alert |
-| `GET /paper/status` `/paper/metrics` | Desk / funnel |
-
-## Paper CLI
+### Paper (`127.0.0.1:43181`)
 
 ```bash
 bun run paper zone accept ZONEID          # or FILE.json
-bun run paper zone list
 bun run paper zone reject ZONEID
 bun run paper arm BTCUSDT --side long --price 117500 \
   --sl 116200 --tp 120800 --tf 240,60,15 --zone-id btc-4h-d-20260908-01
@@ -103,40 +117,45 @@ bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 \
   --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 ```
 
-Arm = post-only limit + fire-once alert. OCO on: last through SL **before** the limit → `order.invalidated`, no fill. After fill, SL/TP run on the position.
+`paper arm` = post-only limit + fire-once alert. OCO: last through SL **before** the limit → `order.invalidated`. After fill, SL/TP run on the position.
 
-Replay walks local klines (backfill first). Separate `*-replay.sqlite`. Slippage 0.
+Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`. Slippage 0.
 
-## Kill switches
+HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`.
 
-| Env | Default | Effect |
-| --- | --- | --- |
-| `MAP_CLOSE=0` | on | No `map-latest.json` dump |
-| `MAP_ACCEPT=0` | on | 4H close does not write the ledger |
-| `PAPER_PROXIMITY_ARM=0` | on | Tick does not rest accepted cards |
-| `PAPER_NOTIFY=telegram\|webhook` | log | Event-once pings only |
+Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](docs/paper-trading.md).
 
-Tight BTC stops at `defaultLeverage=1` skip (`insufficient_margin`). Seed **10x** if you want those cards to rest.
+## Operations
 
-Stale ticker → reject. Stale klines + live ticker → `klineLag.ok=false`, `gates.tradingAllowed=false`, new arm/open/limit reject with `kline_lag`. Open positions stay open.
-
-## Ban
-
-Live keys, `/v5/order`, mid-range entries, timer scans, ICT as a signal, mid-watch PnL.
-
-## Docs
-
-- [docs/operator.md](docs/operator.md) — MAP / ARM / EVENT
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers
-- [docs/paper-trading.md](docs/paper-trading.md) — paper spec
-- [docs/exchanges/BB.md](docs/exchanges/BB.md) — feed
-- [docs/FEATURES.md](docs/FEATURES.md) — inventory
-- [docs/ci.md](docs/ci.md) — Actions gate + host restart
-
-## Checks
+Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`). After a green merge:
 
 ```bash
-bun run ci    # typecheck + test
+deploy/pull-restart.sh
 ```
 
-Bun >= 1.4. TypeScript 7.x.
+Stale ticker → reject. Stale klines with a live ticker → `klineLag.ok=false`, `gates.tradingAllowed=false`, new open/limit/arm reject with `kline_lag`. Open positions stay open.
+
+## Development
+
+```bash
+bun test
+bun run typecheck
+bun run ci          # typecheck + test
+```
+
+CI is GitHub Actions on `main` and PRs (no daemon, no keys). See [docs/ci.md](docs/ci.md).
+
+## Documentation
+
+| Doc | Content |
+| --- | --- |
+| [docs/operator.md](docs/operator.md) | MAP / ARM / EVENT |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers |
+| [docs/paper-trading.md](docs/paper-trading.md) | Paper spec |
+| [docs/exchanges/BB.md](docs/exchanges/BB.md) | Feed |
+| [docs/FEATURES.md](docs/FEATURES.md) | Inventory |
+| [docs/ci.md](docs/ci.md) | Actions + host restart |
+
+## Non-goals
+
+Live keys, `/v5/order`, paper→live, mid-range entries, timer scans, ICT as a signal, mid-watch PnL, browser UI.
