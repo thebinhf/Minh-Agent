@@ -28,6 +28,8 @@ export type QuantDecision = {
   reason: QuantReason;
 };
 
+export type QuantGate = "accept" | "arm";
+
 const OI_READINGS = new Set(["long_add", "short_add", "cover", "flush"]);
 
 function asCrowded(value: unknown): QuantTape["crowded"] {
@@ -82,11 +84,16 @@ export function readMapQuant(map: unknown): Map<string, QuantTape> {
 }
 
 /**
- * One flow: cascade (knife) → crowded (positioning) → OI add against the zone.
- * Demand = long. Supply = short. cover/flush are cascade confirms, not a second veto.
- * Does not arm. Does not close. Does not reject a standing zone (wait for reclaim).
+ * One flow. Cascade and crowded at both gates.
+ * Opposing OI add (`short_add` vs demand / `long_add` vs supply) is MAP-accept
+ * only — at ARM, last is already in the zone and that add is the fill, not a knife.
+ * cover/flush confirm cascade; they are not a second veto.
  */
-export function quantVeto(side: ZoneSide, tape: QuantTape | null | undefined): QuantDecision {
+export function quantVeto(
+  side: ZoneSide,
+  tape: QuantTape | null | undefined,
+  gate: QuantGate = "accept",
+): QuantDecision {
   if (!agentQuantEnabled()) return { allow: true, reason: "ok" };
   if (!tape) return { allow: true, reason: "ok" };
 
@@ -98,7 +105,7 @@ export function quantVeto(side: ZoneSide, tape: QuantTape | null | undefined): Q
   if (tape.crowded === (long ? "long" : "short")) {
     return { allow: false, reason: "quant_crowded" };
   }
-  if (tape.oiReading === (long ? "short_add" : "long_add")) {
+  if (gate === "accept" && tape.oiReading === (long ? "short_add" : "long_add")) {
     return { allow: false, reason: "quant_oi" };
   }
   return { allow: true, reason: "ok" };

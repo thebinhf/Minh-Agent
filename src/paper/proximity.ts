@@ -59,7 +59,7 @@ export async function runProximityArm(
       rejected.push(card.zoneId);
       continue;
     }
-    const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol));
+    const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
     if (!veto.allow) continue;
     try {
       await paperArm(engine, {

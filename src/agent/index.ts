@@ -37,6 +37,7 @@ export {
   tapeFromMapItem,
   type QuantCascade,
   type QuantDecision,
+  type QuantGate,
   type QuantReason,
   type QuantTape,
 } from "./quant";

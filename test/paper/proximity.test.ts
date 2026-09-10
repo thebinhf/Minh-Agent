@@ -128,4 +128,20 @@ describe("proximity arm", () => {
     expect(ctx.engine.orders("pending")).toEqual([]);
     expect(ctx.engine.zones("accepted")).toHaveLength(1);
   });
+
+  test("opposing OI add does not block ARM (zone fill)", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.AGENT_QUANT;
+    const feed = mockFeed({ lastPrice: "79280", markPrice: "79280" });
+    feed.quant = async () => ({
+      crowded: null,
+      oiReading: "long_add",
+      cascade: { active: false, side: null, fuel: "0" },
+    });
+    const ctx = await engineWithLev(feed);
+    ctx.engine.acceptZone(SUPPLY);
+    const marked = await ctx.engine.mark();
+    expect(marked.proximity.armed).toEqual(["btc-4h-s-20260908-01"]);
+    expect(ctx.engine.orders("pending")).toHaveLength(1);
+  });
 });

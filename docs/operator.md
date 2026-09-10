@@ -24,7 +24,7 @@ Bias (from `/map` klines, not a `/map` field): 4H HH/HL = bull, LH/LL = bear, mi
 
 `MAP_ACCEPT=0` turns off the **old accept path** (no auto-copy). `AGENT_MAP=0` is a **policy no-op** — ungated P5 `runMapAccept` still copies if `MAP_ACCEPT` is on. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` (bypasses agent policy). `/zones` itself does **not** arm.
 
-Quant is a **single in-process veto** (`quantVeto` — cascade → crowded → opposing OI add). Demand + `liq.cascade.active && side=long` → wait reclaim (do not catch the knife; do not reject the zone). Crowded long blocks demand, not a short signal. `oi.reading=short_add` into demand → stand aside. `AGENT_QUANT=0` skips the veto. Tape comes from `/map` on 4H close and from `GET /map` on the ARM tick. Missing tape is not a veto. `GET /liq-model` is a labeled estimate — do not arm from it. Scan 30m is HTTP `/confirm` + `/zones`. Live bins: `ws://127.0.0.1:43180/ws` `liq.*` — still do not arm from a print.
+Quant is a **single in-process veto** (`quantVeto`). Cascade and crowded at MAP **and** ARM. Opposing OI add (`short_add` vs demand / `long_add` vs supply) is **MAP accept only** — at ARM that add is the zone fill. Same-side add is never a veto. `cover`/`flush` confirm cascade. Demand + `liq.cascade.active && side=long` → wait reclaim (do not reject the zone). Crowded long blocks demand, not a short signal. `AGENT_QUANT=0` skips. Missing tape is not a veto. `GET /liq-model` is a labeled estimate — do not arm from it.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 

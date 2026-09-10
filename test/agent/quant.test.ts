@@ -35,7 +35,7 @@ describe("quant veto", () => {
     expect(quantVeto("demand", CASCADE_LONG)).toEqual({ allow: true, reason: "ok" });
   });
 
-  test("one flow: cascade then crowded then opposing OI add; missing tape is not a veto", () => {
+  test("one flow: cascade and crowded at both gates; opposing OI add is accept-only", () => {
     delete process.env.AGENT_QUANT;
     expect(quantVeto("demand", undefined)).toEqual({ allow: true, reason: "ok" });
     expect(quantVeto("demand", CASCADE_LONG).reason).toBe("quant_cascade");
@@ -43,7 +43,15 @@ describe("quant veto", () => {
     expect(quantVeto("demand", CROWDED_LONG).reason).toBe("quant_crowded");
     expect(quantVeto("supply", CROWDED_LONG).reason).toBe("ok");
     expect(quantVeto("demand", SHORT_ADD).reason).toBe("quant_oi");
+    expect(quantVeto("demand", SHORT_ADD, "arm").reason).toBe("ok");
     expect(quantVeto("supply", SHORT_ADD).reason).toBe("ok");
+    expect(quantVeto("supply", {
+      crowded: null,
+      oiReading: "long_add",
+      cascade: { active: false, side: null, fuel: "0" },
+    }, "arm").reason).toBe("ok");
+    expect(quantVeto("demand", CASCADE_LONG, "arm").reason).toBe("quant_cascade");
+    expect(quantVeto("demand", CROWDED_LONG, "arm").reason).toBe("quant_crowded");
     expect(quantVeto("supply", {
       crowded: "short",
       oiReading: "long_add",
