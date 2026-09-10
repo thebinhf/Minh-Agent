@@ -1,7 +1,7 @@
+import { loadFeedHealth, onMapCloseAccept } from "./agent/policy";
 import { EMPTY_BRIEF_PACK_PAPER } from "./feed/bb/brief-pack";
 import { startBybitTracker } from "./feed/bb/index";
 import { startPaper, type PaperFeature } from "./paper/index";
-import { fetchZoneCards, lastPricesFromMap, mapAcceptEnabled, runMapAccept } from "./paper/map-accept";
 import { paperDesk } from "./paper/ops";
 
 /**
@@ -14,6 +14,10 @@ import { paperDesk } from "./paper/ops";
  * paper HTTP bind (`http://127.0.0.1:43181`) so Minh knows the desk; arrays
  * still come from the in-process engine (no :43181 hop). If paper is down,
  * paper arrays are empty and source is null.
+ *
+ * 4H map.close → MAP_ACCEPT pick → agent policy → acceptZone.
+ * AGENT_MAP=0: policy no-op; old MAP_ACCEPT path still copies if MAP_ACCEPT is on.
+ * MAP_ACCEPT=0: old accept path off. Neither path arms or closes opens.
  */
 let paperDeskFn: (() => ReturnType<typeof paperDesk>) | null = null;
 let paperRef: PaperFeature | null = null;
@@ -21,12 +25,10 @@ let paperRef: PaperFeature | null = null;
 const bb = await startBybitTracker({
   paperDesk: () => paperDeskFn?.() ?? EMPTY_BRIEF_PACK_PAPER,
   onMapClose: async ({ interval, map }) => {
-    if (interval !== "240") return;
-    if (!mapAcceptEnabled() || !paperRef) return;
     try {
-      const cards = await fetchZoneCards("http://127.0.0.1:43180");
-      const result = runMapAccept(paperRef.engine, cards, lastPricesFromMap(map));
-      if (result.accepted.length) {
+      const health = await loadFeedHealth();
+      const result = await onMapCloseAccept({ interval, map }, paperRef?.engine ?? null, { health });
+      if (result?.accepted.length) {
         console.log(`[minh] map accept ${result.accepted.join(",")}`);
       }
     } catch (error) {

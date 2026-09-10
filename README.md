@@ -76,7 +76,8 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
 | `BYBIT_OI` | on (`0` disables) | REST OI history fill |
 | `BYBIT_FUNDING` | on (`0` disables) | REST funding history fill |
-| `MAP_ACCEPT` | on (`0` disables) | Copy `/zones` into the ledger on 4H close |
+| `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
+| `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
 

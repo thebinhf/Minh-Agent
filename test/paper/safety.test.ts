@@ -48,6 +48,8 @@ describe("paper safety", () => {
       "src/paper/proximity.ts",
       "src/paper/zone-accept.ts",
       "src/paper/map-accept.ts",
+      "src/agent/bias.ts",
+      "src/agent/policy.ts",
       "src/paper/event.ts",
       "src/paper/db.ts",
       "src/zones/card.ts",
