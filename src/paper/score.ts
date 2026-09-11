@@ -157,17 +157,27 @@ export function familyScoreMin(): Dec {
   return Dec.from(raw);
 }
 
+export function familyFloorMinTrades(): number {
+  const raw = process.env.PAPER_FAMILY_FLOOR_MIN_TRADES?.trim();
+  if (raw == null || raw === "") return ZONE_SCORE_MIN_TRADES;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return ZONE_SCORE_MIN_TRADES;
+  return n;
+}
+
 /**
  * After a sample, drop families below the score floor or with avgRealizedRr ≤ 0.
  * Cold / missing history is not a veto. PAPER_ZONE_SCORE=0 skips.
+ * PAPER_FAMILY_FLOOR_MIN_TRADES (default 2) is the trade sample for the RR floor.
  */
 export function familyFloorVeto(stats: FamilyStats | null | undefined): boolean {
   if (!paperZoneScoreEnabled()) return false;
   if (stats == null) return false;
-  const sampled = stats.score != null || stats.trades >= ZONE_SCORE_MIN_TRADES;
+  const minTrades = familyFloorMinTrades();
+  const sampled = stats.score != null || stats.trades >= minTrades;
   if (!sampled) return false;
   if (stats.score != null && Dec.from(stats.score).lt(familyScoreMin())) return true;
-  if (stats.trades >= ZONE_SCORE_MIN_TRADES && stats.avgRealizedRr != null) {
+  if (stats.trades >= minTrades && stats.avgRealizedRr != null) {
     return !Dec.from(stats.avgRealizedRr).gt(Dec.zero());
   }
   return false;

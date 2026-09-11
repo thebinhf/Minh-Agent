@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { intervalToMs } from "../../src/feed/bb/recovery";
-import { asOfTape, type AsOfStore } from "../../src/features/tape";
+import { asOfTape, bumpQuantCoverage, emptyQuantCoverage, mergeQuantCoverage, type AsOfStore } from "../../src/features/tape";
 
 const H4 = intervalToMs("240");
 const H1 = intervalToMs("60");
@@ -116,5 +116,33 @@ describe("as-of quant tape", () => {
 
   test("1h interval cap is used for OI", () => {
     expect(H1).toBe(3_600_000);
+  });
+
+  test("bumpQuantCoverage counts ok vs missing; merge adds; 0/0 is not invented flow", () => {
+    const a = emptyQuantCoverage();
+    bumpQuantCoverage(a, { oi: "ok", funding: "ok", flow: "missing", cascade: "missing" });
+    expect(a.samples).toBe(1);
+    expect(a.oi.ok).toBe(1);
+    expect(a.funding.ok).toBe(1);
+    expect(a.flow.ok).toBe(0);
+    expect(a.flow.missing).toBe(1);
+    expect(a.cascade.missing).toBe(1);
+    const b = emptyQuantCoverage();
+    bumpQuantCoverage(b, { oi: "missing", funding: "ok", flow: "ok", cascade: "missing" });
+    mergeQuantCoverage(a, b);
+    expect(a.samples).toBe(2);
+    expect(a.oi.ok).toBe(1);
+    expect(a.oi.missing).toBe(1);
+    expect(a.funding.ok).toBe(2);
+    expect(a.flow.ok).toBe(1);
+    expect(a.flow.missing).toBe(1);
+    expect(a.cascade.ok).toBe(0);
+    expect(a.cascade.missing).toBe(2);
+
+    const emptyFlow = asOfTape(store({
+      flow: { buyNotional: "0", sellNotional: "0" },
+    }), { symbol: "BTCUSDT", asof: ASOF });
+    expect(emptyFlow.fields.flow).toBe("missing");
+    expect(emptyFlow.tape.flowReading).toBeNull();
   });
 });

@@ -20,7 +20,7 @@ Check `klineLag.ok` before drawing (1H/4H on `/map`; 15m lag is scalp-only). Sta
 
 **`GET /zones`** (`bun run zones`) is suggest-only: it does **not** arm. 4H close: MAP_ACCEPT pick (not deep/invalid) **then** agent policy **before** `acceptZone`.
 
-Bias (from `/map` klines, not a `/map` field): 4H HH/HL = bull, LH/LL = bear, mixed = chop. 1H must not oppose 4H; 1H chop → stand aside. Accept: bull → demand only; bear → supply only. Drop RR < account `minRr`, `deep_mitigate`, `htf_break`, expiry. Cap 2 accepted/symbol. Family paper score ranks before the cap; after a sample, families below score `0.5` or with `avgRealizedRr ≤ 0` are skipped (`family_floor`). Missing/cold history is not a veto (`PAPER_ZONE_SCORE=0` off). Optional `PAPER_MAP_SKIP` (comma symbols; unset / `0` / blank = none). Feed watchlist is 10 including HYPEUSDT; HYPE has a linear spec in the paper catalog. Mid-range: last between nearest swing H/L **and** not in proximal→entry of a same-direction card → STAND ASIDE (does **not** close open positions). Stale `klineLag` / `tradingAllowed=false` → no accept / no new arm.
+Bias (from `/map` klines, not a `/map` field): 4H HH/HL = bull, LH/LL = bear, mixed = chop. 1H must not oppose 4H; 1H chop → stand aside. Accept: bull → demand only; bear → supply only. Drop RR < account `minRr`, `deep_mitigate`, `htf_break`, expiry. Cap 2 accepted/symbol. Family paper score ranks before the cap; after a sample (`PAPER_FAMILY_FLOOR_MIN_TRADES` default 2), families below score `0.5` or with `avgRealizedRr ≤ 0` are skipped (`family_floor`). Missing/cold history is not a veto (`PAPER_ZONE_SCORE=0` off). `AGENT_BIAS_CHOP=0` turns off the 4H chop deny (A/B; default on). Optional `PAPER_MAP_SKIP` (comma symbols; unset / `0` / blank = none). Feed watchlist is 10 including HYPEUSDT; HYPE has a linear spec in the paper catalog. Mid-range: last between nearest swing H/L **and** not in proximal→entry of a same-direction card → STAND ASIDE (does **not** close open positions). Stale `klineLag` / `tradingAllowed=false` → no accept / no new arm.
 
 `MAP_ACCEPT=0` turns off the **old accept path** (no auto-copy). `AGENT_MAP=0` is a **policy no-op** — ungated P5 `runMapAccept` still copies if `MAP_ACCEPT` is on. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` (bypasses agent policy). `/zones` itself does **not** arm.
 
@@ -80,11 +80,15 @@ bun run backfill --symbol BTCUSDT --days 30
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
   --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 bun run paper replay-batch ./zones.json
+bun run paper replay-map --days 180 --one-book
+bun run paper review ./lab/replay-map.json
 ```
 
 Optional `--interval 15` (walk), `--funding-rate` if you want 8h settlements (kline cache has no funding tape). Auto S/D stays in MAP — replay only receives the zone.
 
 Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). Output is a table (fill / OCO / SL / TP). One bad row does not stop the rest.
+
+`replay-map` is the method walk (detect → policy → ARM). `paper review FILE.json` is compact QC: skipReasons, `quantCoverage` (ok vs missing per field), flags (`hype_accepted`, `flow_missing`, `cascade_missing`, `tape_skipped`). Missing CVD/liq is a flag, not a zero. Does not walk bars. Nightly: [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) (does not touch the live ledger).
 
 ## Ban
 
@@ -101,7 +105,7 @@ Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT noti
 
 On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. Family score from 7-day paper metrics ranks before the per-symbol cap when a family has enough fills/trades; missing score is not a veto (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band and the last confirmed 15m agrees. `PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off. `/zones` itself still does not arm.
 
-Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`. Method walk (not live desk): `bun run paper replay-map --days 180` — watchlist, same detect/policy/ARM, no future bars, quant as-of (missing stays null), slippage 0. `--one-book` = one equity. `--train-days 90` freezes family floor after 90d. Backfill first (`bun run backfill --days 180`).
+Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`. Method walk (not live desk): `bun run paper replay-map --days 180` — watchlist, same detect/policy/ARM, no future bars, quant as-of (missing stays null), slippage 0. `--one-book` = one equity. `--train-days 90` freezes family floor after 90d. Then `bun run paper review FILE.json`. Backfill first (`bun run backfill --days 180`). Host lab: `deploy/replay-map-lab.sh` (optional `replay-map-lab.timer`). CVD/liq collection stays 3 majors unless `BYBIT_TAPE_SYMBOLS=watchlist` — replay still cannot invent history.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 

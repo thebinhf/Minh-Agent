@@ -1,0 +1,15 @@
+[Unit]
+Description=Minh Agent — paper replay-map lab (no keys, no live ledger)
+Documentation=https://github.com/thebinhf/Minh-Agent/blob/main/docs/ROADMAP.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/minh-agent
+ExecStart=/opt/minh-agent/deploy/replay-map-lab.sh
+# Override MINH_ROOT / MINH_LAB_DIR / PAPER_LAB_DAYS via systemctl edit.
+# Do not set BYBIT_API_KEY / BYBIT_API_SECRET. Paper refuses if they are set.
+
+[Install]
+WantedBy=multi-user.target

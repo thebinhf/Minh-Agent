@@ -15,7 +15,7 @@ Adapter path: `src/feed/bb/`.
 | Symbols | BTCUSDT ETHUSDT SOLUSDT ENAUSDT BNBUSDT XRPUSDT DOGEUSDT AVAXUSDT LINKUSDT HYPEUSDT |
 | Kline intervals | Live WS: 5, 15, 60, 240. REST/backfill also accept Bybit v5 `1`,`3`,`5`,`15`,`30`,`60`,`120`,`240`,`360`,`720`,`D`,`W`,`M` |
 | Orderbook | depth 50 for the full watchlist (10). `BYBIT_ORDERBOOK_SYMBOLS` intersects the watchlist |
-| Topics | `tickers.{symbol}`, `kline.{interval}.{symbol}`, `orderbook.50.{symbol}` (watchlist), `allLiquidation.{symbol}` / `publicTrade.{symbol}` (BTC ETH SOL) |
+| Topics | `tickers.{symbol}`, `kline.{interval}.{symbol}`, `orderbook.50.{symbol}` (watchlist), `allLiquidation.{symbol}` / `publicTrade.{symbol}` (default BTC ETH SOL; `BYBIT_TAPE_SYMBOLS=watchlist` expands) |
 | HTTP | read-only `127.0.0.1:43180` |
 | Auth | none |
 

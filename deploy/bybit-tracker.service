@@ -24,6 +24,7 @@ Environment=MAP_CLOSE=1
 # MAP_ACCEPT=0 disables the old auto-ledger of GET /zones cards on 4H close.
 # AGENT_MAP=0 disables agent policy (no-op); old MAP_ACCEPT copy still runs.
 # PAPER_PROXIMITY_ARM=0 disables auto rest of accepted ledger cards.
+# BYBIT_TAPE_SYMBOLS=watchlist expands CVD/liq to the full watchlist (default BTC ETH SOL).
 NoNewPrivileges=true
 PrivateTmp=true
 

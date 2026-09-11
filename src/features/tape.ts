@@ -21,6 +21,45 @@ export type AsOfTape = {
   };
 };
 
+export const QUANT_FIELDS = ["oi", "funding", "flow", "cascade"] as const;
+export type QuantField = (typeof QUANT_FIELDS)[number];
+
+export type QuantCoverageCount = { ok: number; missing: number };
+
+export type QuantCoverage = {
+  samples: number;
+  oi: QuantCoverageCount;
+  funding: QuantCoverageCount;
+  flow: QuantCoverageCount;
+  cascade: QuantCoverageCount;
+};
+
+export function emptyQuantCoverage(): QuantCoverage {
+  return {
+    samples: 0,
+    oi: { ok: 0, missing: 0 },
+    funding: { ok: 0, missing: 0 },
+    flow: { ok: 0, missing: 0 },
+    cascade: { ok: 0, missing: 0 },
+  };
+}
+
+export function bumpQuantCoverage(out: QuantCoverage, fields: AsOfTape["fields"]): void {
+  out.samples += 1;
+  for (const key of QUANT_FIELDS) {
+    if (fields[key] === "ok") out[key].ok += 1;
+    else out[key].missing += 1;
+  }
+}
+
+export function mergeQuantCoverage(out: QuantCoverage, extra: QuantCoverage): void {
+  out.samples += extra.samples;
+  for (const key of QUANT_FIELDS) {
+    out[key].ok += extra[key].ok;
+    out[key].missing += extra[key].missing;
+  }
+}
+
 function closedStartCap(asof: number, interval: OiInterval): number {
   return asof - intervalToMs(interval);
 }

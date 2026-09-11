@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { agentMapEnabled, decideMapAccept, emptySkipReasons, onMapCloseAccept } from "../../src/agent/policy";
+import { agentMapEnabled, biasChopEnabled, decideMapAccept, emptySkipReasons, onMapCloseAccept } from "../../src/agent/policy";
 import { readMapBias } from "../../src/agent/bias";
 import { mockFeed, OPEN_LONG, paperEngine } from "../paper/helpers";
 import type { ZoneCard } from "../../src/zones/card";
@@ -12,6 +12,7 @@ const savedAgent = process.env.AGENT_MAP;
 const savedQuant = process.env.AGENT_QUANT;
 const savedScore = process.env.PAPER_ZONE_SCORE;
 const savedSkip = process.env.PAPER_MAP_SKIP;
+const savedChop = process.env.AGENT_BIAS_CHOP;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -27,8 +28,9 @@ afterEach(() => {
   else process.env.PAPER_ZONE_SCORE = savedScore;
   if (savedSkip === undefined) delete process.env.PAPER_MAP_SKIP;
   else process.env.PAPER_MAP_SKIP = savedSkip;
+  if (savedChop === undefined) delete process.env.AGENT_BIAS_CHOP;
+  else process.env.AGENT_BIAS_CHOP = savedChop;
 });
-
 const SUPPLY: ZoneCard = {
   zoneId: "btc-4h-s-20260908-01",
   symbol: "BTCUSDT",
@@ -97,9 +99,16 @@ describe("MAP policy", () => {
     expect(decideMapAccept({
       card: DEMAND, bias: undefined, last: ARM_DEMAND_LAST, tradingAllowed: true,
     }).reason).toBe("bias_chop");
+    process.env.AGENT_BIAS_CHOP = "0";
+    expect(biasChopEnabled()).toBe(false);
+    expect(decideMapAccept({
+      card: DEMAND, bias: undefined, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).not.toBe("bias_chop");
+    delete process.env.AGENT_BIAS_CHOP;
     expect(decideMapAccept({
       card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: false,
     }).reason).toBe("gates_block");
+
     const lagged = readMapBias(mapPayload({
       direction: "bull", lastPrice: String(ARM_DEMAND_LAST), lagOk: false,
     })).get("BTCUSDT");

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { buildTopics, klineTopic, liquidationTopic, orderbookTopic, parseTopic, publicTradeTopic, tickerTopic } from "../../../src/feed/bb/topics";
+import { buildTopics, klineTopic, liquidationTopic, orderbookTopic, parseTopic, publicTradeTopic, tapeSymbols, tickerTopic } from "../../../src/feed/bb/topics";
 import type { TrackerConfig } from "../../../src/feed/bb/types";
 import { loadConfig } from "../../../src/feed/bb/config";
 
@@ -10,10 +10,13 @@ const config = {
 } as TrackerConfig;
 
 const savedFlow = process.env.BYBIT_FLOW;
+const savedTape = process.env.BYBIT_TAPE_SYMBOLS;
 
 afterEach(() => {
   if (savedFlow === undefined) delete process.env.BYBIT_FLOW;
   else process.env.BYBIT_FLOW = savedFlow;
+  if (savedTape === undefined) delete process.env.BYBIT_TAPE_SYMBOLS;
+  else process.env.BYBIT_TAPE_SYMBOLS = savedTape;
 });
 
 describe("Bybit V5 public linear topic names", () => {
@@ -27,6 +30,7 @@ describe("Bybit V5 public linear topic names", () => {
 
   test("subscribes L50 for orderbook symbols; liq/flow stay BTC/ETH/SOL on the watchlist", () => {
     delete process.env.BYBIT_FLOW;
+    delete process.env.BYBIT_TAPE_SYMBOLS;
     const topics = buildTopics(config);
     expect(topics).toContain("tickers.BTCUSDT");
     expect(topics).toContain("tickers.ENAUSDT");
@@ -50,6 +54,7 @@ describe("Bybit V5 public linear topic names", () => {
 
   test("default config L50 matches the 10-symbol watchlist; tape stays 3", async () => {
     delete process.env.BYBIT_FLOW;
+    delete process.env.BYBIT_TAPE_SYMBOLS;
     const loaded = await loadConfig();
     expect(loaded.orderbook.symbols).toEqual(loaded.symbols);
     const topics = buildTopics(loaded);
@@ -60,6 +65,33 @@ describe("Bybit V5 public linear topic names", () => {
     expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(3);
     expect(topics).not.toContain("allLiquidation.HYPEUSDT");
     expect(topics).not.toContain("publicTrade.ENAUSDT");
+  });
+
+  test("BYBIT_TAPE_SYMBOLS=watchlist expands CVD/liq; 0 = none; comma list intersects", () => {
+    delete process.env.BYBIT_FLOW;
+    process.env.BYBIT_TAPE_SYMBOLS = "watchlist";
+    expect(tapeSymbols(config).sort()).toEqual(["BTCUSDT", "ENAUSDT", "ETHUSDT"]);
+    const watch = buildTopics(config);
+    expect(watch).toContain("publicTrade.ENAUSDT");
+    expect(watch).toContain("allLiquidation.ENAUSDT");
+    expect(watch.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(3);
+
+    process.env.BYBIT_TAPE_SYMBOLS = "*";
+    const star = tapeSymbols(config);
+    process.env.BYBIT_TAPE_SYMBOLS = "watchlist";
+    expect(tapeSymbols(config)).toEqual(star);
+
+    process.env.BYBIT_TAPE_SYMBOLS = "0";
+    const none = buildTopics(config);
+    expect(none.some((topic) => topic.startsWith("publicTrade."))).toBe(false);
+    expect(none.some((topic) => topic.startsWith("allLiquidation."))).toBe(false);
+
+    process.env.BYBIT_TAPE_SYMBOLS = "ENAUSDT,SOLUSDT";
+    expect(tapeSymbols(config)).toEqual(["ENAUSDT"]);
+    const listed = buildTopics(config);
+    expect(listed).toContain("publicTrade.ENAUSDT");
+    expect(listed).not.toContain("publicTrade.BTCUSDT");
+    expect(listed).not.toContain("publicTrade.SOLUSDT");
   });
 
   test("parseTopic round-trips", () => {
@@ -86,6 +118,7 @@ describe("Bybit V5 public linear topic names", () => {
 
   test("BYBIT_FLOW=0 skips publicTrade subscribe", () => {
     process.env.BYBIT_FLOW = "0";
+    delete process.env.BYBIT_TAPE_SYMBOLS;
     const topics = buildTopics(config);
     expect(topics.some((topic) => topic.startsWith("publicTrade."))).toBe(false);
     expect(topics).toContain("allLiquidation.BTCUSDT");
