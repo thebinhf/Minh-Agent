@@ -188,6 +188,31 @@ describe("paper replay-map", () => {
     expect(result.quant).toBe("asof");
   });
 
+  test("contiguous 4H bars still walk 15m until the next 4H close", async () => {
+    delete process.env.MAP_ACCEPT;
+    process.env.AGENT_MAP = "0";
+    const dir = tempDir();
+    dirs.push(dir);
+    const config = await paperConfig(dir);
+    const htf = supplyHtf();
+    const lastClose = htf[htf.length - 1]!.startTs + HTF;
+    const m15Ms = 15 * 60 * 1000;
+    const m15: ReplayBar[] = [];
+    for (let t = 0; t < lastClose; t += m15Ms) {
+      m15.push({ startTs: t, open: "100", high: "101", low: "99", close: "100" });
+    }
+    const result = await runReplayMap({
+      config,
+      universe: UNIVERSE,
+      series: { "240": htf, "60": [], "15": m15 },
+      request: { symbol: "BTCUSDT", fromTs: 0, toTs: lastClose },
+      dbPath: join(dir, "replay-map.sqlite"),
+    });
+    expect(result.htfBars).toBe(htf.length);
+    expect(result.ltfBars).toBeGreaterThan(0);
+    expect(result.ticks).toBeGreaterThan(0);
+  });
+
   test("watchlist walks each symbol; empty tape is skipped; live paper db untouched", async () => {
     delete process.env.MAP_ACCEPT;
     process.env.AGENT_MAP = "0";

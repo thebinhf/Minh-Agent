@@ -290,8 +290,11 @@ export async function runReplayMap(opts: {
     }
 
     const nextStart = htf[i + 1]?.startTs ?? request.toTs + 1;
+    // Contiguous 4H: nextStart === closeTs, so < nextStart is empty. Walk until the
+    // next 4H close (closeTs + 4h). Gaps keep the exclusive nextStart bound.
+    const windowEnd = nextStart > closeTs ? nextStart : closeTs + htfMs;
     const window15 = all15.filter((row) => (
-      row.startTs >= closeTs && row.startTs < nextStart && row.startTs <= request.toTs
+      row.startTs >= closeTs && row.startTs < windowEnd && row.startTs <= request.toTs
     ));
     ltfBars += window15.length;
     for (const m15 of window15) {
