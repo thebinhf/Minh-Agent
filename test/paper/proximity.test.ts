@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { createPaperEngine } from "../../src/paper/engine";
 import { openPaperDb } from "../../src/paper/db";
-import { confirm15Bar, runProximityArm } from "../../src/paper/proximity";
+import { confirm15Bar, paperArmMaxSymbols, runProximityArm } from "../../src/paper/proximity";
 import { mockFeed, paperConfig, tempDir, UNIVERSE } from "./helpers";
 import type { ZoneCard } from "../../src/zones/card";
 
@@ -97,6 +97,17 @@ describe("confirm15Bar", () => {
 });
 
 describe("proximity arm", () => {
+  test("PAPER_ARM_MAX default is 2; 0 is unlimited", () => {
+    delete process.env.PAPER_ARM_MAX;
+    expect(paperArmMaxSymbols()).toBe(2);
+    process.env.PAPER_ARM_MAX = "0";
+    expect(paperArmMaxSymbols()).toBe(null);
+    process.env.PAPER_ARM_MAX = "5";
+    expect(paperArmMaxSymbols()).toBe(5);
+    process.env.PAPER_ARM_MAX = "1";
+    expect(paperArmMaxSymbols()).toBe(1);
+    delete process.env.PAPER_ARM_MAX;
+  });
   test("does not arm until last is in the proximal band; then rests post-only OCO once", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
     delete process.env.PAPER_CONFIRM_15;
