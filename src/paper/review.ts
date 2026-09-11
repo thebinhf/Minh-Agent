@@ -1,5 +1,6 @@
 import { POLICY_REASONS, type PolicyReason } from "../agent/policy";
 import { emptyQuantCoverage, mergeQuantCoverage, type QuantCoverage } from "../features/tape";
+import { Dec } from "./decimal";
 import { PaperReject } from "./errors";
 
 export type PaperReviewFlag =
@@ -48,6 +49,31 @@ export type PaperReview = {
     avgRealizedRr: string | null;
   }>;
   flags: PaperReviewFlag[];
+};
+
+export type PaperAbDelta = {
+  accepted: number;
+  hypeAccepted: number;
+  armed: number;
+  filled: number | null;
+  invalidated: number | null;
+  trades: number | null;
+  wins: number | null;
+  losses: number | null;
+  equity: string | null;
+  realizedPnl: string | null;
+  skipReasons: Partial<Record<PolicyReason, number>>;
+  cancelCodes: Record<string, number>;
+  flagsAdded: PaperReviewFlag[];
+  flagsRemoved: PaperReviewFlag[];
+};
+
+export type PaperAb = {
+  mode: "paper";
+  ab: true;
+  base: PaperReview;
+  variant: PaperReview;
+  delta: PaperAbDelta;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,6 +140,22 @@ function pickSkipped(raw: unknown): Array<{ symbol: string; error: string }> {
   return skipped;
 }
 
+function pickAccepted(folded: Record<string, unknown>): { count: number; hype: number } {
+  if (typeof folded.accepted === "number") {
+    return {
+      count: folded.accepted,
+      hype: typeof folded.hypeAccepted === "number" ? folded.hypeAccepted : 0,
+    };
+  }
+  const ids = asStringArray(folded.accepted);
+  return { count: ids.length, hype: countHype(ids) };
+}
+
+function pickArmed(folded: Record<string, unknown>): number {
+  if (typeof folded.armed === "number") return folded.armed;
+  return asStringArray(folded.armed).length;
+}
+
 function foldWatchlist(body: Record<string, unknown>): Record<string, unknown> {
   const rows = Array.isArray(body.rows) ? body.rows.filter(isRecord) : [];
   if (rows.length === 0) return body;
@@ -162,23 +204,22 @@ function foldWatchlist(body: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * Compact QC table from a `replay-map` JSON body (file or already-parsed).
- * One-book, single-symbol, or watchlist `rows[]`. Does not walk bars.
- * Missing flow/cascade is a flag, not a zero.
+ * One-book, single-symbol, watchlist `rows[]`, or a prior `paper review` JSON.
+ * Does not walk bars. Missing flow/cascade is a flag, not a zero.
  */
 export function paperReviewFromReplayMap(body: unknown, source = "json"): PaperReview {
   if (!isRecord(body) || body.replayMap !== true) {
     throw new PaperReject("invalid_review", "review", { source, replayMap: false });
   }
   const folded = Array.isArray(body.rows) ? foldWatchlist(body) : body;
-  const acceptedIds = asStringArray(folded.accepted);
-  const armedIds = asStringArray(folded.armed);
+  const accepted = pickAccepted(folded);
+  const armed = pickArmed(folded);
   const metrics = isRecord(folded.metrics) ? folded.metrics : null;
   const account = isRecord(folded.account) ? folded.account : null;
   const skipped = pickSkipped(folded.skipped);
   const coverage = pickCoverage(folded.quantCoverage);
-  const hypeAccepted = countHype(acceptedIds);
   const flags: PaperReviewFlag[] = [];
-  if (hypeAccepted > 0) flags.push("hype_accepted");
+  if (accepted.hype > 0) flags.push("hype_accepted");
   if (skipped.length > 0) flags.push("tape_skipped");
   if (folded.quant === "missing") flags.push("quant_missing");
   if (!coverage) flags.push("coverage_absent");
@@ -186,7 +227,9 @@ export function paperReviewFromReplayMap(body: unknown, source = "json"): PaperR
     if (coverage.samples > 0 && coverage.flow.ok === 0) flags.push("flow_missing");
     if (coverage.samples > 0 && coverage.cascade.ok === 0) flags.push("cascade_missing");
   }
-  const byFamily = metrics && Array.isArray(metrics.byFamily) ? metrics.byFamily : [];
+  const byFamily = metrics && Array.isArray(metrics.byFamily)
+    ? metrics.byFamily
+    : (Array.isArray(folded.families) ? folded.families : []);
   const families = byFamily
     .filter(isRecord)
     .map((row) => ({
@@ -215,9 +258,9 @@ export function paperReviewFromReplayMap(body: unknown, source = "json"): PaperR
     slippage: typeof folded.slippage === "string" ? folded.slippage : null,
     quant: folded.quant === "asof" || folded.quant === "missing" ? folded.quant : null,
     quantCoverage: coverage,
-    accepted: acceptedIds.length,
-    hypeAccepted,
-    armed: armedIds.length,
+    accepted: accepted.count,
+    hypeAccepted: accepted.hype,
+    armed,
     filled: typeof folded.filled === "number"
       ? folded.filled
       : (typeof metrics?.funnel === "object" && isRecord(metrics.funnel) && typeof metrics.funnel.filled === "number"
@@ -229,15 +272,33 @@ export function paperReviewFromReplayMap(body: unknown, source = "json"): PaperR
       ? Object.fromEntries(
         Object.entries(metrics.cancelCodes).filter(([, n]) => typeof n === "number" && n !== 0),
       ) as Record<string, number>
-      : null,
-    equity: account && account.equity != null ? String(account.equity) : null,
-    startingCash: account && account.startingCash != null ? String(account.startingCash) : null,
-    realizedPnl: metrics && metrics.realizedPnl != null ? String(metrics.realizedPnl) : null,
-    winRate: metrics && metrics.winRate != null ? String(metrics.winRate) : null,
-    trades: typeof metrics?.trades === "number" ? metrics.trades : null,
-    wins: typeof metrics?.wins === "number" ? metrics.wins : null,
-    losses: typeof metrics?.losses === "number" ? metrics.losses : null,
-    funnel: metrics?.funnel ?? null,
+      : (isRecord(folded.cancelCodes)
+        ? Object.fromEntries(
+          Object.entries(folded.cancelCodes).filter(([, n]) => typeof n === "number" && n !== 0),
+        ) as Record<string, number>
+        : null),
+    equity: account && account.equity != null
+      ? String(account.equity)
+      : (folded.equity != null ? String(folded.equity) : null),
+    startingCash: account && account.startingCash != null
+      ? String(account.startingCash)
+      : (folded.startingCash != null ? String(folded.startingCash) : null),
+    realizedPnl: metrics && metrics.realizedPnl != null
+      ? String(metrics.realizedPnl)
+      : (folded.realizedPnl != null ? String(folded.realizedPnl) : null),
+    winRate: metrics && metrics.winRate != null
+      ? String(metrics.winRate)
+      : (folded.winRate != null ? String(folded.winRate) : null),
+    trades: typeof metrics?.trades === "number"
+      ? metrics.trades
+      : (typeof folded.trades === "number" ? folded.trades : null),
+    wins: typeof metrics?.wins === "number"
+      ? metrics.wins
+      : (typeof folded.wins === "number" ? folded.wins : null),
+    losses: typeof metrics?.losses === "number"
+      ? metrics.losses
+      : (typeof folded.losses === "number" ? folded.losses : null),
+    funnel: metrics?.funnel ?? folded.funnel ?? null,
     families,
     flags,
   };
@@ -255,4 +316,69 @@ export async function paperReviewFromFile(path: string): Promise<PaperReview> {
     throw new PaperReject("invalid_review", "review", { path, json: false });
   }
   return paperReviewFromReplayMap(body, path);
+}
+
+function intDelta(base: number | null, variant: number | null): number | null {
+  if (base == null || variant == null) return null;
+  return variant - base;
+}
+
+function moneyDelta(base: string | null, variant: string | null): string | null {
+  if (base == null || variant == null) return null;
+  return Dec.from(variant).sub(Dec.from(base)).toText();
+}
+
+function countDelta<K extends string>(
+  keys: readonly K[],
+  base: Partial<Record<K, number>> | null | undefined,
+  variant: Partial<Record<K, number>> | null | undefined,
+): Partial<Record<K, number>> {
+  const out: Partial<Record<K, number>> = {};
+  for (const key of keys) {
+    const d = (variant?.[key] ?? 0) - (base?.[key] ?? 0);
+    if (d !== 0) out[key] = d;
+  }
+  return out;
+}
+
+/**
+ * Variant minus base. One flag at a time. Does not walk bars.
+ * Accepts replay-map JSON or a prior `paper review` JSON.
+ */
+export function paperAbFromReviews(base: PaperReview, variant: PaperReview): PaperAb {
+  const flagSet = (flags: PaperReviewFlag[]) => new Set(flags);
+  const baseFlags = flagSet(base.flags);
+  const variantFlags = flagSet(variant.flags);
+  return {
+    mode: "paper",
+    ab: true,
+    base,
+    variant,
+    delta: {
+      accepted: variant.accepted - base.accepted,
+      hypeAccepted: variant.hypeAccepted - base.hypeAccepted,
+      armed: variant.armed - base.armed,
+      filled: intDelta(base.filled, variant.filled),
+      invalidated: intDelta(base.invalidated, variant.invalidated),
+      trades: intDelta(base.trades, variant.trades),
+      wins: intDelta(base.wins, variant.wins),
+      losses: intDelta(base.losses, variant.losses),
+      equity: moneyDelta(base.equity, variant.equity),
+      realizedPnl: moneyDelta(base.realizedPnl, variant.realizedPnl),
+      skipReasons: countDelta(POLICY_REASONS, base.skipReasons, variant.skipReasons),
+      cancelCodes: countDelta(
+        ["never_touched", "ops_cancel", "deep_mitigate", "htf_break", "expired", "rr_fail", "gates_block"] as const,
+        base.cancelCodes ?? {},
+        variant.cancelCodes ?? {},
+      ) as Record<string, number>,
+      flagsAdded: variant.flags.filter((flag) => !baseFlags.has(flag)),
+      flagsRemoved: base.flags.filter((flag) => !variantFlags.has(flag)),
+    },
+  };
+}
+
+export async function paperAbFromFiles(basePath: string, variantPath: string): Promise<PaperAb> {
+  const base = await paperReviewFromFile(basePath);
+  const variant = await paperReviewFromFile(variantPath);
+  return paperAbFromReviews(base, variant);
 }

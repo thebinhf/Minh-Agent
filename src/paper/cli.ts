@@ -13,7 +13,7 @@ import { parseZoneId } from "./gates";
 import { acceptTokenKind, lookupSuggestedZone } from "./zone-accept";
 import { runReplayBatchFromFeed, runReplayFromFeed } from "./replay";
 import { parseReplayMapTimes, runReplayMapFromFeed, REPLAY_MAP_MAX_DAYS } from "./replay-map";
-import { paperReviewFromFile } from "./review";
+import { paperReviewFromFile, paperAbFromFiles } from "./review";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
@@ -31,6 +31,7 @@ export const PAPER_USAGE = `Usage:
   bun run paper day [--day YYYY-MM-DD]
   bun run paper week
   bun run paper review FILE.json
+  bun run paper ab BASE.json VARIANT.json
   bun run paper metrics [--days N]
   bun run paper orders [--status pending|filled|cancelled|rejected|invalidated|all]
   bun run paper cancel ID
@@ -63,6 +64,7 @@ zone accept ZONEID copies a GET /zones card into the ledger (or FILE.json for a 
 metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). Missing rates are null.
 week is metrics --days 7 plus standing ledger cards.
 review FILE.json is a compact QC table from replay-map JSON (skipReasons, quantCoverage, flags). Does not walk bars.
+ab BASE.json VARIANT.json is variant minus base (accepted, skipReasons, equity). Replay-map or review JSON. Does not walk bars.
 `;
 
 export type PaperCliCommand =
@@ -111,6 +113,7 @@ export type PaperCliCommand =
   | { name: "day"; day?: string }
   | { name: "week" }
   | { name: "review"; path: string }
+  | { name: "ab"; base: string; variant: string }
   | { name: "metrics"; days: number }
   | {
       name: "arm";
@@ -244,6 +247,11 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
     const path = rest.find((arg) => !arg.startsWith("-"));
     if (!path) throw new PaperUsageError(PAPER_USAGE);
     return { name: "review", path };
+  }
+  if (command === "ab") {
+    const paths = rest.filter((arg) => !arg.startsWith("-"));
+    if (paths.length !== 2) throw new PaperUsageError(PAPER_USAGE);
+    return { name: "ab", base: paths[0]!, variant: paths[1]! };
   }
   if (command === "metrics") {
     const daysRaw = flag(rest, "--days");
@@ -620,6 +628,21 @@ async function main(): Promise<void> {
   if (command.name === "review") {
     try {
       const body = await paperReviewFromFile(command.path);
+      console.log(JSON.stringify(body, null, 2));
+    } catch (error) {
+      if (error instanceof PaperReject) {
+        console.log(JSON.stringify(error.toJSON(), null, 2));
+        process.exit(1);
+      }
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (command.name === "ab") {
+    try {
+      const body = await paperAbFromFiles(command.base, command.variant);
       console.log(JSON.stringify(body, null, 2));
     } catch (error) {
       if (error instanceof PaperReject) {

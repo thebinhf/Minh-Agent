@@ -82,13 +82,14 @@ bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \
 bun run paper replay-batch ./zones.json
 bun run paper replay-map --days 180 --one-book
 bun run paper review ./lab/replay-map.json
+bun run paper ab ./lab/base.review.json ./lab/chop0.review.json
 ```
 
 Optional `--interval 15` (walk), `--funding-rate` if you want 8h settlements (kline cache has no funding tape). Auto S/D stays in MAP — replay only receives the zone.
 
 Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). Output is a table (fill / OCO / SL / TP). One bad row does not stop the rest.
 
-`replay-map` is the method walk (detect → policy → ARM). `paper review FILE.json` is compact QC: skipReasons, `quantCoverage` (ok vs missing per field), flags (`hype_accepted`, `flow_missing`, `cascade_missing`, `tape_skipped`). Missing CVD/liq is a flag, not a zero. Does not walk bars. Nightly: [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) (does not touch the live ledger).
+`replay-map` is the method walk (detect → policy → ARM). `paper review FILE.json` is compact QC: skipReasons, `quantCoverage` (ok vs missing per field), flags (`hype_accepted`, `flow_missing`, `cascade_missing`, `tape_skipped`). Missing CVD/liq is a flag, not a zero. Does not walk bars. `paper ab BASE.json VARIANT.json` is variant minus base — one flag at a time. Nightly: [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh). A/B: [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh).
 
 ## Ban
 
@@ -105,7 +106,7 @@ Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT noti
 
 On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. Family score from 7-day paper metrics ranks before the per-symbol cap when a family has enough fills/trades; missing score is not a veto (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band and the last confirmed 15m agrees. `PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off. `/zones` itself still does not arm.
 
-Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`. Method walk (not live desk): `bun run paper replay-map --days 180` — watchlist, same detect/policy/ARM, no future bars, quant as-of (missing stays null), slippage 0. `--one-book` = one equity. `--train-days 90` freezes family floor after 90d. Then `bun run paper review FILE.json`. Backfill first (`bun run backfill --days 180`). Host lab: `deploy/replay-map-lab.sh` (optional `replay-map-lab.timer`). CVD/liq collection stays 3 majors unless `BYBIT_TAPE_SYMBOLS=watchlist` — replay still cannot invent history.
+Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`. Method walk (not live desk): `bun run paper replay-map --days 180` — watchlist, same detect/policy/ARM, no future bars, quant as-of (missing stays null), slippage 0. `--one-book` = one equity. `--train-days 90` freezes family floor after 90d. Then `bun run paper review FILE.json`. A/B: `deploy/replay-map-ab.sh chop0` then `paper ab BASE VARIANT`. Backfill first (`bun run backfill --days 180`). Host lab: `deploy/replay-map-lab.sh` (optional `replay-map-lab.timer`). CVD/liq collection stays 3 majors unless `BYBIT_TAPE_SYMBOLS=watchlist` — replay still cannot invent history.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 

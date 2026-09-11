@@ -152,6 +152,7 @@ bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 \
 bun run paper replay-map --days 180 --one-book --train-days 90
 bun run paper replay-map BTCUSDT --from 2026-08-01 --to 2026-08-15
 bun run paper review ./lab/replay-map.json
+bun run paper ab ./lab/base.review.json ./lab/chop0.review.json
 ```
 
 `paper arm` = post-only limit + fire-once alert. OCO: last through SL **before** the limit → `order.invalidated`. After fill, SL/TP run on the position.
@@ -159,6 +160,7 @@ bun run paper review ./lab/replay-map.json
 Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`. Slippage 0.
 `replay-map` walks 4H detect → policy → 15m ARM on the same tape. Omit symbol = watchlist. `--days 180` (max). `--one-book` shares one equity. `--train-days 90` freezes family floor. Quant as-of. `quantCoverage` counts ok vs missing per field (flow/cascade 0/0 is a flag, not a zero). `*-replay-map.sqlite`.
 `paper review FILE.json` is compact QC from that JSON (skipReasons, coverage, flags). Does not walk bars. Nightly: [`deploy/replay-map-lab.sh`](deploy/replay-map-lab.sh).
+`paper ab BASE.json VARIANT.json` is variant minus base. One flag at a time: [`deploy/replay-map-ab.sh`](deploy/replay-map-ab.sh).
 
 HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`. See [docs/http.md](docs/http.md).
 

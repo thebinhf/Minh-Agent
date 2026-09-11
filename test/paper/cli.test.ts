@@ -74,6 +74,7 @@ describe("paper CLI parser", () => {
       expect((error as PaperUsageError).message).toBe(PAPER_USAGE);
       expect(PAPER_USAGE).toContain("Paper simulation only");
       expect(PAPER_USAGE).toContain("review FILE.json");
+      expect(PAPER_USAGE).toContain("ab BASE.json");
       expect(PAPER_USAGE).not.toContain("live trade");
     }
   });
