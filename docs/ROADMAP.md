@@ -11,30 +11,20 @@ Paper week. This is the research loop, not a live desk.
 - Features live under `src/`, not `apps/*`.
 - Venue rules stay venue rules (lot/tick/notional). One book unless `--one-book` is explicit.
 
-Live-shadow (P4) is a **separate process**. It does not share the paper ledger and does not start in this cycle.
+Live-shadow (P4) is a **separate process**. It does not share the paper ledger.
 
-## Shipped this cycle (P0–P2 flags)
+## Shipped this cycle (P0–P3)
 
 | Slice | What | Default |
 | --- | --- | --- |
 | **P0 lab** | `bun run paper review FILE.json` compact QC (`skipReasons`, `quantCoverage`, flags). [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + optional systemd timer | Operator enable |
 | **P1 honesty** | `quantCoverage` on every as-of read. `BYBIT_TAPE_SYMBOLS` opt-in (`watchlist` / `*` / comma / `0`) | Tape stays BTC ETH SOL |
 | **P2 flags** | `AGENT_BIAS_CHOP` (`deny` / `0` / `proximal`). `PAPER_FAMILY_FLOOR_MIN_TRADES` (RR floor sample). 1H chop does not override 4H | Chop kill = 4H mixed only. Floor min trades = 2 |
+| **P3 A/B** | `bun run paper ab BASE.json VARIANT.json`. [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh). 180d: chop0/proximal/floor1 losers; `PAPER_ARM_MAX=2` winner; skip-HYPE not additive under ARM=2 | ARM max = 2. Skip default none |
 
-180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec).
+180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec). Combined ARM=2 + skip-HYPE lost −216 vs ARM=2 HYPE-on.
 
 ## Next
-
-### P3 — A/B walks (same tape, one flag at a time)
-
-Compare against the #64 one-book rolling baseline. One change per walk. `paper review` is the QC table.
-
-1. Chop A/B (same 180d tape): `AGENT_BIAS_CHOP=0` lost ~3130 equity — keep 4H mixed as deny. 1H chop no longer collapses 4H (playbook stand-aside; equity −32, noise). `proximal` (4H mixed only in-band) lost ~2964 vs that default — keep deny. Flag stays for reruns.
-2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 180d vs keep-1H: accepted 175 vs 264, W/L 14/26 vs 23/37, equity **9992 vs 11427 (−1435)**. 1-loss floor also kills families that later win (LINK supply 4t/75% → 1 loss). Keep default 2.
-3. `PAPER_ARM_MAX` 180d vs keep-1H ARM=3: **2 = 12460 (+1033)**, 3 = 11427, 5 = 11057 (−369), 0 unlimited = 10536 (−891). Tighter cap, fewer losing fills, `family_floor` 2272 vs 3756. Default **2**.
-4. `PAPER_MAP_SKIP=HYPEUSDT` vs keep-1H: +576 (12002 vs 11427). Combined ARM=2 + skip-HYPE = **12243 (−216 vs ARM=2 HYPE on)**. Skip is not additive under the new cap. Default skip stays **none**.
-
-Do **not** combine flags until each A/B has a review JSON. Combined ARM=2 + skip-HYPE is done (see §4). Do not invent CVD for the historical window — live tape must accrue first.
 
 ### P4 — live shadow (separate process)
 
@@ -59,7 +49,7 @@ deploy/replay-map-lab.sh
 sudo systemctl enable --now replay-map-lab.timer
 ```
 
-`klinesDays` is already 180. OI/funding REST backfill is public. Flow/liq only exist after WS collection starts.
+`klinesDays` is already 180. OI/funding REST backfill is public. Flow/liq only exist after WS collection starts. Walks are operator (`deploy/replay-map-ab.sh`), not CI. Do not invent CVD.
 
 ## Explicit non-goals
 
