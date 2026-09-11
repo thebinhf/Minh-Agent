@@ -30,7 +30,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 Compare against the #64 one-book rolling baseline. One change per walk. `paper review` is the QC table.
 
 1. Chop A/B (same 180d tape): `AGENT_BIAS_CHOP=0` lost ~3130 equity — keep 4H mixed as deny. 1H chop no longer collapses 4H (playbook stand-aside; equity −32, noise). `proximal` (4H mixed only in-band) lost ~2964 vs that default — keep deny. Flag stays for reruns.
-2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 1-trade losers floor or not.
+2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 180d vs keep-1H: accepted 175 vs 264, W/L 14/26 vs 23/37, equity **9992 vs 11427 (−1435)**. 1-loss floor also kills families that later win (LINK supply 4t/75% → 1 loss). Keep default 2.
 3. `PAPER_ARM_MAX=2` vs `5` vs `0` — occupancy vs fill quality.
 4. `PAPER_MAP_SKIP=HYPEUSDT` — skip HYPE again vs default none (watch for `hype_accepted`).
 
