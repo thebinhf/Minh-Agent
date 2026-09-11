@@ -105,7 +105,7 @@ curl -sS 'http://127.0.0.1:43180/funding?symbol=BTCUSDT'
 
 ### `GET /flow`
 
-Taker buy/sell CVD from public WS `publicTrade.{symbol}` (BTC/ETH/SOL with the L50 book), aggregated into 1-minute bars. Not a signal. Not the book `/heatmap`.
+Taker buy/sell CVD from public WS `publicTrade.{symbol}` (BTC/ETH/SOL), aggregated into 1-minute bars. Not a signal. Not the book `/heatmap`. L50 is the full watchlist.
 
 | Query | Default | Notes |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ curl -sS 'http://127.0.0.1:43180/flow?symbol=BTCUSDT'
 
 ### `GET /liq-heatmap`
 
-Actual Bybit liquidation **prints**, not Coinglass estimates. Public WS `allLiquidation.{symbol}` (BTC/ETH/SOL with the L50 book). `Buy` = long liquidated.
+Actual Bybit liquidation **prints**, not Coinglass estimates. Public WS `allLiquidation.{symbol}` (BTC/ETH/SOL). `Buy` = long liquidated.
 
 | Query | Default | Notes |
 | --- | --- | --- |

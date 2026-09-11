@@ -8,7 +8,7 @@ Verify against `src/` before treating older PRs as product scope.
 | --- | --- | --- |
 | Single-process Bun runtime | Live | `bun run start` → `src/index.ts` |
 | TypeScript 7.x | Live | `bun run typecheck` |
-| Bybit public WS market cache | Live | `src/feed/bb/` — 10 linear symbols including HYPEUSDT. See [exchanges/BB.md](exchanges/BB.md) |
+| Bybit public WS market cache | Live | `src/feed/bb/` — 10 linear symbols including HYPEUSDT. L50 book on the full watchlist. Liq prints + CVD stay BTC/ETH/SOL. See [exchanges/BB.md](exchanges/BB.md) |
 | Stale-pong watchdog | Live | Force reconnect if no pong after grace + `pongStaleMs` |
 | Kline lag watchdog | Live | `GET /health` `klineLag` — 15/60/240 stop advancing for `klineLagMs` (default 3m) while ticker WS is live. Log once on trip/recover. Not mid-watch PnL. |
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
@@ -30,7 +30,7 @@ Verify against `src/` before treating older PRs as product scope.
 | EVENT desk | Live | `bun run paper event` / `GET /paper/event` — pending OCO + alerts + accepted zones. Bound pending dies with the zone (expire / deep / HTF). Do not poll `/confirm`. |
 | Paper week | Live | `bun run paper week` / `GET /paper/week` — 7-day metrics + standing ledger + funnel.accepted + `review.families` scores. |
 | Brief data pack | Live | `bun run brief-pack` / `GET /brief-pack` — tickers + kline lag + `gates` + paper desk + accepted ledger zones. Additive. No auto-arm. |
-| Chart / depth / heatmap views | Live | `GET /chart` stitches kline OHLCV; `GET /depth` is the live L50 ladder; `GET /heatmap` grids snapshots (+ live book); `GET /market` is one payload. No browser UI. |
+| Chart / depth / heatmap views | Live | `GET /chart` stitches kline OHLCV; `GET /depth` is the live L50 ladder (watchlist); `GET /heatmap` grids snapshots (+ live book); `GET /market` is one payload. No browser UI. |
 | Paper trading | Live | `src/paper/` — virtual USDT ledger sized like Bybit linear (lot/tick/notional), 1–10% risk, MTF tags, Phase 2 fees/funding/multi-TP/leverage, isolated or cross. Phase 3: price alerts, GTC limit pending (post-only default), daemon tick evaluates alerts/limits/SL-TP. Taker market / close / `--cross` immediate walks live L50 (`GET /depth`); resting limit and SL/TP stay 0-slip. `PAPER_SLIPPAGE=0` off. CLI + `127.0.0.1:43181`. No keys, no real orders. See [paper-trading.md](paper-trading.md). |
 | Paper alerts | Live | `bun run paper alert set SYMBOL --above|--below PRICE`. Fire-once. Log + `paper_events`; optional Telegram/webhook via `PAPER_NOTIFY`. No chat spam. |
 | Paper limit entry | Live | `bun run paper limit … --price`. Rests until last prints through; fill at the limit (maker). `--cross` immediate takes L50 up to the limit (taker). Default post-only + OCO (invalidation cancels pending before fill). |

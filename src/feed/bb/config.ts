@@ -55,6 +55,9 @@ export async function loadConfig(
 
   const base = (await file.json()) as TrackerConfig;
   const dbPath = strEnv("BYBIT_DB_PATH") ?? base.dbPath;
+  const symbols = csv(process.env.BYBIT_SYMBOLS) ?? base.symbols;
+  const bookWanted = csv(process.env.BYBIT_ORDERBOOK_SYMBOLS) ?? base.orderbook.symbols ?? symbols;
+  const watch = new Set(symbols);
 
   return {
     ...base,
@@ -64,11 +67,11 @@ export async function loadConfig(
     httpHost: strEnv("BYBIT_HTTP_HOST") ?? base.httpHost,
     httpPort: intEnv("BYBIT_HTTP_PORT") ?? base.httpPort,
     dbPath: resolve(process.cwd(), dbPath),
-    symbols: csv(process.env.BYBIT_SYMBOLS) ?? base.symbols,
+    symbols,
     klineIntervals: csv(process.env.BYBIT_KLINE_INTERVALS) ?? base.klineIntervals,
     orderbook: {
       depth: intEnv("BYBIT_ORDERBOOK_DEPTH") ?? base.orderbook.depth,
-      symbols: csv(process.env.BYBIT_ORDERBOOK_SYMBOLS) ?? base.orderbook.symbols,
+      symbols: bookWanted.filter((symbol) => watch.has(symbol)),
     },
     pingIntervalMs: intEnv("BYBIT_PING_INTERVAL_MS") ?? base.pingIntervalMs,
     retention: {

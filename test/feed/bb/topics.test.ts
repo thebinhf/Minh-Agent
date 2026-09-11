@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { buildTopics, klineTopic, liquidationTopic, orderbookTopic, parseTopic, publicTradeTopic, tickerTopic } from "../../../src/feed/bb/topics";
 import type { TrackerConfig } from "../../../src/feed/bb/types";
+import { loadConfig } from "../../../src/feed/bb/config";
 
 const config = {
   symbols: ["BTCUSDT", "ETHUSDT", "ENAUSDT"],
   klineIntervals: ["5", "15", "60", "240"],
-  orderbook: { depth: 50, symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT"] },
+  orderbook: { depth: 50, symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ENAUSDT"] },
 } as TrackerConfig;
 
 const savedFlow = process.env.BYBIT_FLOW;
@@ -24,7 +25,7 @@ describe("Bybit V5 public linear topic names", () => {
     expect(publicTradeTopic("BTCUSDT")).toBe("publicTrade.BTCUSDT");
   });
 
-  test("subscribes tickers and klines for all symbols, L50 book for BTC/ETH/SOL only", () => {
+  test("subscribes L50 for orderbook symbols; liq/flow stay BTC/ETH/SOL on the watchlist", () => {
     delete process.env.BYBIT_FLOW;
     const topics = buildTopics(config);
     expect(topics).toContain("tickers.BTCUSDT");
@@ -33,18 +34,32 @@ describe("Bybit V5 public linear topic names", () => {
     expect(topics).toContain("kline.240.ENAUSDT");
     expect(topics).toContain("orderbook.50.BTCUSDT");
     expect(topics).toContain("orderbook.50.SOLUSDT");
-    expect(topics).not.toContain("orderbook.50.ENAUSDT");
+    expect(topics).toContain("orderbook.50.ENAUSDT");
     expect(topics).toContain("allLiquidation.BTCUSDT");
-    expect(topics).toContain("allLiquidation.SOLUSDT");
+    expect(topics).toContain("allLiquidation.ETHUSDT");
+    expect(topics).not.toContain("allLiquidation.SOLUSDT");
     expect(topics).not.toContain("allLiquidation.ENAUSDT");
     expect(topics).toContain("publicTrade.BTCUSDT");
-    expect(topics).toContain("publicTrade.SOLUSDT");
     expect(topics).not.toContain("publicTrade.ENAUSDT");
     expect(topics.filter((topic) => topic.startsWith("tickers.")).length).toBe(3);
     expect(topics.filter((topic) => topic.startsWith("kline.")).length).toBe(12);
-    expect(topics.filter((topic) => topic.startsWith("orderbook.")).length).toBe(3);
+    expect(topics.filter((topic) => topic.startsWith("orderbook.")).length).toBe(4);
+    expect(topics.filter((topic) => topic.startsWith("allLiquidation.")).length).toBe(2);
+    expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(2);
+  });
+
+  test("default config L50 matches the 10-symbol watchlist; tape stays 3", async () => {
+    delete process.env.BYBIT_FLOW;
+    const loaded = await loadConfig();
+    expect(loaded.orderbook.symbols).toEqual(loaded.symbols);
+    const topics = buildTopics(loaded);
+    expect(topics.filter((topic) => topic.startsWith("orderbook.")).length).toBe(10);
+    expect(topics).toContain("orderbook.50.HYPEUSDT");
+    expect(topics).toContain("orderbook.50.ENAUSDT");
     expect(topics.filter((topic) => topic.startsWith("allLiquidation.")).length).toBe(3);
     expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(3);
+    expect(topics).not.toContain("allLiquidation.HYPEUSDT");
+    expect(topics).not.toContain("publicTrade.ENAUSDT");
   });
 
   test("parseTopic round-trips", () => {
