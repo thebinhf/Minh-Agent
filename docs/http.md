@@ -193,7 +193,7 @@ Stitched OHLCV.
 
 ### `GET /depth`
 
-Live L50 ladder. Query: `symbol`.
+Live L50 ladder. Query: `symbol`. Paper taker fills (`paper open` / manual close / `--cross` immediate) walk this book. Not `/heatmap`.
 
 ### `GET /heatmap`
 
@@ -278,8 +278,8 @@ OCO: last through `invalidatePrice` (default SL) **before** the limit → `order
 | Route | Notes |
 | --- | --- |
 | `GET /paper/positions?status=open\|closed\|all` | Default `open` |
-| `POST /paper/positions` | Market-style open at last. `201` |
-| `POST /paper/positions/:id/close` | Manual close at last |
+| `POST /paper/positions` | Market-style open. L50 VWAP when the book is fresh; else last. Response includes `slippage` / `fallback`. `201` |
+| `POST /paper/positions/:id/close` | Manual close. L50 VWAP when the book is fresh; else last |
 | `POST /paper/mark` | Tick: expire zones (cancel bound OCO), pending proximity, fire alerts, OCO, quant hold, fill limits, mark SL/TP/funding |
 
 ```bash

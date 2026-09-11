@@ -1,4 +1,4 @@
-import { Dec } from "./decimal";
+import { Dec, REL_TOL } from "./decimal";
 import { PaperReject } from "./errors";
 import { cancelCodeForReject, parseZoneId, rejectIfEntryBlocked } from "./gates";
 import { paperMetrics } from "./metrics";
@@ -30,6 +30,7 @@ import {
 } from "./phase2";
 import {
   assertOptionalMinRr,
+  assertSlTpSide,
   normalizeTimeframes,
   parseSide,
   pnlAt,
@@ -38,6 +39,16 @@ import {
   slHit,
   tpHit,
 } from "./risk";
+import {
+  bookUsable,
+  fallbackSlippage,
+  offSlippage,
+  paperSlippageOn,
+  slippageMeta,
+  takeSide,
+  takingLevels,
+  walkBook,
+} from "./slippage";
 import {
   assertMarketQty,
   defaultCatalog,
@@ -74,6 +85,7 @@ import type {
   PaperAlertRow,
   PaperCloseReason,
   PaperConfig,
+  PaperDepth,
   PaperEventRow,
   PaperFeed,
   PaperFillSource,
@@ -85,6 +97,7 @@ import type {
   PaperStatus,
   PaperTicker,
   PositionView,
+  SlippageMeta,
   TakeProfitPlan,
 } from "./types";
 
@@ -700,6 +713,129 @@ export function createPaperEngine(opts: {
     zoneId: string | null;
   };
 
+  function liqForOpen(input: {
+    symbol: string;
+    side: PaperSide;
+    qty: Dec;
+    entry: Dec;
+    leverage: Dec;
+    feeRate: Dec;
+  }): Dec {
+    const spec = requireInstrument(input.symbol, instruments);
+    const account = store.getAccount();
+    const mmRate = Dec.from(account.mm_rate ?? "0");
+    const marginMode = parseMarginMode(account.margin_mode);
+    if (marginMode === "isolated") {
+      const rawLiq = liqPrice(input.side, input.entry, input.leverage, mmRate);
+      return input.leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
+    }
+    const opens = store.listOpen();
+    const rawCross = estimateCrossLiq({
+      side: input.side,
+      qty: input.qty,
+      entry: input.entry,
+      leverage: input.leverage,
+      mmRate,
+      feeRate: input.feeRate,
+      cash: Dec.from(account.cash),
+      othersUnrealized: sumUnrealized(opens),
+      othersMm: sumMm(opens, mmRate, input.feeRate),
+    });
+    return rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
+  }
+
+  function repriceOpenPlan(plan: OpenPlan, entry: Dec, feeRate: Dec): OpenPlan {
+    const account = store.getAccount();
+    const spec = requireInstrument(plan.symbol, instruments);
+    assertSlTpSide(plan.side, entry, plan.stopLoss, Dec.from(plan.takeProfit));
+    const stopDist = entry.sub(plan.stopLoss).abs();
+    if (!stopDist.isPos()) {
+      throw new PaperReject("stop_dist", "stop_dist", { stopDist: "0" });
+    }
+    const rewardDist = Dec.from(plan.takeProfit).sub(entry).abs();
+    const riskQuote = stopDist.mul(plan.qty);
+    const rewardQuote = rewardDist.mul(plan.qty);
+    const rr = rewardDist.div(stopDist);
+    const maxRisk = Dec.from(account.equity).mul(Dec.from(account.risk_pct_max));
+    if (!riskQuote.lteRel(maxRisk, REL_TOL)) {
+      throw new PaperReject("risk_quote", "risk_quote", {
+        riskQuote: riskQuote.toText(),
+        riskBudget: maxRisk.toText(),
+      });
+    }
+    assertOptionalMinRr(account, rr);
+    assertMarketQty(spec, plan.qty, entry);
+    const openFee = feeOn(plan.qty, entry, feeRate);
+    const margin = marginOn(plan.qty, entry, plan.leverage, { side: plan.side, feeRate, entry });
+    assertMargin(margin, openFee);
+    return {
+      ...plan,
+      entry,
+      riskQuote,
+      rewardQuote,
+      rr,
+      openFee,
+      margin,
+      liq: liqForOpen({
+        symbol: plan.symbol,
+        side: plan.side,
+        qty: plan.qty,
+        entry,
+        leverage: plan.leverage,
+        feeRate,
+      }),
+    };
+  }
+
+  async function loadDepth(symbol: string): Promise<PaperDepth | null> {
+    if (!paperSlippageOn() || !feed.depth) return null;
+    try {
+      return await feed.depth(symbol);
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolveBookPrice(input: {
+    symbol: string;
+    side: PaperSide;
+    kind: "open" | "close";
+    qty: Dec;
+    now: number;
+    cap?: Dec;
+    fallbackPrice: Dec;
+    fallbackKind: "last" | "limit";
+  }): Promise<{ price: Dec; meta: SlippageMeta }> {
+    if (!paperSlippageOn()) {
+      return { price: input.fallbackPrice, meta: offSlippage(input.fallbackPrice) };
+    }
+    const take = takeSide(input.side, input.kind);
+    const depth = await loadDepth(input.symbol);
+    if (!bookUsable(depth, take, input.now, config.staleMs)) {
+      return { price: input.fallbackPrice, meta: fallbackSlippage(input.fallbackPrice, input.fallbackKind) };
+    }
+    const walked = walkBook({
+      take,
+      qty: input.qty,
+      levels: takingLevels(depth, take),
+      cap: input.cap,
+    });
+    if (!walked) {
+      return { price: input.fallbackPrice, meta: fallbackSlippage(input.fallbackPrice, input.fallbackKind) };
+    }
+    const price = snapPrice(walked.vwap, requireInstrument(input.symbol, instruments));
+    return {
+      price,
+      meta: slippageMeta({
+        fill: price,
+        reference: input.fallbackPrice,
+        levels: walked.levels,
+        bookCapped: walked.bookCapped,
+        fallback: "none",
+      }),
+    };
+  }
+
   async function planOpen(
     request: OpenRequest,
     entryRaw: Dec,
@@ -745,27 +881,7 @@ export function createPaperEngine(opts: {
     const openFee = feeOn(qty, entry, feeRate);
     const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
     assertMargin(margin, openFee);
-    const mmRate = Dec.from(account.mm_rate ?? "0");
-    const marginMode = parseMarginMode(account.margin_mode);
-    let liq = Dec.zero();
-    if (marginMode === "isolated") {
-      const rawLiq = liqPrice(side, entry, leverage, mmRate);
-      liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
-    } else {
-      const opens = store.listOpen();
-      const rawCross = estimateCrossLiq({
-        side,
-        qty,
-        entry,
-        leverage,
-        mmRate,
-        feeRate,
-        cash: Dec.from(account.cash),
-        othersUnrealized: sumUnrealized(opens),
-        othersMm: sumMm(opens, mmRate, feeRate),
-      });
-      liq = rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
-    }
+    const liq = liqForOpen({ symbol, side, qty, entry, leverage, feeRate });
     return {
       symbol,
       side,
@@ -838,50 +954,32 @@ export function createPaperEngine(opts: {
     return opened;
   }
 
-  function fillPendingOrder(order: PaperOrderRow, ticker: PaperTicker, now: number): {
+  function fillPendingOrder(
+    order: PaperOrderRow,
+    ticker: PaperTicker,
+    now: number,
+    take?: { price: Dec; meta: SlippageMeta },
+  ): {
     order: OrderView;
     position: PositionView;
     event: EventView;
   } {
     const spec = requireInstrument(order.symbol, instruments);
-    const entry = snapPrice(Dec.from(order.limit_price), spec);
+    const limitEntry = snapPrice(Dec.from(order.limit_price), spec);
+    const entry = take ? snapPrice(take.price, spec) : limitEntry;
     const side = order.side;
     const qty = Dec.from(order.qty);
     const leverage = Dec.from(order.leverage);
-    const feeRate = makerFeeRate();
-    const openFee = feeOn(qty, entry, feeRate);
-    const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
-    assertMargin(margin, openFee);
+    const feeRate = take ? takerFeeRate() : makerFeeRate();
     if (store.openIdOnSymbol(order.symbol) != null) {
       throw new PaperReject("duplicate_symbol", "duplicate_symbol", { symbol: order.symbol });
     }
-    const mmRate = Dec.from(store.getAccount().mm_rate ?? "0");
-    const marginMode = parseMarginMode(store.getAccount().margin_mode);
-    let liq = Dec.zero();
-    if (marginMode === "isolated") {
-      const rawLiq = liqPrice(side, entry, leverage, mmRate);
-      liq = leverage.gt(Dec.from("1")) ? snapPrice(rawLiq, spec) : Dec.zero();
-    } else {
-      const opens = store.listOpen();
-      const rawCross = estimateCrossLiq({
-        side,
-        qty,
-        entry,
-        leverage,
-        mmRate,
-        feeRate,
-        cash: Dec.from(store.getAccount().cash),
-        othersUnrealized: sumUnrealized(opens),
-        othersMm: sumMm(opens, mmRate, feeRate),
-      });
-      liq = rawCross.isPos() ? snapPrice(rawCross, spec) : Dec.zero();
-    }
-    const opened = commitOpen({
+    const draft: OpenPlan = {
       symbol: order.symbol,
       side,
       qty,
       riskPct: Dec.from(order.risk_pct),
-      entry,
+      entry: limitEntry,
       stopLoss: Dec.from(order.stop_loss),
       takeProfit: order.take_profit,
       riskQuote: Dec.from(order.risk_quote),
@@ -890,15 +988,28 @@ export function createPaperEngine(opts: {
       timeframes: parseJsonArray(order.timeframes),
       mtf: parseMtf(order.mtf_json) ?? {},
       leverage,
-      margin,
-      liq,
+      margin: Dec.zero(),
+      liq: Dec.zero(),
       plans: parsePlans(order.take_profits_json),
-      openFee,
+      openFee: Dec.zero(),
       note: order.note,
       fillSource: "limit",
       fillRecvTs: ticker.recvTs ?? now,
       zoneId: order.zone_id ?? null,
-    }, now);
+    };
+    const plan = take && !entry.eq(limitEntry)
+      ? repriceOpenPlan(draft, entry, feeRate)
+      : {
+        ...draft,
+        entry,
+        openFee: feeOn(qty, entry, feeRate),
+        margin: marginOn(qty, entry, leverage, { side, feeRate, entry }),
+        liq: liqForOpen({ symbol: order.symbol, side, qty, entry, leverage, feeRate }),
+      };
+    if (!(take && !entry.eq(limitEntry))) {
+      assertMargin(plan.margin, plan.openFee);
+    }
+    const opened = commitOpen(plan, now);
     store.fillOrder(order.id, opened.id, now);
     const event = emit("order.filled", order.symbol, {
       orderId: order.id,
@@ -906,6 +1017,7 @@ export function createPaperEngine(opts: {
       limitPrice: order.limit_price,
       qty: order.qty,
       last: ticker.lastPrice,
+      ...(take ? take.meta : {}),
     }, now, order.zone_id ?? null);
     return { order: viewOrder(store.getOrder(order.id)!), position: viewPosition(opened), event };
   }
@@ -1551,7 +1663,20 @@ export function createPaperEngine(opts: {
         let event: EventView | undefined;
         if (!postOnly && limitFillHit(side, last, plan.entry)) {
           try {
-            const filled = fillPendingOrder(order, ticker, now);
+            const walked = await resolveBookPrice({
+              symbol: plan.symbol,
+              side: plan.side,
+              kind: "open",
+              qty: plan.qty,
+              now,
+              cap: plan.entry,
+              fallbackPrice: plan.entry,
+              fallbackKind: "limit",
+            });
+            const filled = fillPendingOrder(order, ticker, now, {
+              price: walked.price,
+              meta: walked.meta,
+            });
             order = store.getOrder(id)!;
             position = filled.position;
             event = filled.event;
@@ -1601,9 +1726,22 @@ export function createPaperEngine(opts: {
         await evaluate(now);
         assertFlatSymbol(symbol);
         const ticker = await requireTicker(symbol, now);
-        const plan = await planOpen(request, requireLast(ticker), ticker, takerFeeRate(), "last");
-        const opened = commitOpen(plan, now);
-        return { mode: "paper" as const, position: viewPosition(opened) };
+        const last = requireLast(ticker);
+        const plan = await planOpen(request, last, ticker, takerFeeRate(), "last");
+        const walked = await resolveBookPrice({
+          symbol: plan.symbol,
+          side: plan.side,
+          kind: "open",
+          qty: plan.qty,
+          now,
+          fallbackPrice: plan.entry,
+          fallbackKind: "last",
+        });
+        const filled = walked.price.eq(plan.entry)
+          ? plan
+          : repriceOpenPlan(plan, walked.price, takerFeeRate());
+        const opened = commitOpen(filled, now);
+        return { mode: "paper" as const, position: viewPosition(opened), ...walked.meta };
       } catch (error) {
         emitSubmitCancel(request, error, now);
         throw error;
@@ -1620,11 +1758,20 @@ export function createPaperEngine(opts: {
         throw new PaperReject("already_closed", "status", { id });
       }
       const ticker = await requireTicker(row.symbol, now);
-      const price = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
+      const last = snapPrice(requireLast(ticker), requireInstrument(row.symbol, instruments));
+      const walked = await resolveBookPrice({
+        symbol: row.symbol,
+        side: row.side,
+        kind: "close",
+        qty: Dec.from(row.qty),
+        now,
+        fallbackPrice: last,
+        fallbackKind: "last",
+      });
       const closed = store.transaction(() => applyCloseQty({
         row,
         qty: Dec.from(row.qty),
-        price,
+        price: walked.price,
         reason: "manual",
         source: "last",
         recvTs: ticker.recvTs,
@@ -1636,6 +1783,7 @@ export function createPaperEngine(opts: {
         closeReason: closed.closeReason,
         closePrice: closed.closePrice,
         realizedPnl: closed.realizedPnl,
+        ...walked.meta,
       }, now, row.zone_id ?? null);
       return {
         mode: "paper" as const,
@@ -1653,6 +1801,7 @@ export function createPaperEngine(opts: {
           cash: store.getAccount().cash,
           equity: store.getAccount().equity,
         },
+        ...walked.meta,
       };
     },
   };

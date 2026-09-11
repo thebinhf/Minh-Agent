@@ -65,8 +65,9 @@ Price I/O for paper:
 
 1. Prefer `GET http://127.0.0.1:43180/tickers?symbol=BTCUSDT` (or `GET /brief?symbol=`).
 2. MTF context: `GET /brief?symbol=` (15/60/240) and/or `GET /klines?symbol=&interval=` for each tagged timeframe. Same cache, still public-only.
-3. Allowed equivalent: `openDb(BYBIT_DB_PATH, true)` and read `ticker_latest` / `klines` — same cache the HTTP layer serves.
-4. Forbidden: `api.bybit.com` signed routes, private WS, Bybit MCP private tools, any key-bearing client.
+3. Taker slippage: `GET /depth?symbol=` (live L50). Do **not** use `/heatmap`.
+4. Allowed equivalent: `openDb(BYBIT_DB_PATH, true)` and read `ticker_latest` / `klines` — same cache the HTTP layer serves.
+5. Forbidden: `api.bybit.com` signed routes, private WS, Bybit MCP private tools, any key-bearing client.
 
 If the feed is down or the ticker is stale, **reject** the open/close/mark. Do not invent a price.
 
@@ -190,14 +191,18 @@ Do **not** reuse feed table names (`ticker_latest`, `klines`, …). Do **not** p
 
 | Event | Price | Fallback |
 | --- | --- | --- |
-| Open fill | Ticker **`lastPrice`** | None — reject if missing |
-| Manual close fill | Ticker **`lastPrice`** | None — reject if missing |
+| Open fill (market) | L50 ask/bid **VWAP** when taking liquidity | Fresh `lastPrice` if the book is missing / stale / crossed / thin-unusable. Reject if last is missing |
+| Manual close fill | L50 VWAP on the closing side | Same last fallback |
+| `--cross` immediate limit | L50 VWAP, **never worse than the limit** | The limit |
+| Resting limit / ARM / tick fill | The **limit** | — (maker, 0 walk) |
 | SL / TP trigger fill | The **level** (`stop_loss` or `take_profit`) | Triggered when `lastPrice` crosses the level; fill at the level (0 slippage) |
 | Mark-to-market | Ticker **`markPrice`**, else **`lastPrice`** | Reject mark if both missing |
 
-**Mid** `(bid1Price + ask1Price) / 2` is **not** used in MVP. Do not blend last/mark/mid.
+**Mid** `(bid1Price + ask1Price) / 2` is **not** used. Do not blend last/mark/mid. Do not walk `/heatmap`.
 
-**Slippage = 0.** No spread, no latency model. Multi-TP is the only partial fill: each slice is `qty_initial * qtyPct` (last unfilled TP takes the remainder).
+**Slippage (taker only).** Long buys asks; short sells bids. Qty is locked at `planOpen` (risk % from last or limit). After VWAP, recompute fee / margin / liq / risk_quote / rr. Reject if the fill inverts SL/TP, fails `min_rr`, fails margin, or pushes `risk_quote` above `equity × risk_pct_max`. Thin L50 does **not** partial the qty — remainder pads at the last consumed level (market) or the limit (`--cross`). Missing book is not a veto. `PAPER_SLIPPAGE=0` off. Fees are not slippage.
+
+Multi-TP is the only partial fill: each slice is `qty_initial * qtyPct` (last unfilled TP takes the remainder).
 
 **Stale / missing data**
 
@@ -569,7 +574,7 @@ Do not silently invent these. Funding / fees / multi-TP / leverage shipped in [�
 
 | Item | Notes |
 | --- | --- |
-| Slippage > 0 | Still zero-slippage. Fees are not slippage. |
+| Slippage > 0 | Market / manual close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0. `PAPER_SLIPPAGE=0` off. Fees are not slippage. |
 | Add-to / scale-in | Multi-TP is scale-**out** only. No add-to an open row. |
 | Multi-account | Single `minh-paper` row. |
 | Rich reports vs daily target | Paper PnL vs **1–2 triệu VND / day** (reports only; still simulated). |
@@ -683,7 +688,7 @@ Each tick, in order:
 3. Fire armed **alerts** whose last print is through the level.
 4. **OCO-invalidate** pending limits whose last print is through `--invalidate` / `--sl` (`cancelCode: never_touched`). Bound through-SL is already `htf_break` from step 2.
 5. Bound pending: `quantVeto(..., "arm")` cascade/crowded → **skip fill this tick** (keep pending, do not reject the zone). Opposing OI/CVD do not hold (accept-only). Unzoned orders ignore this.
-6. Fill remaining **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage).
+6. Fill remaining **pending limit** orders whose last print is through the limit; fill **at the limit** (0 slippage). `--cross` that already filled on submit walked L50 on that submit tick; this step does not walk.
 7. Mark open positions (funding → SL → liq → TP → MTM). Newly filled positions are included so a gap can SL in the same tick.
 
 `POST /paper/mark` / `bun run paper mark` runs the same `evaluate()`. Feed unhealthy → explicit mark still rejects; the daemon tick swallows `PaperReject` and waits.
@@ -729,22 +734,22 @@ Do **not** store pending in `paper_positions`. A position exists only after fill
 | `type` | `limit` |
 | `tif` | `gtc` |
 | `post_only` | Default **true**. Long must rest `limit < last`; short `limit > last`. At-or-through last → `limit_crossed` (does not take liquidity). |
-| `--cross` / `postOnly: false` | Allow immediate fill if last is already through |
-| `oco` | Default **true**. Pending dies if last prints through invalidation **before** fill. Same-print gap: invalidation wins (do not fill-then-SL). |
+| `--cross` / `postOnly: false` | Allow immediate fill if last is already through. Immediate fill **takes liquidity**: L50 VWAP capped at the limit, **taker** fee. If it rests, later tick fill is still at the limit (maker) |
 | `--invalidate PRICE` | Optional. Default = `--sl`. Must sit on the stop side of the limit. |
 | `--no-oco` / `oco: false` | Rest even if structure prints through. |
 | `status` | `pending` \| `filled` \| `cancelled` \| `rejected` \| `invalidated` |
 | `qty` | **Locked at submit** from risk % using **limit price** as entry |
 | SL / TP / MTF | Same gates as market open, evaluated against **limit**, not last |
 
-Fill (0 slippage):
+Fill:
 
 | Side | Fill when | Price |
 | --- | --- | --- |
-| long | `lastPrice <= limit` | the limit |
-| short | `lastPrice >= limit` | the limit |
+| long (rest / tick) | `lastPrice <= limit` | the limit (maker) |
+| short (rest / tick) | `lastPrice >= limit` | the limit (maker) |
+| `--cross` immediate | last already through | L50 VWAP, cap = limit (taker). No book → the limit |
 
-On fill: insert `paper_positions` with `fill_source = limit`, charge **maker** fee (`account.maker_fee_rate`, product default `0.0002`), re-check margin. If margin fails at fill → `rejected` + `order.rejected`, no position.
+On resting fill: insert `paper_positions` with `fill_source = limit`, charge **maker** fee (`account.maker_fee_rate`, product default `0.0002`), re-check margin. Immediate `--cross` charges **taker** `fee_rate`. If margin fails at fill → `rejected` + `order.rejected`, no position.
 
 `duplicate_symbol` covers **open position or pending order** on that symbol.
 
@@ -819,7 +824,7 @@ Replay the **same** paper engine over local klines. Operator still picks the zon
 | Engine | Same evaluate order as the live tick (expire / pending proximity / alerts / OCO / quant hold / fill / fee / funding / SL/liq/TP) |
 | Ledger | `paper-replay.sqlite` next to the live file. Never the live paper DB |
 | Funding | Optional `--funding-rate` (cache has no funding tape). Settles every 8h UTC |
-| Slippage | Always `0`. Depth/orderbook not used |
+| Slippage | Always `0`. Replay feed has no L50; depth is not used |
 
 ```text
 bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-09-01 \

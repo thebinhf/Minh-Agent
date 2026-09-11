@@ -1,4 +1,12 @@
-import type { PaperFeed, PaperFeedHealth, PaperKlineSnap, PaperQuantTape, PaperTicker } from "./types";
+import type {
+  PaperDepth,
+  PaperDepthLevel,
+  PaperFeed,
+  PaperFeedHealth,
+  PaperKlineSnap,
+  PaperQuantTape,
+  PaperTicker,
+} from "./types";
 import { tapeFromMapItem } from "../agent/quant";
 
 function asText(value: unknown): string | null {
@@ -101,5 +109,47 @@ export function httpFeed(feedUrl: string): PaperFeed {
         return null;
       }
     },
+
+    async depth(symbol: string): Promise<PaperDepth | null> {
+      try {
+        const res = await fetch(`${base}/depth?symbol=${encodeURIComponent(symbol)}`);
+        if (!res.ok) return null;
+        const body = await res.json() as {
+          symbol?: unknown;
+          recvTs?: unknown;
+          bestBid?: unknown;
+          bestAsk?: unknown;
+          bids?: unknown;
+          asks?: unknown;
+        };
+        const bids = mapDepthLevels(body.bids);
+        const asks = mapDepthLevels(body.asks);
+        if (!bids || !asks) return null;
+        return {
+          symbol: String(body.symbol ?? symbol),
+          recvTs: asTs(body.recvTs),
+          bestBid: asText(body.bestBid),
+          bestAsk: asText(body.bestAsk),
+          bids,
+          asks,
+        };
+      } catch {
+        return null;
+      }
+    },
   };
+}
+
+function mapDepthLevels(raw: unknown): PaperDepthLevel[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: PaperDepthLevel[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as { price?: unknown; size?: unknown };
+    const price = asText(rec.price);
+    const size = asText(rec.size);
+    if (price == null || size == null) continue;
+    out.push({ price, size });
+  }
+  return out;
 }

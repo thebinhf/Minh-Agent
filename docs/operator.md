@@ -73,7 +73,7 @@ bun run paper cancel ID
 
 ## REPLAY
 
-Same ARM, on **backfilled** klines. Does not touch the live paper ledger. Slippage 0.
+Same ARM, on **backfilled** klines. Does not touch the live paper ledger. Slippage 0 (no L50 tape).
 
 ```text
 bun run backfill --symbol BTCUSDT --days 30

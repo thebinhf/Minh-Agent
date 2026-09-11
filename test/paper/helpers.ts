@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { loadPaperConfig } from "../../src/paper/config";
 import { openPaperDb, type PaperDb } from "../../src/paper/db";
 import { createPaperEngine } from "../../src/paper/engine";
-import type { PaperConfig, PaperFeed, PaperKlineSnap, PaperTicker } from "../../src/paper/types";
+import type { PaperConfig, PaperDepth, PaperFeed, PaperKlineSnap, PaperTicker } from "../../src/paper/types";
 
 export const UNIVERSE = {
   symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
@@ -68,6 +68,24 @@ function tickerRow(symbol: string, opts?: {
   };
 }
 
+export function mockDepth(opts: {
+  symbol?: string;
+  recvTs?: number | null;
+  bids?: Array<[string, string]>;
+  asks?: Array<[string, string]>;
+}): PaperDepth {
+  const bids = (opts.bids ?? []).map(([price, size]) => ({ price, size }));
+  const asks = (opts.asks ?? []).map(([price, size]) => ({ price, size }));
+  return {
+    symbol: opts.symbol ?? "BTCUSDT",
+    recvTs: opts.recvTs === undefined ? Date.now() : opts.recvTs,
+    bestBid: bids[0]?.price ?? null,
+    bestAsk: asks[0]?.price ?? null,
+    bids,
+    asks,
+  };
+}
+
 export function mockFeed(opts?: {
   lastPrice?: string | null;
   markPrice?: string | null;
@@ -78,6 +96,7 @@ export function mockFeed(opts?: {
   klines?: Partial<Record<string, PaperKlineSnap | null>>;
   tickers?: Record<string, Partial<PaperTicker>>;
   klineLagOk?: boolean;
+  depth?: PaperDepth | null | ((symbol: string) => PaperDepth | null);
 }): PaperFeed {
   const feed: PaperFeed = {
     async health() {
@@ -102,6 +121,13 @@ export function mockFeed(opts?: {
       return { interval, close: opts?.lastPrice ?? "63000", startTs: Date.now(), confirm: true };
     },
   };
+  if (opts && Object.prototype.hasOwnProperty.call(opts, "depth")) {
+    feed.depth = async (symbol: string) => {
+      const depth = opts.depth;
+      if (typeof depth === "function") return depth(symbol);
+      return depth ?? null;
+    };
+  }
   return feed;
 }
 
