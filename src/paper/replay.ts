@@ -14,6 +14,7 @@ import type {
   PaperConfig,
   PaperFeed,
   PaperKlineSnap,
+  PaperQuantTape,
   PaperSide,
   PaperTicker,
 } from "./types";
@@ -103,6 +104,8 @@ export function createReplayFeed(opts: {
   fundingRate?: string | null;
   /** Only return a kline after it has closed (startTs + interval ≤ cursor). ARM 15m. */
   klineClosed?: boolean;
+  /** As-of quant at the cursor. Missing = do not invent. */
+  quantAt?: (symbol: string, ts: number) => PaperQuantTape | null;
 }): PaperFeed & { setPrint: (last: string, ts: number) => void; cursorTs: () => number; bumpFunding: (now: number) => void } {
   const symbol = opts.symbol.toUpperCase();
   const series: Record<string, ReplayBar[]> = {};
@@ -163,6 +166,11 @@ export function createReplayFeed(opts: {
         : lastBarAtOrBefore(bars, cursorTs);
       if (!bar) return null;
       return { interval, open: bar.open, close: bar.close, startTs: bar.startTs, confirm: true };
+    },
+    async quant(query: string): Promise<PaperQuantTape | null> {
+      if (!opts.quantAt) return null;
+      if (query.toUpperCase() !== symbol) return null;
+      return opts.quantAt(symbol, cursorTs);
     },
   };
   return feed;

@@ -54,7 +54,7 @@ alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
-replay-map walks 4H detect → policy → 15m ARM/OCO on local klines. Quant tape missing (not invented). Slippage 0. Separate *-replay-map.sqlite.
+replay-map walks 4H detect → policy → 15m ARM/OCO on local klines. Quant as-of from OI/funding/flow/liq (missing stays null). Slippage 0. Separate *-replay-map.sqlite.
 arm = limit + alert (long → below limit, short → above). status is one JSON. event is OCO desk (no /confirm). day is UTC session fills/OCO/closes.
 zone accept ZONEID copies a GET /zones card into the ledger (or FILE.json for a hand-drawn card). Does not arm.
 metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). Missing rates are null.

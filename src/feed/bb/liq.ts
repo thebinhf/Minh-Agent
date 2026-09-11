@@ -282,6 +282,7 @@ export function buildMapLiq(
   const rows = store.listLiquidations({
     symbol,
     startTs: now - MAP_LIQ_WINDOW_MS,
+    endTs: now,
     limit: LIQ_HEATMAP_MAX_PRINTS,
     maxLimit: LIQ_HEATMAP_MAX_PRINTS,
   });
