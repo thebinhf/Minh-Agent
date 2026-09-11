@@ -99,68 +99,96 @@ function lastClosedBar(series: ReplayBar[], ts: number, intervalMs: number): Rep
 }
 
 export function createReplayFeed(opts: {
-  symbol: string;
-  series: Record<string, ReplayBar[]>;
+  symbol?: string;
+  series?: Record<string, ReplayBar[]>;
+  seriesBySymbol?: Record<string, Record<string, ReplayBar[]>>;
   fundingRate?: string | null;
   /** Only return a kline after it has closed (startTs + interval ≤ cursor). ARM 15m. */
   klineClosed?: boolean;
   /** As-of quant at the cursor. Missing = do not invent. */
   quantAt?: (symbol: string, ts: number) => PaperQuantTape | null;
-}): PaperFeed & { setPrint: (last: string, ts: number) => void; cursorTs: () => number; bumpFunding: (now: number) => void } {
-  const symbol = opts.symbol.toUpperCase();
-  const series: Record<string, ReplayBar[]> = {};
-  for (const [interval, bars] of Object.entries(opts.series)) {
-    series[interval] = [...bars].sort((a, b) => a.startTs - b.startTs);
+}): PaperFeed & {
+  setPrint: (last: string, ts: number, forSymbol?: string) => void;
+  cursorTs: () => number;
+  bumpFunding: (now: number) => void;
+} {
+  const books = new Map<string, Record<string, ReplayBar[]>>();
+  if (opts.seriesBySymbol) {
+    for (const [sym, raw] of Object.entries(opts.seriesBySymbol)) {
+      const sorted: Record<string, ReplayBar[]> = {};
+      for (const [interval, bars] of Object.entries(raw)) {
+        sorted[interval] = [...bars].sort((a, b) => a.startTs - b.startTs);
+      }
+      books.set(sym.toUpperCase(), sorted);
+    }
   }
+  const primary = (opts.symbol ?? [...books.keys()][0] ?? "").toUpperCase();
+  if (opts.series && primary) {
+    const sorted: Record<string, ReplayBar[]> = {};
+    for (const [interval, bars] of Object.entries(opts.series)) {
+      sorted[interval] = [...bars].sort((a, b) => a.startTs - b.startTs);
+    }
+    books.set(primary, sorted);
+  }
+
   let cursorTs = 0;
-  let ticker: PaperTicker = {
-    symbol,
-    lastPrice: null,
-    markPrice: null,
-    recvTs: null,
-    fundingRate: opts.fundingRate ?? null,
-    nextFundingTime: null,
-  };
+  const tickers = new Map<string, PaperTicker>();
+
+  function blankTicker(sym: string): PaperTicker {
+    return {
+      symbol: sym,
+      lastPrice: null,
+      markPrice: null,
+      recvTs: null,
+      fundingRate: opts.fundingRate ?? null,
+      nextFundingTime: null,
+    };
+  }
+
+  if (primary) tickers.set(primary, blankTicker(primary));
 
   const feed = {
     cursorTs() {
       return cursorTs;
     },
-    setPrint(last: string, ts: number) {
+    setPrint(last: string, ts: number, forSymbol?: string) {
+      const key = (forSymbol ?? primary).toUpperCase();
       cursorTs = ts;
-      let nextFundingTime = ticker.nextFundingTime;
+      const prev = tickers.get(key) ?? blankTicker(key);
+      let nextFundingTime = prev.nextFundingTime;
       if (opts.fundingRate) {
         if (nextFundingTime == null) nextFundingTime = nextFundingTimeUtc(ts);
       } else {
         nextFundingTime = null;
       }
-      ticker = {
-        ...ticker,
+      tickers.set(key, {
+        ...prev,
         lastPrice: last,
         markPrice: last,
         recvTs: ts,
         fundingRate: opts.fundingRate ?? null,
         nextFundingTime,
-      };
+      });
     },
     bumpFunding(now: number) {
-      if (ticker.fundingRate == null || ticker.nextFundingTime == null) return;
-      let next = ticker.nextFundingTime;
-      while (next <= now) next += FUNDING_PERIOD_MS;
-      ticker = { ...ticker, nextFundingTime: next };
+      for (const [key, ticker] of tickers) {
+        if (ticker.fundingRate == null || ticker.nextFundingTime == null) continue;
+        let next = ticker.nextFundingTime;
+        while (next <= now) next += FUNDING_PERIOD_MS;
+        tickers.set(key, { ...ticker, nextFundingTime: next });
+      }
     },
     async health() {
       return { ok: true, url: "replay", klineLagOk: true };
     },
     async ticker(query: string) {
-      return query.toUpperCase() === symbol ? ticker : null;
+      return tickers.get(query.toUpperCase()) ?? null;
     },
     async tickers() {
-      return ticker.lastPrice ? [ticker] : [];
+      return [...tickers.values()].filter((row) => row.lastPrice);
     },
     async lastKline(query: string, interval: string): Promise<PaperKlineSnap | null> {
-      if (query.toUpperCase() !== symbol) return null;
-      const bars = series[interval] ?? [];
+      const bars = books.get(query.toUpperCase())?.[interval] ?? [];
       const bar = opts.klineClosed
         ? lastClosedBar(bars, cursorTs, intervalToMs(interval))
         : lastBarAtOrBefore(bars, cursorTs);
@@ -169,8 +197,7 @@ export function createReplayFeed(opts: {
     },
     async quant(query: string): Promise<PaperQuantTape | null> {
       if (!opts.quantAt) return null;
-      if (query.toUpperCase() !== symbol) return null;
-      return opts.quantAt(symbol, cursorTs);
+      return opts.quantAt(query.toUpperCase(), cursorTs);
     },
   };
   return feed;

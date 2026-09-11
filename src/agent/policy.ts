@@ -2,9 +2,11 @@ import { tradingGates } from "../paper/gates";
 import type { PaperEngine } from "../paper/engine";
 import type { PaperFeedHealth } from "../paper/types";
 import {
+  familyStatsFromEngine,
   fetchZoneCards,
   lastPricesFromMap,
   mapAcceptEnabled,
+  mapSkipSymbol,
   pickAcceptable,
   runMapAccept,
   type MapAcceptResult,
@@ -12,6 +14,7 @@ import {
 import type { CancelCode, ZoneCard, ZoneSide } from "../zones/card";
 import { LEDGER_CAP_PER_SYMBOL, zoneExpiresTs } from "../zones/ledger";
 import { proximityDecision } from "../zones/proximity";
+import { familyFloorVeto, familyFromCard, familyKey, type FamilyStats } from "../paper/score";
 import { isMidRange, readMapBias, type MapBias, type SymbolBias } from "./bias";
 import { quantVeto, readMapQuant, type QuantTape } from "./quant";
 
@@ -42,6 +45,8 @@ export const POLICY_REASONS = [
   "quant_oi",
   "quant_cascade",
   "quant_flow",
+  "family_floor",
+  "map_skip",
 ] as const;
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 
@@ -98,6 +103,7 @@ export type MapPolicyInput = {
   tradingAllowed?: boolean;
   now?: number;
   tape?: QuantTape | null;
+  family?: FamilyStats | null;
 };
 
 /**
@@ -106,6 +112,7 @@ export type MapPolicyInput = {
  */
 export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
   const { card, bias, last } = input;
+  if (mapSkipSymbol(card.symbol)) return { allow: false, reason: "map_skip" };
   if (input.tradingAllowed === false) return { allow: false, reason: "gates_block" };
   if (bias && !bias.klineLagOk) return { allow: false, reason: "gates_block" };
   const coded = dropCodeReason(card.cancelCodes);
@@ -114,6 +121,7 @@ export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
   const now = input.now ?? Date.now();
   if (now >= zoneExpiresTs(card, card.baseEndTs)) return { allow: false, reason: "expired" };
   if (belowMinRr(card.rr, input.minRr)) return { allow: false, reason: "rr_fail" };
+  if (familyFloorVeto(input.family)) return { allow: false, reason: "family_floor" };
   if ((input.acceptedForSymbol ?? 0) >= LEDGER_CAP_PER_SYMBOL) {
     return { allow: false, reason: "ledger_cap" };
   }
@@ -234,6 +242,7 @@ export async function onMapCloseAccept(
   const tapes = readMapQuant(info.map);
   const minRr = engine.account().minRr;
   const picked = pickAcceptable(cards, lastBySymbol);
+  const familyByKey = familyStatsFromEngine(engine, now);
   const allow: ZoneCard[] = [];
   let skipped = 0;
   for (const card of picked) {
@@ -247,6 +256,7 @@ export async function onMapCloseAccept(
       tradingAllowed: gates.tradingAllowed,
       now,
       tape: tapes.get(card.symbol),
+      family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
     });
     if (!decision.allow) {
       skipped += 1;
@@ -254,6 +264,6 @@ export async function onMapCloseAccept(
     }
     allow.push(card);
   }
-  const result = runMapAccept(engine, allow, lastBySymbol, now);
+  const result = runMapAccept(engine, allow, lastBySymbol, now, familyByKey);
   return { accepted: result.accepted, skipped: skipped + result.skipped };
 }

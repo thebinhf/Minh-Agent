@@ -18,6 +18,19 @@ export function confirm15Enabled(): boolean {
   return process.env.PAPER_CONFIRM_15 !== "0";
 }
 
+/**
+ * Max symbols with a pending OCO or open position. Default 3.
+ * PAPER_ARM_MAX=0 → unlimited (still one pending/open per symbol).
+ */
+export function paperArmMaxSymbols(): number | null {
+  const raw = process.env.PAPER_ARM_MAX;
+  if (raw === "0") return null;
+  if (raw == null || raw.trim() === "") return 3;
+  const n = Number(raw.trim());
+  if (!Number.isInteger(n) || n < 1) return 3;
+  return n;
+}
+
 export type ProximityArmResult = {
   armed: string[];
   rejected: string[];
@@ -105,6 +118,13 @@ export async function runProximityArm(
     if (busy.has(card.zoneId)) continue;
     if (engine.orders("pending").some((order) => order.symbol === card.symbol)) continue;
     if (engine.positions("open").some((pos) => pos.symbol === card.symbol)) continue;
+    const cap = paperArmMaxSymbols();
+    if (cap != null) {
+      const occupied = new Set<string>();
+      for (const order of engine.orders("pending")) occupied.add(order.symbol);
+      for (const pos of engine.positions("open")) occupied.add(pos.symbol);
+      if (occupied.size >= cap) continue;
+    }
     const last = lastBySymbol.get(card.symbol);
     if (last == null) continue;
     const decision = proximityDecision(card, last);
@@ -150,8 +170,12 @@ export async function runProximityArm(
         rejected.push(card.zoneId);
         continue;
       }
-      // Tick snap can push MAP-accepted RR just under minRr (e.g. 1.9999 vs 2).
-      // Same as insufficient_margin: wait this tick, do not crash evaluate.
+      if (error.error === "rr_below_min") {
+        engine.rejectZone(card.zoneId, "rr_fail", now);
+        rejected.push(card.zoneId);
+        continue;
+      }
+      // insufficient_margin / limit_crossed / filters: wait this tick.
       continue;
     }
   }

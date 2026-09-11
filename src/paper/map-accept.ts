@@ -3,11 +3,36 @@ import type { PaperEngine } from "./engine";
 import type { ZoneCard } from "../zones/card";
 import { parseZoneCard } from "../zones/card";
 import { proximityDecision } from "../zones/proximity";
-import { familyFromCard, familyKey, rankZoneCards } from "./score";
+import {
+  familyFloorVeto,
+  familyFromCard,
+  familyKey,
+  paperZoneScoreEnabled,
+  rankZoneCards,
+  type FamilyStats,
+} from "./score";
 
 /** 4H close only. 1H dumps MAP but does not auto-accept. */
 export function mapAcceptEnabled(): boolean {
   return process.env.MAP_ACCEPT !== "0";
+}
+
+const DEFAULT_MAP_SKIP = ["HYPEUSDT"];
+
+/**
+ * Symbols the feed still caches but MAP will not auto-accept.
+ * Default HYPEUSDT (180d: accept without ARM). PAPER_MAP_SKIP=0 or blank = none.
+ */
+export function mapSkipSymbols(): string[] {
+  const raw = process.env.PAPER_MAP_SKIP;
+  if (raw === undefined) return [...DEFAULT_MAP_SKIP];
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed === "0") return [];
+  return trimmed.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean);
+}
+
+export function mapSkipSymbol(symbol: string): boolean {
+  return mapSkipSymbols().includes(symbol.trim().toUpperCase());
 }
 
 export function lastPricesFromMap(body: unknown): Map<string, number> {
@@ -27,6 +52,7 @@ export function lastPricesFromMap(body: unknown): Map<string, number> {
 
 /** Skip cards already through SL or ≥50% in. Mid-range (away) is OK — P3 waits. */
 export function shouldAcceptCard(card: ZoneCard, last: number | undefined): boolean {
+  if (mapSkipSymbol(card.symbol)) return false;
   if (last == null || !Number.isFinite(last)) return true;
   const decision = proximityDecision(card, last);
   return decision !== "deep" && decision !== "invalid";
@@ -56,19 +82,26 @@ export type MapAcceptResult = {
  * Copy GET /zones cards into the paper ledger after a 4H MAP dump.
  * Does not arm. Kill switch: MAP_ACCEPT=0.
  * When paper family scores exist, rank before the per-symbol cap (2).
- * Missing score is not a veto. PAPER_ZONE_SCORE=0 keeps detector order.
+ * Sampled families below the score floor or with avgRealizedRr ≤ 0 are skipped.
+ * Missing / cold score is not a veto. PAPER_ZONE_SCORE=0 keeps detector order.
  */
 export function runMapAccept(
   engine: PaperEngine,
   cards: unknown[],
   lastBySymbol: Map<string, number>,
   now = Date.now(),
+  familyByKey?: Map<string, FamilyStats>,
 ): MapAcceptResult {
   const accepted: string[] = [];
   let skipped = 0;
   if (!mapAcceptEnabled()) return { accepted, skipped: cards.length };
-  const picked = rankAcceptable(engine, pickAcceptable(cards, lastBySymbol), now);
+  const stats = familyByKey ?? familyStatsFromEngine(engine, now);
+  const picked = rankAcceptable(pickAcceptable(cards, lastBySymbol), stats);
   for (const card of picked) {
+    if (familyFloorVeto(stats.get(familyKey(familyFromCard(card))))) {
+      skipped += 1;
+      continue;
+    }
     try {
       engine.acceptZone(card, now);
       accepted.push(card.zoneId);
@@ -83,13 +116,32 @@ export function runMapAccept(
   return { accepted, skipped };
 }
 
-function rankAcceptable(engine: PaperEngine, cards: ZoneCard[], now: number): ZoneCard[] {
-  const metrics = engine.metrics(7, now);
-  const scores = new Map<string, string | null>();
+export function familyStatsFromEngine(engine: PaperEngine, now: number, days = 7): Map<string, FamilyStats> {
+  return familyStatsFromMetrics(engine.metrics(days, now));
+}
+
+export function familyStatsFromMetrics(metrics: {
+  byFamily: Array<{
+    family: string;
+    trades: number;
+    score: string | null;
+    avgRealizedRr?: string | null;
+  }>;
+}): Map<string, FamilyStats> {
+  const out = new Map<string, FamilyStats>();
   for (const row of metrics.byFamily) {
-    scores.set(familyKey({ symbol: row.symbol, tf: row.tf, side: row.side }), row.score);
+    out.set(row.family, {
+      score: row.score,
+      trades: row.trades,
+      avgRealizedRr: row.avgRealizedRr ?? null,
+    });
   }
-  return rankZoneCards(cards, (card) => scores.get(familyKey(familyFromCard(card))) ?? null);
+  return out;
+}
+
+function rankAcceptable(cards: ZoneCard[], stats: Map<string, FamilyStats>): ZoneCard[] {
+  if (!paperZoneScoreEnabled()) return cards;
+  return rankZoneCards(cards, (card) => stats.get(familyKey(familyFromCard(card)))?.score ?? null);
 }
 
 export async function fetchZoneCards(

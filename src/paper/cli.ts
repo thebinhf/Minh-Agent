@@ -41,7 +41,7 @@ export const PAPER_USAGE = `Usage:
   bun run paper replay SYMBOL --from TIME --to TIME --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--interval 15] [--funding-rate RATE] [--cross] [--invalidate PRICE] [--no-oco]
   bun run paper replay-batch FILE.json
   bun run paper replay-map [SYMBOL] --from TIME --to TIME
-  bun run paper replay-map [SYMBOL] --days 180
+  bun run paper replay-map [SYMBOL] --days 180 [--one-book] [--train-days 90]
 
 Paper simulation only — no API keys, no real orders.
 Fills and marks come from the local feed at 127.0.0.1:43180.
@@ -55,7 +55,7 @@ alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
-replay-map walks 4H detect → policy → 15m ARM/OCO on local klines. Omit SYMBOL = watchlist. --days N (max 180) or --from/--to. Quant as-of from OI/funding/flow/liq (missing stays null). Slippage 0. Separate *-replay-map.sqlite (per symbol when watchlist).
+replay-map walks 4H detect → policy → 15m ARM/OCO on local klines. Omit SYMBOL = watchlist. --days N (max 180) or --from/--to. --one-book = one equity for the watchlist. --train-days M freezes family floor after M days (holdout is the rest). Quant as-of from OI/funding/flow/liq (missing stays null). Slippage 0. Separate *-replay-map.sqlite (per symbol when watchlist; one file with --one-book).
 arm = limit + alert (long → below limit, short → above). status is one JSON. event is OCO desk (no /confirm). day is UTC session fills/OCO/closes.
 zone accept ZONEID copies a GET /zones card into the ledger (or FILE.json for a hand-drawn card). Does not arm.
 metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). Missing rates are null.
@@ -148,7 +148,7 @@ export type PaperCliCommand =
       zoneId?: string | null;
     }
   | { name: "replay-batch"; path: string }
-  | { name: "replay-map"; symbols: string[] | "watchlist"; fromTs?: number; toTs?: number; days?: number }
+  | { name: "replay-map"; symbols: string[] | "watchlist"; fromTs?: number; toTs?: number; days?: number; oneBook?: boolean; trainDays?: number }
   | { name: "zone-list"; status: "accepted" | "rejected" | "expired" | "all" }
   | { name: "zone-accept"; token: string }
   | { name: "zone-reject"; zoneId: string; code?: string };
@@ -331,29 +331,55 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
     const daysRaw = flag(rest, "--days");
     const fromRaw = flag(rest, "--from");
     const toRaw = flag(rest, "--to");
+    const trainRaw = flag(rest, "--train-days");
+    const oneBook = rest.includes("--one-book");
     let symbol: string | undefined;
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i]!;
-      if (arg === "--from" || arg === "--to" || arg === "--days") {
+      if (arg === "--from" || arg === "--to" || arg === "--days" || arg === "--train-days") {
         i += 1;
         continue;
       }
+      if (arg === "--one-book") continue;
       if (arg.startsWith("--")) continue;
       symbol = arg;
       break;
     }
     const symbols = symbol ? [symbol] : "watchlist" as const;
+    let trainDays: number | undefined;
+    if (trainRaw) {
+      trainDays = Number(trainRaw);
+      if (!Number.isInteger(trainDays) || trainDays < 1) throw new PaperUsageError(PAPER_USAGE);
+    }
     if (daysRaw) {
       if (fromRaw || toRaw) throw new PaperUsageError(PAPER_USAGE);
       const days = Number(daysRaw);
       if (!Number.isInteger(days) || days < 1 || days > REPLAY_MAP_MAX_DAYS) {
         throw new PaperUsageError(PAPER_USAGE);
       }
-      return { name: "replay-map", symbols, days };
+      if (trainDays != null && trainDays >= days) throw new PaperUsageError(PAPER_USAGE);
+      return {
+        name: "replay-map",
+        symbols,
+        days,
+        ...(oneBook ? { oneBook: true } : {}),
+        ...(trainDays != null ? { trainDays } : {}),
+      };
     }
     if (!fromRaw || !toRaw) throw new PaperUsageError(PAPER_USAGE);
     try {
-      return { name: "replay-map", symbols, ...parseReplayMapTimes(fromRaw, toRaw) };
+      const times = parseReplayMapTimes(fromRaw, toRaw);
+      if (trainDays != null) {
+        const spanDays = Math.max(1, Math.ceil((times.toTs - times.fromTs) / (86_400_000)));
+        if (trainDays >= spanDays) throw new PaperUsageError(PAPER_USAGE);
+      }
+      return {
+        name: "replay-map",
+        symbols,
+        ...times,
+        ...(oneBook ? { oneBook: true } : {}),
+        ...(trainDays != null ? { trainDays } : {}),
+      };
     } catch {
       throw new PaperUsageError(PAPER_USAGE);
     }

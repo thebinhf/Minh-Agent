@@ -950,7 +950,7 @@ Optional `zoneId` on `paper open` / `limit` / `arm` (`--zone-id` / JSON). Arm co
 
 | Funnel key | Meaning |
 | --- | --- |
-| `detected` | Distinct operator `zoneId`s seen in the window (events / orders / positions). `/zones` does not persist detections |
+| `detected` | Distinct `zoneId`s in the window: ledger accepts **plus** events / orders / positions. `/zones` does not persist detections |
 | `armed` | Limit/arm orders with `zoneId` created in the window |
 | `touched` | `alert.fired` events that carry a `zoneId` |
 | `filled` | Same as top-level `filled` |
@@ -967,6 +967,6 @@ Empirical, not a signal. Does **not** change the zone-card schema.
 
 `GET /paper/metrics` `byZone[].score` and `byFamily[]` score a setup from the same window: `0.6 * fillRate + 0.4 * winRate` (TEXT 0–1). Cold start (`filled+invalidated+cancelled < 3` **and** `trades < 2`) → `null`. Missing history is **not** a veto.
 
-Family key is `SYMBOL:tf:side` from the ledger card, or from a detector `zoneId` (`btc-4h-s-20260908-01`). On 4H MAP accept, cards with a non-null family score rank **before** the per-symbol cap (2). All-null keeps detector order. Tie-break: higher card `rr`, then `zoneId`. `PAPER_ZONE_SCORE=0` skips ranking (metrics still compute scores). `/paper/week` `review.families` is the compact rollup.
+Family key is `SYMBOL:tf:side` from the ledger card, or from a detector `zoneId` (`btc-4h-s-20260908-01`). On 4H MAP accept, cards with a non-null family score rank **before** the per-symbol cap (2). After a sample (`ZONE_SCORE_MIN_TRADES` / score non-null), families below `PAPER_FAMILY_SCORE_MIN` (default `0.5`) or with `avgRealizedRr ≤ 0` skip (`family_floor`). Cold / missing history is **not** a veto. Tie-break: higher card `rr`, then `zoneId`. `PAPER_ZONE_SCORE=0` skips ranking and the floor (metrics still compute scores). `/paper/week` `review.families` is the compact rollup.
 
 

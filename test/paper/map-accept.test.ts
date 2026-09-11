@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import {
   lastPricesFromMap,
   mapAcceptEnabled,
+  mapSkipSymbol,
   pickAcceptable,
   runMapAccept,
   shouldAcceptCard,
@@ -14,6 +15,8 @@ const dirs: string[] = [];
 const saved = process.env.MAP_ACCEPT;
 const savedScore = process.env.PAPER_ZONE_SCORE;
 
+const savedSkip = process.env.PAPER_MAP_SKIP;
+
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -22,6 +25,8 @@ afterEach(() => {
   else process.env.MAP_ACCEPT = saved;
   if (savedScore === undefined) delete process.env.PAPER_ZONE_SCORE;
   else process.env.PAPER_ZONE_SCORE = savedScore;
+  if (savedSkip === undefined) delete process.env.PAPER_MAP_SKIP;
+  else process.env.PAPER_MAP_SKIP = savedSkip;
 });
 
 const SUPPLY: ZoneCard = {
@@ -82,6 +87,11 @@ describe("map accept (P5)", () => {
       maps: [{ symbol: "btcusdt", ticker: { lastPrice: "79600" } }],
     }).get("BTCUSDT")).toBe(79600);
     expect(pickAcceptable([SUPPLY], new Map([["BTCUSDT", 80_000]]))).toEqual([]);
+    delete process.env.PAPER_MAP_SKIP;
+    expect(mapSkipSymbol("HYPEUSDT")).toBe(true);
+    expect(shouldAcceptCard({ ...SUPPLY, symbol: "HYPEUSDT" }, 79_600)).toBe(false);
+    process.env.PAPER_MAP_SKIP = "0";
+    expect(mapSkipSymbol("HYPEUSDT")).toBe(false);
   });
 
   test("accepts a card into the ledger and does not arm; MAP_ACCEPT=0 skips", async () => {
@@ -111,7 +121,7 @@ describe("map accept (P5)", () => {
     expect(src).not.toContain("/v5/order");
   });
 
-  test("family score ranks before ledger cap; missing score is not a veto", async () => {
+  test("family score ranks before ledger cap; sampled losing demand is family_floor", async () => {
     delete process.env.MAP_ACCEPT;
     delete process.env.PAPER_ZONE_SCORE;
     const feed = mockFeed({ lastPrice: "63000", markPrice: "63000" });
@@ -149,11 +159,9 @@ describe("map accept (P5)", () => {
       maps: [{ symbol: "BTCUSDT", ticker: { lastPrice: "79600" } }],
     });
     const ranked = runMapAccept(ctx.engine, [DEMAND, DEMAND_HIGH_RR, SUPPLY], last, now + 40);
-    expect(ranked.accepted).toEqual([SUPPLY.zoneId, DEMAND_HIGH_RR.zoneId]);
-    expect(ranked.skipped).toBe(1);
-    expect(ctx.engine.zones("accepted").map((row) => row.zoneId).sort()).toEqual(
-      [DEMAND_HIGH_RR.zoneId, SUPPLY.zoneId].sort(),
-    );
+    expect(ranked.accepted).toEqual([SUPPLY.zoneId]);
+    expect(ranked.skipped).toBe(2);
+    expect(ctx.engine.zones("accepted").map((row) => row.zoneId)).toEqual([SUPPLY.zoneId]);
 
     process.env.PAPER_ZONE_SCORE = "0";
     const ctx2 = await paperEngine(mockFeed({ lastPrice: "79600", markPrice: "79600" }));
