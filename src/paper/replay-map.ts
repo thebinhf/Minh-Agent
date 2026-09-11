@@ -30,8 +30,43 @@ import {
 import { asOfTape, type AsOfStore } from "../features/tape";
 import type { PaperConfig, PaperSide } from "./types";
 
+export const REPLAY_MAP_MAX_DAYS = 180;
+export const DAY_MS = 86_400_000;
+
 export function replayMapDbPath(paperDbPath: string): string {
   return paperDbPath.replace(/\.sqlite$/i, "") + "-replay-map.sqlite";
+}
+
+export function replayMapSymbolDb(paperDbPath: string, symbol: string, many: boolean): string {
+  const base = replayMapDbPath(paperDbPath);
+  if (!many) return base;
+  return base.replace(/\.sqlite$/i, `-${symbol}.sqlite`);
+}
+
+export function replayMapWindow(opts: {
+  fromTs?: number;
+  toTs?: number;
+  days?: number;
+  now?: number;
+}): { fromTs: number; toTs: number; days: number } {
+  const now = opts.now ?? Date.now();
+  if (opts.days != null) {
+    if (!Number.isInteger(opts.days) || opts.days < 1 || opts.days > REPLAY_MAP_MAX_DAYS) {
+      throw new PaperReject("replay_window", "replay-map", {
+        days: opts.days,
+        max: REPLAY_MAP_MAX_DAYS,
+      });
+    }
+    return { fromTs: now - opts.days * DAY_MS, toTs: now, days: opts.days };
+  }
+  if (opts.fromTs == null || opts.toTs == null || opts.toTs <= opts.fromTs) {
+    throw new PaperReject("replay_window", "replay-map", {
+      fromTs: opts.fromTs,
+      toTs: opts.toTs,
+    });
+  }
+  const days = Math.max(1, Math.ceil((opts.toTs - opts.fromTs) / DAY_MS));
+  return { fromTs: opts.fromTs, toTs: opts.toTs, days };
 }
 
 function resetDb(dbPath: string): void {
@@ -80,12 +115,21 @@ export type ReplayMapRequest = {
   toTs: number;
 };
 
+export type ReplayMapFromFeed = {
+  symbols: string[] | "watchlist";
+  fromTs?: number;
+  toTs?: number;
+  days?: number;
+  now?: number;
+};
+
 export type ReplayMapResult = {
   mode: "paper";
   replayMap: true;
   symbol: string;
   fromTs: number;
   toTs: number;
+  days: number;
   htfBars: number;
   ltfBars: number;
   ticks: number;
@@ -97,6 +141,18 @@ export type ReplayMapResult = {
   invalidated: number;
   metrics: ReturnType<PaperEngine["metrics"]>;
   account: ReturnType<PaperEngine["account"]>;
+};
+
+export type ReplayMapWatchlist = {
+  mode: "paper";
+  replayMap: true;
+  watchlist: true;
+  days: number;
+  fromTs: number;
+  toTs: number;
+  symbols: string[];
+  rows: ReplayMapResult[];
+  skipped: Array<{ symbol: string; error: string }>;
 };
 
 export async function runReplayMap(opts: {
@@ -253,7 +309,8 @@ export async function runReplayMap(opts: {
     }
   }
 
-  const metrics = engine.metrics(7, request.toTs);
+  const span = replayMapWindow({ fromTs: request.fromTs, toTs: request.toTs });
+  const metrics = engine.metrics(Math.min(span.days, 365), request.toTs);
   const account = engine.account();
   const filled = engine.orders("filled").length;
   const invalidated = engine.orders("invalidated").length;
@@ -264,6 +321,7 @@ export async function runReplayMap(opts: {
     symbol,
     fromTs: request.fromTs,
     toTs: request.toTs,
+    days: span.days,
     htfBars: htf.length,
     ltfBars,
     ticks,
@@ -278,50 +336,136 @@ export async function runReplayMap(opts: {
   };
 }
 
-export async function runReplayMapFromFeed(request: ReplayMapRequest): Promise<ReplayMapResult> {
+export async function runReplayMapFromFeed(
+  request: ReplayMapFromFeed,
+): Promise<ReplayMapResult | ReplayMapWatchlist> {
   assertNoApiKeys();
   const paper = await loadPaperConfig();
   const feedCfg = await loadFeedConfig();
-  const dbPath = replayMapDbPath(paper.dbPath);
-  assertSeparateDb(dbPath, feedCfg.dbPath);
-  assertSeparateDb(paper.dbPath, dbPath);
+  const window = replayMapWindow({
+    fromTs: request.fromTs,
+    toTs: request.toTs,
+    days: request.days,
+    now: request.now,
+  });
+  const symbols = request.symbols === "watchlist"
+    ? [...feedCfg.symbols]
+    : request.symbols.map((item) => item.trim().toUpperCase()).filter(Boolean);
+  if (symbols.length === 0) {
+    throw new PaperReject("replay_window", "replay-map", { symbols: request.symbols });
+  }
+  const many = symbols.length > 1;
   const feedStore = openDb(feedCfg.dbPath, true);
-  try {
-    const lookback240 = ZONE_KLINE_LIMITS["240"] * intervalToMs("240");
-    const lookback60 = ZONE_KLINE_LIMITS["60"] * intervalToMs("60");
-    const symbol = request.symbol.trim().toUpperCase();
+  const universe: PaperUniverse = { symbols: feedCfg.symbols, intervals: feedCfg.klineIntervals };
+  const lookback240 = ZONE_KLINE_LIMITS["240"] * intervalToMs("240");
+  const lookback60 = ZONE_KLINE_LIMITS["60"] * intervalToMs("60");
+
+  async function one(symbol: string): Promise<ReplayMapResult> {
+    const dbPath = replayMapSymbolDb(paper.dbPath, symbol, many);
+    assertSeparateDb(dbPath, feedCfg.dbPath);
+    assertSeparateDb(paper.dbPath, dbPath);
     const series: Record<string, ReplayBar[]> = {
       "240": loadReplaySeries(feedStore, {
         symbol,
         interval: "240",
-        fromTs: request.fromTs - lookback240,
-        toTs: request.toTs,
+        fromTs: window.fromTs - lookback240,
+        toTs: window.toTs,
       }),
       "60": loadReplaySeries(feedStore, {
         symbol,
         interval: "60",
-        fromTs: request.fromTs - lookback60,
-        toTs: request.toTs,
+        fromTs: window.fromTs - lookback60,
+        toTs: window.toTs,
       }),
       "15": loadReplaySeries(feedStore, {
         symbol,
         interval: "15",
-        fromTs: request.fromTs,
-        toTs: request.toTs,
+        fromTs: window.fromTs,
+        toTs: window.toTs,
       }),
     };
-    const universe: PaperUniverse = { symbols: feedCfg.symbols, intervals: feedCfg.klineIntervals };
-    return await runReplayMap({
+    return runReplayMap({
       config: paper,
       universe,
       series,
-      request: { ...request, symbol },
+      request: { symbol, fromTs: window.fromTs, toTs: window.toTs },
       dbPath,
       features: feedStore,
     });
+  }
+
+  try {
+    if (!many) return await one(symbols[0]!);
+    const rows: ReplayMapResult[] = [];
+    const skipped: ReplayMapWatchlist["skipped"] = [];
+    for (const symbol of symbols) {
+      try {
+        rows.push(await one(symbol));
+      } catch (error) {
+        if (error instanceof PaperReject && error.error === "replay_no_bars") {
+          skipped.push({ symbol, error: "replay_no_bars" });
+          continue;
+        }
+        throw error;
+      }
+    }
+    return {
+      mode: "paper",
+      replayMap: true,
+      watchlist: true,
+      days: window.days,
+      fromTs: window.fromTs,
+      toTs: window.toTs,
+      symbols,
+      rows,
+      skipped,
+    };
   } finally {
     feedStore.close();
   }
+}
+
+export async function runReplayMapWatchlist(opts: {
+  config: PaperConfig;
+  universe: PaperUniverse;
+  seriesBySymbol: Record<string, Record<string, ReplayBar[]>>;
+  fromTs: number;
+  toTs: number;
+  features?: AsOfStore | null;
+}): Promise<ReplayMapWatchlist> {
+  const window = replayMapWindow({ fromTs: opts.fromTs, toTs: opts.toTs });
+  const symbols = Object.keys(opts.seriesBySymbol);
+  const rows: ReplayMapResult[] = [];
+  const skipped: ReplayMapWatchlist["skipped"] = [];
+  for (const symbol of symbols) {
+    try {
+      rows.push(await runReplayMap({
+        config: opts.config,
+        universe: opts.universe,
+        series: opts.seriesBySymbol[symbol]!,
+        request: { symbol, fromTs: window.fromTs, toTs: window.toTs },
+        dbPath: replayMapSymbolDb(opts.config.dbPath, symbol, true),
+        features: opts.features ?? null,
+      }));
+    } catch (error) {
+      if (error instanceof PaperReject && error.error === "replay_no_bars") {
+        skipped.push({ symbol, error: "replay_no_bars" });
+        continue;
+      }
+      throw error;
+    }
+  }
+  return {
+    mode: "paper",
+    replayMap: true,
+    watchlist: true,
+    days: window.days,
+    fromTs: window.fromTs,
+    toTs: window.toTs,
+    symbols,
+    rows,
+    skipped,
+  };
 }
 
 export function parseReplayMapTimes(fromRaw: string, toRaw: string): { fromTs: number; toTs: number } {
