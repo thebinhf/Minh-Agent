@@ -15,6 +15,7 @@ import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
+import { buildFeatures, parseFeaturesAsof } from "../../features/snapshot";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
@@ -266,6 +267,18 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
       if (path === "/flow") {
         return json(buildFlow(store, {
           symbol: url.searchParams.get("symbol"),
+          dbPath: config.dbPath,
+        }));
+      }
+
+      if (path === "/features") {
+        const asof = parseFeaturesAsof(url.searchParams.get("asof"));
+        if (typeof asof === "object") {
+          return json(asof, 400);
+        }
+        return json(buildFeatures(store, {
+          symbol: url.searchParams.get("symbol"),
+          asof,
           dbPath: config.dbPath,
         }));
       }

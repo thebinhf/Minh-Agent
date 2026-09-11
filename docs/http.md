@@ -117,6 +117,22 @@ Taker buy/sell CVD from public WS `publicTrade.{symbol}` (BTC/ETH/SOL), aggregat
 curl -sS 'http://127.0.0.1:43180/flow?symbol=BTCUSDT'
 ```
 
+### `GET /features`
+
+As-of quant tape (same `asOfTape` as `replay-map`). Debug only. Not a signal. Does not arm.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT` | |
+| `asof` | now | Epoch ms or ISO. Junk → `400` `{ "error": "features_asof" }` |
+
+`quality` is `asof` when any field has a row at `asof`, else `missing`. `tape` is `{ crowded, oiReading, cascade, flowReading }` — nulls stay null. Future rows are cut. `/map` unchanged.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/features?symbol=BTCUSDT'
+curl -sS 'http://127.0.0.1:43180/features?symbol=BTCUSDT&asof=2026-08-01T00:00:00.000Z'
+```
+
 ### `GET /liq-heatmap`
 
 Actual Bybit liquidation **prints**, not Coinglass estimates. Public WS `allLiquidation.{symbol}` (BTC/ETH/SOL). `Buy` = long liquidated.
