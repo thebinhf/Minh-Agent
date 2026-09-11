@@ -91,6 +91,16 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 
 `replay-map` is the method walk (detect → policy → ARM). `paper review FILE.json` is compact QC: skipReasons, `quantCoverage` (ok vs missing per field), flags (`hype_accepted`, `flow_missing`, `cascade_missing`, `tape_skipped`). Missing CVD/liq is a flag, not a zero. Does not walk bars. `paper ab BASE.json VARIANT.json` is variant minus base — one flag at a time. Nightly: [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh). A/B: [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh).
 
+## LIVE-SHADOW
+
+Observer only. Separate process (`bun run live`), own sqlite, bind `:43182`. Reads feed HTTP. **Does not** accept paper zones, rest OCO, or send orders. Family is always cold (`null` — not a veto). Compare `GET /live/shadow` against `GET /paper/event`. Not a command source.
+
+```text
+GET /live/health
+GET /live/shadow
+POST /live/map-close   # optional MAP_CLOSE_WEBHOOK from the feed
+```
+
 ## Ban
 
 - Scan on a timer while waiting

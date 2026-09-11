@@ -30,4 +30,6 @@ deploy/pull-restart.sh
 
 Optional paper lab (not CI): [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + [`deploy/replay-map-lab.timer`](../deploy/replay-map-lab.timer). Walks 180d one-book then `paper review`. Does not touch the live ledger. Do not run it in Actions.
 
-Do **not** put `BYBIT_API_KEY` / `BYBIT_API_SECRET` in Actions secrets. Paper refuses to start if those env names are set.
+Do **not** put `BYBIT_API_KEY` / `BYBIT_API_SECRET` in Actions secrets. Paper and live-shadow refuse to start if those env names are set.
+
+Live-shadow is a host unit ([`deploy/live-shadow.service`](../deploy/live-shadow.service)), not CI. Do not start it in Actions.

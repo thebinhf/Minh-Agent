@@ -1,0 +1,24 @@
+[Unit]
+Description=Minh Agent — live-shadow MAP/ARM observer (no keys, no orders)
+Documentation=https://github.com/thebinhf/Minh-Agent/blob/main/docs/ROADMAP.md
+After=network-online.target bybit-tracker.service
+Wants=bybit-tracker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/minh-agent
+ExecStart=/home/ubuntu/.bun/bin/bun run live
+Restart=always
+RestartSec=3
+Environment=LIVE_HTTP_HOST=127.0.0.1
+Environment=LIVE_HTTP_PORT=43182
+Environment=LIVE_DB_PATH=/var/lib/bybit-ws-tracker/live-shadow.sqlite
+Environment=LIVE_FEED_URL=http://127.0.0.1:43180
+# Do not set BYBIT_API_KEY / BYBIT_API_SECRET. Live-shadow refuses if they are set.
+# Does not open the paper ledger. Does not send orders. Feed HTTP is the tape.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
