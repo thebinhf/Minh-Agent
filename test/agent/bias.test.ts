@@ -31,12 +31,13 @@ describe("MAP bias (HH/HL)", () => {
     expect(biasFromBars(bullBars())).toBe(biasFromBars(bullBars()));
   });
 
-  test("1H chop → stand aside; 1H must not oppose 4H", () => {
+  test("1H chop does not override 4H; 1H must not oppose 4H", () => {
     expect(combineHtfBias("bull", "bull")).toBe("bull");
     expect(combineHtfBias("bear", "bear")).toBe("bear");
     expect(combineHtfBias("bull", "bear")).toBe("chop");
     expect(combineHtfBias("bear", "bull")).toBe("chop");
-    expect(combineHtfBias("bull", "chop")).toBe("chop");
+    expect(combineHtfBias("bull", "chop")).toBe("bull");
+    expect(combineHtfBias("bear", "chop")).toBe("bear");
     expect(combineHtfBias("chop", "bull")).toBe("chop");
     expect(combineHtfBias("chop", "chop")).toBe("chop");
   });
@@ -71,7 +72,9 @@ describe("MAP bias (HH/HL)", () => {
       lastPrice: "79450",
       lagOk: false,
     }).maps[0]);
-    expect(chop1h?.htf).toBe("chop");
+    expect(chop1h?.["240"]).toBe("bull");
+    expect(chop1h?.["60"]).toBe("chop");
+    expect(chop1h?.htf).toBe("bull");
     expect(chop1h?.klineLagOk).toBe(false);
 
     expect(barsFromMapKlines([

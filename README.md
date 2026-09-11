@@ -90,7 +90,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_RELAY_LIQ_MS` | 1000 | Liq relay coalesce; `0` = every batch |
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
-| `AGENT_BIAS_CHOP` | on (`0` disables) | 4H chop is a MAP deny (`bias_chop`). Off = chop is not a veto (A/B). Default on |
+| `AGENT_BIAS_CHOP` | `deny` | 4H mixed chop is a MAP deny (`bias_chop`). `0` = off (A/B). `proximal` = allow only when last is in proximal→entry. 1H chop does not override 4H |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |

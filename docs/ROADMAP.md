@@ -19,7 +19,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | --- | --- | --- |
 | **P0 lab** | `bun run paper review FILE.json` compact QC (`skipReasons`, `quantCoverage`, flags). [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + optional systemd timer | Operator enable |
 | **P1 honesty** | `quantCoverage` on every as-of read. `BYBIT_TAPE_SYMBOLS` opt-in (`watchlist` / `*` / comma / `0`) | Tape stays BTC ETH SOL |
-| **P2 flags** | `AGENT_BIAS_CHOP=0` (chop is not a MAP deny). `PAPER_FAMILY_FLOOR_MIN_TRADES` (RR floor sample) | Chop kill on. Floor min trades = 2 |
+| **P2 flags** | `AGENT_BIAS_CHOP` (`deny` / `0` / `proximal`). `PAPER_FAMILY_FLOOR_MIN_TRADES` (RR floor sample). 1H chop does not override 4H | Chop kill = 4H mixed only. Floor min trades = 2 |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec).
 
@@ -29,7 +29,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 
 Compare against the #64 one-book rolling baseline. One change per walk. `paper review` is the QC table.
 
-1. `AGENT_BIAS_CHOP=0` — how much of `skipReasons.bias_chop` was hiding edge vs noise.
+1. `AGENT_BIAS_CHOP=0` — 180d lost ~3130 equity vs post-#66. Keep deny default. 1H chop no longer collapses 4H (playbook: stand aside mid-range). `proximal` = 4H mixed only in-band (next walk).
 2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 1-trade losers floor or not.
 3. `PAPER_ARM_MAX=2` vs `5` vs `0` — occupancy vs fill quality.
 4. `PAPER_MAP_SKIP=HYPEUSDT` — skip HYPE again vs default none (watch for `hype_accepted`).
