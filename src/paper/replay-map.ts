@@ -28,7 +28,7 @@ import {
   replayPrints,
   type ReplayBar,
 } from "./replay";
-import { asOfTape, type AsOfStore } from "../features/tape";
+import { asOfTape, bumpQuantCoverage, emptyQuantCoverage, type AsOfStore, type QuantCoverage } from "../features/tape";
 import type { PaperConfig, PaperSide } from "./types";
 
 export const REPLAY_MAP_MAX_DAYS = 180;
@@ -115,6 +115,22 @@ function walkSide(engine: {
   return pending[0]?.side ?? open[0]?.side ?? "long";
 }
 
+function noteAsOf(
+  coverage: QuantCoverage,
+  features: AsOfStore | null | undefined,
+  opts: {
+    symbol: string;
+    asof: number;
+    lastPrice?: number | null;
+    closes?: Array<string | null | undefined>;
+  },
+): ReturnType<typeof asOfTape> | null {
+  if (!features) return null;
+  const row = asOfTape(features, opts);
+  bumpQuantCoverage(coverage, row.fields);
+  return row;
+}
+
 export type ReplayMapRequest = {
   symbol: string;
   fromTs: number;
@@ -143,6 +159,7 @@ export type ReplayMapResult = {
   ticks: number;
   slippage: "0";
   quant: "asof" | "missing";
+  quantCoverage: QuantCoverage;
   accepted: string[];
   armed: string[];
   filled: number;
@@ -167,6 +184,7 @@ export type ReplayMapBook = {
   ticks: number;
   slippage: "0";
   quant: "asof" | "missing";
+  quantCoverage: QuantCoverage;
   accepted: string[];
   armed: string[];
   filled: number;
@@ -233,6 +251,7 @@ export async function runReplayMap(opts: {
   resetDb(dbPath);
   const store = openPaperDb(dbPath, config.account);
   let quantQuality: "asof" | "missing" = "missing";
+  const quantCoverage = emptyQuantCoverage();
   const feed = createReplayFeed({
     symbol,
     series,
@@ -241,14 +260,14 @@ export async function runReplayMap(opts: {
       ? (sym, ts) => {
         const closes = prefixAt(all240, ts);
         const lastBar = closes[closes.length - 1];
-        const row = asOfTape(features, {
+        const row = noteAsOf(quantCoverage, features, {
           symbol: sym,
           asof: ts,
           lastPrice: lastBar ? Number(lastBar.close) : null,
           closes: closes.slice(-20).map((item) => item.close),
         });
-        if (row.quality === "asof") quantQuality = "asof";
-        return row.tape;
+        if (row?.quality === "asof") quantQuality = "asof";
+        return row?.tape ?? null;
       }
       : undefined,
   });
@@ -309,14 +328,12 @@ export async function runReplayMap(opts: {
         }
       } else {
         const minRr = engine.account().minRr;
-        const asofRow = features
-          ? asOfTape(features, {
-            symbol,
-            asof,
-            lastPrice: last,
-            closes: bars240.slice(-20).map((item) => item.close),
-          })
-          : null;
+        const asofRow = noteAsOf(quantCoverage, features, {
+          symbol,
+          asof,
+          lastPrice: last,
+          closes: bars240.slice(-20).map((item) => item.close),
+        });
         if (asofRow?.quality === "asof") quantQuality = "asof";
         const ranked = rankZoneCards(cards, (card) => (
           familyByKey.get(familyKey(familyFromCard(card)))?.score ?? null
@@ -396,6 +413,7 @@ export async function runReplayMap(opts: {
     ticks,
     slippage: "0",
     quant: quantQuality,
+    quantCoverage,
     accepted: [...new Set(accepted)],
     armed,
     filled,
@@ -603,6 +621,7 @@ export async function runReplayMapBook(opts: {
   resetDb(opts.dbPath);
   const store = openPaperDb(opts.dbPath, opts.config.account);
   let quantQuality: "asof" | "missing" = "missing";
+  const quantCoverage = emptyQuantCoverage();
   const feed = createReplayFeed({
     seriesBySymbol: opts.seriesBySymbol,
     klineClosed: true,
@@ -611,14 +630,14 @@ export async function runReplayMapBook(opts: {
         const book = books.get(sym);
         const closes = prefixAt(book?.all240 ?? [], ts);
         const lastBar = closes[closes.length - 1];
-        const row = asOfTape(features, {
+        const row = noteAsOf(quantCoverage, features, {
           symbol: sym,
           asof: ts,
           lastPrice: lastBar ? Number(lastBar.close) : null,
           closes: closes.slice(-20).map((item) => item.close),
         });
-        if (row.quality === "asof") quantQuality = "asof";
-        return row.tape;
+        if (row?.quality === "asof") quantQuality = "asof";
+        return row?.tape ?? null;
       }
       : undefined,
   });
@@ -695,14 +714,12 @@ export async function runReplayMapBook(opts: {
           }
         } else {
           const minRr = engine.account().minRr;
-          const asofRow = features
-            ? asOfTape(features, {
-              symbol,
-              asof,
-              lastPrice: last,
-              closes: bars240.slice(-20).map((item) => item.close),
-            })
-            : null;
+          const asofRow = noteAsOf(quantCoverage, features, {
+            symbol,
+            asof,
+            lastPrice: last,
+            closes: bars240.slice(-20).map((item) => item.close),
+          });
           if (asofRow?.quality === "asof") quantQuality = "asof";
           const ranked = rankZoneCards(cards, (card) => (
             familyByKey.get(familyKey(familyFromCard(card)))?.score ?? null
@@ -777,6 +794,7 @@ export async function runReplayMapBook(opts: {
     ticks,
     slippage: "0",
     quant: quantQuality,
+    quantCoverage,
     accepted: [...new Set(accepted)],
     armed,
     filled,

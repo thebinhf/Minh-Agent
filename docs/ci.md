@@ -28,4 +28,6 @@ deploy/pull-restart.sh
 
 `MINH_ROOT` defaults to `/opt/minh-agent`. Fast-forward only (`git pull --ff-only`). Restart is systemd, not GitHub SSH.
 
+Optional paper lab (not CI): [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + [`deploy/replay-map-lab.timer`](../deploy/replay-map-lab.timer). Walks 180d one-book then `paper review`. Does not touch the live ledger. Do not run it in Actions.
+
 Do **not** put `BYBIT_API_KEY` / `BYBIT_API_SECRET` in Actions secrets. Paper refuses to start if those env names are set.

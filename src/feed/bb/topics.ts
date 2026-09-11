@@ -2,12 +2,28 @@ import type { TrackerConfig } from "./types";
 import { liqEnabled } from "./liq";
 import { flowEnabled } from "./flow";
 
-/** CVD + liq prints stay on the liquid majors. L50 follows `orderbook.symbols`. */
 export const TAPE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"] as const;
 
+/**
+ * CVD + liq subscribe set. L50 follows `orderbook.symbols`.
+ * Default: the 3 liquid majors. BYBIT_TAPE_SYMBOLS=watchlist|* → every config symbol.
+ * Comma list intersects the watchlist. 0 = none.
+ * Replay cannot invent historical publicTrade/liq — missing stays null.
+ */
 export function tapeSymbols(config: Pick<TrackerConfig, "symbols">): string[] {
-  const tape = new Set<string>(TAPE_SYMBOLS);
-  return config.symbols.filter((symbol) => tape.has(symbol));
+  const watch = new Set(config.symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean));
+  const raw = process.env.BYBIT_TAPE_SYMBOLS?.trim();
+  let wanted: string[];
+  if (raw == null || raw === "") {
+    wanted = [...TAPE_SYMBOLS];
+  } else if (raw === "0") {
+    wanted = [];
+  } else if (raw === "*" || raw.toLowerCase() === "watchlist") {
+    wanted = [...watch];
+  } else {
+    wanted = raw.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean);
+  }
+  return wanted.filter((symbol) => watch.has(symbol));
 }
 
 /** Bybit V5 public linear topics (verified 2026-09). */

@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Minh paper replay-map lab
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+AccuracySec=5min
+Unit=replay-map-lab.service
+
+[Install]
+WantedBy=timers.target

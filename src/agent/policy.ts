@@ -27,6 +27,11 @@ export function agentMapEnabled(): boolean {
   return process.env.AGENT_MAP !== "0";
 }
 
+/** AGENT_BIAS_CHOP=0: 4H chop is not a MAP deny (A/B). Default on. */
+export function biasChopEnabled(): boolean {
+  return process.env.AGENT_BIAS_CHOP !== "0";
+}
+
 const DROP_CODES = ["deep_mitigate", "htf_break", "expired"] as const;
 
 export const POLICY_REASONS = [
@@ -157,7 +162,8 @@ export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
   const htf: MapBias = bias?.htf ?? "chop";
   switch (htf) {
     case "chop":
-      return { allow: false, reason: "bias_chop" };
+      if (biasChopEnabled()) return { allow: false, reason: "bias_chop" };
+      break;
     case "bull":
     case "bear":
       if (htf !== biasForSide(card.side)) return { allow: false, reason: "bias_mismatch" };

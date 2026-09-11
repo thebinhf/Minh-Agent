@@ -84,15 +84,18 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_FLOW` | on (`0` disables) | WS `publicTrade` CVD → `/map.flow` |
 | `BYBIT_FLOW_EXTREME` | `0.15` | `|imbalance|` floor for `flow.reading` |
 | `BYBIT_LIQ` | on (`0` disables) | WS `allLiquidation` prints |
+| `BYBIT_TAPE_SYMBOLS` | BTC,ETH,SOL | CVD + liq subscribe set. `watchlist` or `*` = every config symbol. Comma list intersects. `0` = none. Replay does **not** invent history; missing stays null |
 | `BYBIT_LIQ_MODEL` | on (`0` disables) | Estimated `/liq-model` |
 | `BYBIT_RELAY` | on (`0` disables) | Local `ws://…/ws` push |
 | `BYBIT_RELAY_LIQ_MS` | 1000 | Liq relay coalesce; `0` = every batch |
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
+| `AGENT_BIAS_CHOP` | on (`0` disables) | 4H chop is a MAP deny (`bias_chop`). Off = chop is not a veto (A/B). Default on |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
 | `PAPER_FAMILY_SCORE_MIN` | `0.5` | Score floor after a sample. Cold / missing history is not a veto |
+| `PAPER_FAMILY_FLOOR_MIN_TRADES` | `2` | Closed trades before the RR floor applies. `1` is an A/B. Cold history is still not a veto |
 | `PAPER_MAP_SKIP` | (none) | Comma symbols MAP will not auto-accept. Unset / `0` / blank = none. Feed watchlist unchanged |
 | `PAPER_ARM_MAX` | `3` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId`. Occupied slots stay. `0` = unlimited (still one per symbol) |
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
@@ -148,12 +151,14 @@ bun run paper replay BTCUSDT --from 2026-08-01 --to 2026-08-15 \
   --side long --price 117500 --sl 116200 --tp 120800 --tf 240,60,15
 bun run paper replay-map --days 180 --one-book --train-days 90
 bun run paper replay-map BTCUSDT --from 2026-08-01 --to 2026-08-15
+bun run paper review ./lab/replay-map.json
 ```
 
 `paper arm` = post-only limit + fire-once alert. OCO: last through SL **before** the limit → `order.invalidated`. After fill, SL/TP run on the position.
 
 Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`. Slippage 0.
-`replay-map` walks 4H detect → policy → 15m ARM on the same tape. Omit symbol = watchlist. `--days 180` (max). `--one-book` shares one equity. `--train-days 90` freezes family floor. Quant as-of. `*-replay-map.sqlite`.
+`replay-map` walks 4H detect → policy → 15m ARM on the same tape. Omit symbol = watchlist. `--days 180` (max). `--one-book` shares one equity. `--train-days 90` freezes family floor. Quant as-of. `quantCoverage` counts ok vs missing per field (flow/cascade 0/0 is a flag, not a zero). `*-replay-map.sqlite`.
+`paper review FILE.json` is compact QC from that JSON (skipReasons, coverage, flags). Does not walk bars. Nightly: [`deploy/replay-map-lab.sh`](deploy/replay-map-lab.sh).
 
 HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`. See [docs/http.md](docs/http.md).
 
@@ -189,6 +194,7 @@ CI is GitHub Actions on `main` and PRs (no daemon, no keys). See [docs/ci.md](do
 | [docs/paper-trading.md](docs/paper-trading.md) | Paper spec |
 | [docs/exchanges/BB.md](docs/exchanges/BB.md) | Feed |
 | [docs/FEATURES.md](docs/FEATURES.md) | Inventory |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Lab → live-shadow phases (locks stay) |
 | [docs/ci.md](docs/ci.md) | Actions + host restart |
 
 ## Non-goals

@@ -14,14 +14,16 @@ import type { ZoneCard } from "../../src/zones/card";
 
 const saved = process.env.PAPER_ZONE_SCORE;
 const savedFloor = process.env.PAPER_FAMILY_SCORE_MIN;
+const savedMinTrades = process.env.PAPER_FAMILY_FLOOR_MIN_TRADES;
 
 afterEach(() => {
   if (saved === undefined) delete process.env.PAPER_ZONE_SCORE;
   else process.env.PAPER_ZONE_SCORE = saved;
   if (savedFloor === undefined) delete process.env.PAPER_FAMILY_SCORE_MIN;
   else process.env.PAPER_FAMILY_SCORE_MIN = savedFloor;
+  if (savedMinTrades === undefined) delete process.env.PAPER_FAMILY_FLOOR_MIN_TRADES;
+  else process.env.PAPER_FAMILY_FLOOR_MIN_TRADES = savedMinTrades;
 });
-
 const SUPPLY: ZoneCard = {
   zoneId: "btc-4h-s-20260908-01",
   symbol: "BTCUSDT",
@@ -104,7 +106,11 @@ describe("zone score from paper metrics", () => {
     expect(familyFloorVeto({ score: "0.8", trades: 5, avgRealizedRr: "0" })).toBe(true);
     expect(familyFloorVeto({ score: "0.8", trades: 5, avgRealizedRr: "-0.1" })).toBe(true);
     expect(familyFloorVeto({ score: "0.8", trades: 5, avgRealizedRr: "0.2" })).toBe(false);
+    expect(familyFloorVeto({ score: null, trades: 1, avgRealizedRr: "-1" })).toBe(false);
+    process.env.PAPER_FAMILY_FLOOR_MIN_TRADES = "1";
+    expect(familyFloorVeto({ score: null, trades: 1, avgRealizedRr: "-1" })).toBe(true);
     process.env.PAPER_ZONE_SCORE = "0";
+
     expect(familyFloorVeto({ score: "0.1", trades: 9, avgRealizedRr: "-1" })).toBe(false);
   });
 });

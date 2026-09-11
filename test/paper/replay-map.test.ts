@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parsePaperArgs } from "../../src/paper/cli";
+import { paperReviewFromReplayMap } from "../../src/paper/review";
 import { loadConfig } from "../../src/feed/bb/config";
 import { PaperReject } from "../../src/paper/errors";
 import { runReplayMap, runReplayMapBook, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow } from "../../src/paper/replay-map";
@@ -160,6 +161,7 @@ describe("paper replay-map", () => {
     });
     expect(result.replayMap).toBe(true);
     expect(result.quant).toBe("missing");
+    expect(result.quantCoverage.samples).toBe(0);
     expect(result.slippage).toBe("0");
     expect(result.accepted.every((id) => id.includes("-s-"))).toBe(true);
     expect(result.accepted.some((id) => id.includes("-d-"))).toBe(false);
@@ -202,6 +204,13 @@ describe("paper replay-map", () => {
       features,
     });
     expect(result.quant).toBe("asof");
+    expect(result.quantCoverage.samples).toBeGreaterThan(0);
+    expect(result.quantCoverage.funding.ok).toBeGreaterThan(0);
+    expect(result.quantCoverage.flow.ok).toBe(0);
+    expect(result.quantCoverage.cascade.ok).toBe(0);
+    const review = paperReviewFromReplayMap(result);
+    expect(review.flags).toEqual(["flow_missing", "cascade_missing"]);
+    expect(review.quantCoverage?.funding.ok).toBeGreaterThan(0);
   });
 
   test("contiguous 4H bars still walk 15m until the next 4H close", async () => {
