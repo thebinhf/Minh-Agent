@@ -88,10 +88,21 @@ function lastBarAtOrBefore(series: ReplayBar[], ts: number): ReplayBar | null {
   return found;
 }
 
+function lastClosedBar(series: ReplayBar[], ts: number, intervalMs: number): ReplayBar | null {
+  let found: ReplayBar | null = null;
+  for (const bar of series) {
+    if (bar.startTs + intervalMs <= ts) found = bar;
+    else break;
+  }
+  return found;
+}
+
 export function createReplayFeed(opts: {
   symbol: string;
   series: Record<string, ReplayBar[]>;
   fundingRate?: string | null;
+  /** Only return a kline after it has closed (startTs + interval ≤ cursor). ARM 15m. */
+  klineClosed?: boolean;
 }): PaperFeed & { setPrint: (last: string, ts: number) => void; cursorTs: () => number; bumpFunding: (now: number) => void } {
   const symbol = opts.symbol.toUpperCase();
   const series: Record<string, ReplayBar[]> = {};
@@ -146,7 +157,10 @@ export function createReplayFeed(opts: {
     },
     async lastKline(query: string, interval: string): Promise<PaperKlineSnap | null> {
       if (query.toUpperCase() !== symbol) return null;
-      const bar = lastBarAtOrBefore(series[interval] ?? [], cursorTs);
+      const bars = series[interval] ?? [];
+      const bar = opts.klineClosed
+        ? lastClosedBar(bars, cursorTs, intervalToMs(interval))
+        : lastBarAtOrBefore(bars, cursorTs);
       if (!bar) return null;
       return { interval, open: bar.open, close: bar.close, startTs: bar.startTs, confirm: true };
     },

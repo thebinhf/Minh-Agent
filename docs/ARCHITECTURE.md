@@ -78,6 +78,7 @@ bun run map | zones | confirm | brief | brief-pack | query | backfill
 bun run paper zone accept ZONEID
 bun run paper event
 bun run paper week
+bun run paper replay-map SYMBOL --from TIME --to TIME
 bun run paper arm …
 bun run paper replay … | replay-batch FILE.json
 ```
