@@ -2,6 +2,14 @@ import type { TrackerConfig } from "./types";
 import { liqEnabled } from "./liq";
 import { flowEnabled } from "./flow";
 
+/** CVD + liq prints stay on the liquid majors. L50 follows `orderbook.symbols`. */
+export const TAPE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"] as const;
+
+export function tapeSymbols(config: Pick<TrackerConfig, "symbols">): string[] {
+  const tape = new Set<string>(TAPE_SYMBOLS);
+  return config.symbols.filter((symbol) => tape.has(symbol));
+}
+
 /** Bybit V5 public linear topics (verified 2026-09). */
 export function tickerTopic(symbol: string): string {
   return `tickers.${symbol}`;
@@ -33,6 +41,8 @@ export function buildTopics(config: TrackerConfig): string[] {
   }
   for (const symbol of config.orderbook.symbols) {
     topics.push(orderbookTopic(config.orderbook.depth, symbol));
+  }
+  for (const symbol of tapeSymbols(config)) {
     if (liqEnabled()) topics.push(liquidationTopic(symbol));
     if (flowEnabled()) topics.push(publicTradeTopic(symbol));
   }

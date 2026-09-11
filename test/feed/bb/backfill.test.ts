@@ -52,6 +52,7 @@ describe("loadConfig REST fallbacks", () => {
       "LINKUSDT",
       "HYPEUSDT",
     ]);
+    expect(loaded.orderbook.symbols).toEqual(loaded.symbols);
   });
 });
 

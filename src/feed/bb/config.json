@@ -20,7 +20,18 @@
   "klineIntervals": ["5", "15", "60", "240"],
   "orderbook": {
     "depth": 50,
-    "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "ENAUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "HYPEUSDT"
+    ]
   },
   "pingIntervalMs": 20000,
   "reconnect": {
