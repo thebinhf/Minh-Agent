@@ -32,7 +32,7 @@ Depth/heatmap only when price is **at the zone**, not on a timer.
 
 ## ARM
 
-Accepted ledger cards rest themselves when last enters **proximal → entry** (demand last dropping in; supply last lifting in) **and** the last confirmed 15m closes with the zone (demand bull, supply bear) still inside that band. Forming / opposite / doji → wait (do not reject). Through entry → wait (no chase). ≥50% into the zone → `deep_mitigate`. Through SL → `htf_break`. Already pending/open on that symbol → skip. `insufficient_margin` (1x on a tight BTC stop) skips; raise account `defaultLeverage`. `PAPER_PROXIMITY_ARM=0` disables ARM. `PAPER_CONFIRM_15=0` skips the 15m gate.
+Accepted ledger cards rest themselves when last enters **proximal → entry** (demand last dropping in; supply last lifting in) **and** the last confirmed 15m closes with the zone (demand bull, supply bear) still inside that band. Forming / opposite / doji → wait (do not reject). Through entry → wait (no chase). ≥50% into the zone → `deep_mitigate`. Through SL → `htf_break`. Already pending/open on that symbol → skip. `insufficient_margin` (1x on a tight BTC stop) and `rr_below_min` after tick snap skip; raise account `defaultLeverage` or leave the card standing. `PAPER_PROXIMITY_ARM=0` disables ARM. `PAPER_CONFIRM_15=0` skips the 15m gate.
 
 Manual still works:
 
