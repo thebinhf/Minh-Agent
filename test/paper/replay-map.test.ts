@@ -3,7 +3,7 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parsePaperArgs } from "../../src/paper/cli";
 import { PaperReject } from "../../src/paper/errors";
-import { runReplayMap } from "../../src/paper/replay-map";
+import { runReplayMap, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow } from "../../src/paper/replay-map";
 import type { AsOfStore } from "../../src/features/tape";
 import { intervalMsForTf, type DetectBar } from "../../src/zones/detect";
 import { paperConfig, tempDir, UNIVERSE } from "./helpers";
@@ -59,10 +59,28 @@ describe("paper replay-map", () => {
     const cmd = parsePaperArgs(["replay-map", "BTCUSDT", "--from", "2026-08-01", "--to", "2026-08-15"]);
     expect(cmd).toEqual({
       name: "replay-map",
-      symbol: "BTCUSDT",
+      symbols: ["BTCUSDT"],
       fromTs: Date.parse("2026-08-01T00:00:00.000Z"),
       toTs: Date.parse("2026-08-15T00:00:00.000Z"),
     });
+  });
+
+  test("CLI parses watchlist --days 180 and does not treat 180 as a symbol", () => {
+    const cmd = parsePaperArgs(["replay-map", "--days", "180"]);
+    expect(cmd).toEqual({ name: "replay-map", symbols: "watchlist", days: 180 });
+    const one = parsePaperArgs(["replay-map", "ETHUSDT", "--days", "30"]);
+    expect(one).toEqual({ name: "replay-map", symbols: ["ETHUSDT"], days: 30 });
+    expect(REPLAY_MAP_MAX_DAYS).toBe(180);
+    expect(() => parsePaperArgs(["replay-map", "--days", "181"])).toThrow();
+    expect(() => parsePaperArgs(["replay-map", "--days", "180", "--from", "2026-01-01"])).toThrow();
+  });
+
+  test("replayMapWindow --days 180 is now minus 180d", () => {
+    const now = 2_000_000_000_000;
+    const w = replayMapWindow({ days: 180, now });
+    expect(w.days).toBe(180);
+    expect(w.toTs).toBe(now);
+    expect(w.fromTs).toBe(now - 180 * DAY_MS);
   });
 
   test("refuses a reversed window", async () => {
@@ -169,5 +187,31 @@ describe("paper replay-map", () => {
     });
     expect(result.quant).toBe("asof");
   });
+
+  test("watchlist walks each symbol; empty tape is skipped; live paper db untouched", async () => {
+    delete process.env.MAP_ACCEPT;
+    process.env.AGENT_MAP = "0";
+    const dir = tempDir();
+    dirs.push(dir);
+    const config = await paperConfig(dir);
+    const impulseClose = 17 * HTF + HTF;
+    const body = await runReplayMapWatchlist({
+      config,
+      universe: { symbols: ["BTCUSDT", "ETHUSDT"], intervals: ["15", "60", "240"] },
+      seriesBySymbol: {
+        BTCUSDT: { "240": supplyHtf() },
+        ETHUSDT: { "240": [] },
+      },
+      fromTs: 0,
+      toTs: impulseClose,
+    });
+    expect(body.watchlist).toBe(true);
+    expect(body.days).toBeGreaterThanOrEqual(1);
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]?.symbol).toBe("BTCUSDT");
+    expect(body.skipped).toEqual([{ symbol: "ETHUSDT", error: "replay_no_bars" }]);
+    expect(existsSync(config.dbPath)).toBe(false);
+  });
 });
+
 

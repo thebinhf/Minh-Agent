@@ -227,7 +227,7 @@ Additive MAP helper: tickers + kline lag + open paper desk. It does **not** repl
   "gates": { "tradingAllowed": true, "reasons": [] },
   "paper": { "source": null, "positions": [], "pendingOrders": [], "armedAlerts": [] },
   "zones": [],
-  "meta": { "db": "...", "klinesDays": 14, "paperSource": null }
+  "meta": { "db": "...", "klinesDays": 180, "paperSource": null }
 }
 ```
 
@@ -273,7 +273,7 @@ Ticker history snapshots are **off** by default (`snapshot.tickerEveryMs: 0`) �
 
 HTTP stays `Bun.serve` on localhost. No Elysia / Express.
 
-Confirmed klines older than `retention.klinesDays` (default 14) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
+Confirmed klines older than `retention.klinesDays` (default 180) are pruned by the live tracker. If `--days` is larger, set `BYBIT_KLINES_DAYS` (or `retention.klinesDays`) to the same window **before** starting the daemon, or the extra history will be deleted.
 
 Prune PASSIVE-checkpoints first, then TRUNCATE only if no reader holds the WAL (`wal=trunc|passive busy=N log=N` in the log). Then `PRAGMA shrink_memory`. If free pages are ≥15% of the file (and at least an hour since the last vacuum), it `VACUUM`s so the file actually shrinks. Page cache is capped at 4 MiB (`cache_size = -4096`); `mmap_size = 0` so a large file is not mapped into RSS; WAL autocheckpoints at ~2 MiB and is hard-capped at 8 MiB. Feed and paper share `src/sqlite.ts`. The extra `klines(symbol, interval, start_ts DESC)` index is dropped — the primary key already covers that lookup.
 

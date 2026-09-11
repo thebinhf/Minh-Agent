@@ -187,16 +187,19 @@ export function loadReplaySeries(
       maxLimit?: number;
     }) => unknown[];
   },
-  opts: { symbol: string; interval: string; fromTs: number; toTs: number },
+  opts: { symbol: string; interval: string; fromTs: number; toTs: number; cap?: number },
 ): ReplayBar[] {
   const intervalMs = intervalToMs(opts.interval);
+  const span = Math.max(0, opts.toTs - opts.fromTs);
+  const needed = Math.ceil(span / intervalMs) + 40;
+  const cap = Math.min(Math.max(opts.cap ?? Math.max(REPLAY_BAR_CAP, needed), 50), 80_000);
   const rows = store.listKlines({
     symbol: opts.symbol,
     interval: opts.interval,
     startTs: opts.fromTs - 10 * intervalMs,
     endTs: opts.toTs,
-    limit: REPLAY_BAR_CAP,
-    maxLimit: REPLAY_BAR_CAP,
+    limit: cap,
+    maxLimit: cap,
   }) as Array<{
     start_ts: number;
     open: string | null;

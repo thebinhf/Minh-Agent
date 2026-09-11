@@ -53,6 +53,7 @@ describe("loadConfig REST fallbacks", () => {
       "HYPEUSDT",
     ]);
     expect(loaded.orderbook.symbols).toEqual(loaded.symbols);
+    expect(loaded.retention.klinesDays).toBe(180);
   });
 });
 

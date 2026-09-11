@@ -41,7 +41,7 @@
   "retention": {
     "tickerSnapshotsHours": 24,
     "orderbookSnapshotsHours": 6,
-    "klinesDays": 14,
+    "klinesDays": 180,
     "liquidationsHours": 48,
     "flowHours": 24,
     "pruneIntervalMs": 300000
