@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parsePaperArgs } from "../../src/paper/cli";
+import { loadConfig } from "../../src/feed/bb/config";
 import { PaperReject } from "../../src/paper/errors";
 import { runReplayMap, runReplayMapBook, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow } from "../../src/paper/replay-map";
+import { familyFromCard, familyKey } from "../../src/paper/score";
 import type { AsOfStore } from "../../src/features/tape";
 import { intervalMsForTf, type DetectBar } from "../../src/zones/detect";
 import { paperConfig, tempDir, UNIVERSE } from "./helpers";
@@ -12,6 +14,8 @@ import type { ReplayBar } from "../../src/paper/replay";
 const dirs: string[] = [];
 const savedAccept = process.env.MAP_ACCEPT;
 const savedAgent = process.env.AGENT_MAP;
+const savedScore = process.env.PAPER_ZONE_SCORE;
+const savedSkip = process.env.PAPER_MAP_SKIP;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -21,6 +25,10 @@ afterEach(() => {
   else process.env.MAP_ACCEPT = savedAccept;
   if (savedAgent === undefined) delete process.env.AGENT_MAP;
   else process.env.AGENT_MAP = savedAgent;
+  if (savedScore === undefined) delete process.env.PAPER_ZONE_SCORE;
+  else process.env.PAPER_ZONE_SCORE = savedScore;
+  if (savedSkip === undefined) delete process.env.PAPER_MAP_SKIP;
+  else process.env.PAPER_MAP_SKIP = savedSkip;
 });
 
 const HTF = intervalMsForTf("240");
@@ -282,6 +290,52 @@ describe("paper replay-map", () => {
     expect(body.account.startingCash).toBe("10000");
     expect(existsSync(bookDb)).toBe(true);
     expect(existsSync(config.dbPath)).toBe(false);
+  });
+
+  test("skipReasons counts map_skip (HYPE) and family_floor; feed watchlist still has HYPEUSDT", async () => {
+    delete process.env.MAP_ACCEPT;
+    delete process.env.AGENT_MAP;
+    delete process.env.PAPER_ZONE_SCORE;
+    delete process.env.PAPER_MAP_SKIP;
+    const dir = tempDir();
+    dirs.push(dir);
+    const config = await paperConfig(dir);
+    const htf = supplyHtf();
+    const lastClose = htf[htf.length - 1]!.startTs + HTF;
+    const hype = await runReplayMap({
+      config,
+      universe: { symbols: ["HYPEUSDT"], intervals: ["15", "60", "240"] },
+      series: { "240": htf },
+      request: { symbol: "HYPEUSDT", fromTs: 0, toTs: lastClose },
+      dbPath: join(dir, "replay-map-hype.sqlite"),
+    });
+    expect(hype.skipReasons.map_skip).toBeGreaterThan(0);
+    expect(hype.accepted).toEqual([]);
+
+    const floorKey = familyKey(familyFromCard({ symbol: "BTCUSDT", tf: "240", side: "supply" }));
+    const floor = await runReplayMap({
+      config,
+      universe: UNIVERSE,
+      series: { "240": htf },
+      request: { symbol: "BTCUSDT", fromTs: 0, toTs: lastClose },
+      dbPath: join(dir, "replay-map-floor.sqlite"),
+      familyByKey: new Map([[floorKey, { score: "0.2", trades: 4, avgRealizedRr: "-0.5" }]]),
+    });
+    expect(floor.skipReasons.family_floor).toBeGreaterThan(0);
+    expect(floor.accepted).toEqual([]);
+
+    process.env.AGENT_MAP = "0";
+    const oldPath = await runReplayMap({
+      config,
+      universe: { symbols: ["HYPEUSDT"], intervals: ["15", "60", "240"] },
+      series: { "240": htf },
+      request: { symbol: "HYPEUSDT", fromTs: 0, toTs: lastClose },
+      dbPath: join(dir, "replay-map-hype0.sqlite"),
+    });
+    expect(oldPath.skipReasons.map_skip).toBeGreaterThan(0);
+
+    const feed = await loadConfig();
+    expect(feed.symbols).toContain("HYPEUSDT");
   });
 });
 

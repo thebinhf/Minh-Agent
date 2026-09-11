@@ -9,6 +9,8 @@ import {
   armTimeframes,
   proximityDecision,
 } from "../zones/proximity";
+import { familyStatsFromEngine } from "./map-accept";
+import { compareZoneCards, familyFromCard, familyKey } from "./score";
 
 export function proximityArmEnabled(): boolean {
   return process.env.PAPER_PROXIMITY_ARM !== "0";
@@ -89,10 +91,30 @@ export function pendingQuantSkipFill(side: ZoneSide, tape: PaperQuantTape | null
   return !quantVeto(side, tape, "arm").allow;
 }
 
+function occupiedSymbols(engine: PaperEngine): Set<string> {
+  const occupied = new Set<string>();
+  for (const row of engine.orders("pending")) occupied.add(row.symbol);
+  for (const row of engine.positions("open")) occupied.add(row.symbol);
+  return occupied;
+}
+
+function zonedBusy(engine: PaperEngine): Set<string> {
+  const busy = new Set<string>();
+  for (const row of engine.orders("pending")) {
+    if (row.zoneId) busy.add(row.zoneId);
+  }
+  for (const row of engine.positions("open")) {
+    if (row.zoneId) busy.add(row.zoneId);
+  }
+  return busy;
+}
+
 /**
  * Rest limit+alert for accepted ledger cards when last is in the proximal band
  * and the last confirmed 15m agrees. Does not read GET /zones.
  * Kill: PAPER_PROXIMITY_ARM=0. 15m: PAPER_CONFIRM_15=0.
+ * Under PAPER_ARM_MAX, rank ready cards by family score then rr then zoneId.
+ * Occupied slots stay; only new arms compete for free slots.
  */
 export async function runProximityArm(
   engine: PaperEngine,
@@ -105,50 +127,9 @@ export async function runProximityArm(
   const rejected: string[] = [];
   if (!proximityArmEnabled()) return { armed, rejected };
 
-  const busy = new Set<string>();
-  for (const row of engine.orders("pending")) {
-    if (row.zoneId) busy.add(row.zoneId);
-  }
-  for (const row of engine.positions("open")) {
-    if (row.zoneId) busy.add(row.zoneId);
-  }
+  const busy = zonedBusy(engine);
 
-  for (const row of engine.zones("accepted", now)) {
-    const card = row.card;
-    if (busy.has(card.zoneId)) continue;
-    if (engine.orders("pending").some((order) => order.symbol === card.symbol)) continue;
-    if (engine.positions("open").some((pos) => pos.symbol === card.symbol)) continue;
-    const cap = paperArmMaxSymbols();
-    if (cap != null) {
-      const occupied = new Set<string>();
-      for (const order of engine.orders("pending")) occupied.add(order.symbol);
-      for (const pos of engine.positions("open")) occupied.add(pos.symbol);
-      if (occupied.size >= cap) continue;
-    }
-    const last = lastBySymbol.get(card.symbol);
-    if (last == null) continue;
-    const decision = proximityDecision(card, last);
-    switch (decision) {
-      case "wait":
-        continue;
-      case "deep":
-        engine.rejectZone(card.zoneId, "deep_mitigate", now);
-        rejected.push(card.zoneId);
-        continue;
-      case "invalid":
-        engine.rejectZone(card.zoneId, "htf_break", now);
-        rejected.push(card.zoneId);
-        continue;
-      case "arm":
-        break;
-      default: {
-        const _exhaustive: never = decision;
-        return _exhaustive;
-      }
-    }
-    if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") continue;
-    const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
-    if (!veto.allow) continue;
+  async function armCard(card: ZoneCard): Promise<"armed" | "rejected" | "wait"> {
     try {
       await paperArm(engine, {
         symbol: card.symbol,
@@ -163,20 +144,80 @@ export async function runProximityArm(
       }, now);
       armed.push(card.zoneId);
       busy.add(card.zoneId);
+      return "armed";
     } catch (error) {
       if (!(error instanceof PaperReject)) throw error;
       if (error.error === "already_invalidated") {
         engine.rejectZone(card.zoneId, "htf_break", now);
         rejected.push(card.zoneId);
-        continue;
+        return "rejected";
       }
       if (error.error === "rr_below_min") {
         engine.rejectZone(card.zoneId, "rr_fail", now);
         rejected.push(card.zoneId);
-        continue;
+        return "rejected";
       }
-      // insufficient_margin / limit_crossed / filters: wait this tick.
-      continue;
+      return "wait";
+    }
+  }
+
+  type Gate = "candidate" | "skip";
+  function gateCard(card: ZoneCard): Gate {
+    if (busy.has(card.zoneId)) return "skip";
+    if (engine.orders("pending").some((order) => order.symbol === card.symbol)) return "skip";
+    if (engine.positions("open").some((pos) => pos.symbol === card.symbol)) return "skip";
+    const last = lastBySymbol.get(card.symbol);
+    if (last == null) return "skip";
+    const decision = proximityDecision(card, last);
+    switch (decision) {
+      case "wait":
+        return "skip";
+      case "deep":
+        engine.rejectZone(card.zoneId, "deep_mitigate", now);
+        rejected.push(card.zoneId);
+        return "skip";
+      case "invalid":
+        engine.rejectZone(card.zoneId, "htf_break", now);
+        rejected.push(card.zoneId);
+        return "skip";
+      case "arm":
+        break;
+      default: {
+        const _exhaustive: never = decision;
+        return _exhaustive;
+      }
+    }
+    if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") return "skip";
+    const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
+    if (!veto.allow) return "skip";
+    return "candidate";
+  }
+
+  const cap = paperArmMaxSymbols();
+  if (cap == null) {
+    for (const row of engine.zones("accepted", now)) {
+      if (gateCard(row.card) !== "candidate") continue;
+      await armCard(row.card);
+    }
+    return { armed, rejected };
+  }
+
+  const candidates: ZoneCard[] = [];
+  for (const row of engine.zones("accepted", now)) {
+    if (gateCard(row.card) === "candidate") candidates.push(row.card);
+  }
+  const occupied = occupiedSymbols(engine);
+  const stats = familyStatsFromEngine(engine, now);
+  const scoreOf = (card: ZoneCard) => stats.get(familyKey(familyFromCard(card)))?.score ?? null;
+  const ranked = [...candidates].sort((a, b) => compareZoneCards(a, b, scoreOf));
+  let free = cap - occupied.size;
+  for (const card of ranked) {
+    if (free <= 0) break;
+    if (occupied.has(card.symbol)) continue;
+    const outcome = await armCard(card);
+    if (outcome === "armed") {
+      occupied.add(card.symbol);
+      free -= 1;
     }
   }
   return { armed, rejected };

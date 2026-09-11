@@ -55,6 +55,36 @@ export type PolicyDecision = {
   reason: PolicyReason;
 };
 
+export function emptySkipReasons(): Record<PolicyReason, number> {
+  const out = {} as Record<PolicyReason, number>;
+  for (const reason of POLICY_REASONS) out[reason] = 0;
+  return out;
+}
+
+export function bumpSkipReason(
+  out: Record<PolicyReason, number>,
+  reason: PolicyReason | string,
+  n = 1,
+): void {
+  if (reason === "ok" || n <= 0) return;
+  for (const allowed of POLICY_REASONS) {
+    if (allowed === reason) {
+      out[allowed] += n;
+      return;
+    }
+  }
+}
+
+export function mergeSkipReasons(
+  out: Record<PolicyReason, number>,
+  extra: Record<string, number> | undefined,
+): void {
+  if (!extra) return;
+  for (const [reason, n] of Object.entries(extra)) {
+    if (typeof n === "number") bumpSkipReason(out, reason, n);
+  }
+}
+
 function biasForSide(side: ZoneSide): MapBias {
   switch (side) {
     case "demand":
@@ -234,7 +264,7 @@ export async function onMapCloseAccept(
     klineLagOk: lagOk,
   });
   if (!gates.tradingAllowed) {
-    return { accepted: [], skipped: 0 };
+    return { accepted: [], skipped: 0, skipReasons: {} };
   }
 
   const cards = await fetchCards(feedUrl);
@@ -265,5 +295,5 @@ export async function onMapCloseAccept(
     allow.push(card);
   }
   const result = runMapAccept(engine, allow, lastBySymbol, now, familyByKey);
-  return { accepted: result.accepted, skipped: skipped + result.skipped };
+  return { accepted: result.accepted, skipped: skipped + result.skipped, skipReasons: result.skipReasons };
 }

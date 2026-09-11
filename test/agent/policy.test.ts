@@ -311,7 +311,7 @@ describe("onMapCloseAccept wiring", () => {
         },
       },
     );
-    expect(result).toEqual({ accepted: [], skipped: 0 });
+    expect(result).toEqual({ accepted: [], skipped: 0, skipReasons: {} });
     expect(fetched).toBe(0);
     expect(ctx.engine.zones("accepted")).toEqual([]);
     expect(ctx.engine.positions("open")).toHaveLength(1);

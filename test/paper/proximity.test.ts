@@ -10,6 +10,7 @@ const dirs: string[] = [];
 const saved = process.env.PAPER_PROXIMITY_ARM;
 const savedQuant = process.env.AGENT_QUANT;
 const savedConfirm = process.env.PAPER_CONFIRM_15;
+const savedArmMax = process.env.PAPER_ARM_MAX;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -21,6 +22,8 @@ afterEach(() => {
   else process.env.AGENT_QUANT = savedQuant;
   if (savedConfirm === undefined) delete process.env.PAPER_CONFIRM_15;
   else process.env.PAPER_CONFIRM_15 = savedConfirm;
+  if (savedArmMax === undefined) delete process.env.PAPER_ARM_MAX;
+  else process.env.PAPER_ARM_MAX = savedArmMax;
 });
 
 async function engineWithLev(feed = mockFeed(), leverage = "10") {
@@ -242,4 +245,63 @@ describe("proximity arm", () => {
     expect(marked.proximity.armed).toEqual(["btc-4h-s-20260908-01"]);
     expect(ctx.engine.orders("pending")).toHaveLength(1);
   });
+
+  test("PAPER_ARM_MAX ranks by rr then zoneId; occupied slot is not displaced", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.PAPER_CONFIRM_15;
+    delete process.env.PAPER_ZONE_SCORE;
+    process.env.PAPER_ARM_MAX = "1";
+    const ETH: ZoneCard = {
+      ...SUPPLY,
+      zoneId: "eth-4h-s-20260908-01",
+      symbol: "ETHUSDT",
+      zoneLow: 3_450,
+      zoneHigh: 3_520,
+      distal: 3_520,
+      proximal: 3_450,
+      entry: 3_480,
+      sl: 3_560,
+      tp: 3_200,
+      rr: 3.5,
+      hardInvalid: 3_560,
+      softInvalid: 3_520,
+    };
+    const ETH_15 = {
+      interval: "15",
+      open: "3490",
+      close: "3470",
+      startTs: SUPPLY_15.startTs,
+      confirm: true as const,
+    };
+    const feed = mockFeed({
+      lastPrice: "79280",
+      markPrice: "79280",
+      tickers: {
+        BTCUSDT: { lastPrice: "79280", markPrice: "79280" },
+        ETHUSDT: { lastPrice: "3470", markPrice: "3470" },
+      },
+      klines: { "15": SUPPLY_15 },
+    });
+    feed.lastKline = async (symbol, interval) => {
+      if (interval === "15") {
+        return symbol === "ETHUSDT" ? ETH_15 : SUPPLY_15;
+      }
+      const close = symbol === "ETHUSDT" ? "3470" : "79280";
+      return { interval, close, startTs: Date.now(), confirm: true };
+    };
+    const ctx = await engineWithLev(feed);
+    ctx.engine.acceptZone(SUPPLY);
+    ctx.engine.acceptZone(ETH);
+    const marked = await ctx.engine.mark();
+    expect(marked.proximity.armed).toEqual(["eth-4h-s-20260908-01"]);
+    expect(ctx.engine.orders("pending")).toHaveLength(1);
+    expect(ctx.engine.orders("pending")[0]?.symbol).toBe("ETHUSDT");
+    expect(ctx.engine.zones("accepted")).toHaveLength(2);
+
+    const again = await ctx.engine.mark();
+    expect(again.proximity.armed).toEqual([]);
+    expect(ctx.engine.orders("pending")[0]?.symbol).toBe("ETHUSDT");
+    expect(ctx.engine.orders("pending")).toHaveLength(1);
+  });
 });
+
