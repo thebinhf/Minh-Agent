@@ -150,16 +150,9 @@ export async function runProximityArm(
         rejected.push(card.zoneId);
         continue;
       }
-      if (
-        error.error === "duplicate_symbol"
-        || error.error === "kline_lag"
-        || error.error === "feed_unhealthy"
-        || error.error === "post_only"
-        || error.error === "insufficient_margin"
-      ) {
-        continue;
-      }
-      throw error;
+      // Tick snap can push MAP-accepted RR just under minRr (e.g. 1.9999 vs 2).
+      // Same as insufficient_margin: wait this tick, do not crash evaluate.
+      continue;
     }
   }
   return { armed, rejected };

@@ -204,6 +204,24 @@ describe("proximity arm", () => {
     expect(ctx.engine.orders("pending")).toHaveLength(1);
   });
 
+  test("rr_below_min after tick snap waits — does not crash evaluate or reject the card", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.PAPER_CONFIRM_15;
+    const dir = tempDir();
+    dirs.push(dir);
+    const base = await paperConfig(dir);
+    const account = { ...base.account, defaultLeverage: "10", minRr: "10" };
+    const config = { ...base, account, tickMs: 0 };
+    const store = openPaperDb(config.dbPath, account);
+    const engine = createPaperEngine({ store, feed: armFeed(), config, universe: UNIVERSE });
+    engine.acceptZone(SUPPLY);
+    const marked = await engine.mark();
+    expect(marked.proximity.armed).toEqual([]);
+    expect(marked.proximity.rejected).toEqual([]);
+    expect(engine.orders("pending")).toEqual([]);
+    expect(engine.zones("accepted")).toHaveLength(1);
+  });
+
   test("opposing CVD does not block ARM (like OI add)", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
     delete process.env.AGENT_QUANT;
