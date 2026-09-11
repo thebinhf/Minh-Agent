@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   compareZoneCards,
+  familyFloorVeto,
   familyFromCard,
   familyKey,
+  familyScoreMin,
   paperZoneScoreEnabled,
   parseFamilyFromZoneId,
   rankZoneCards,
@@ -11,10 +13,13 @@ import {
 import type { ZoneCard } from "../../src/zones/card";
 
 const saved = process.env.PAPER_ZONE_SCORE;
+const savedFloor = process.env.PAPER_FAMILY_SCORE_MIN;
 
 afterEach(() => {
   if (saved === undefined) delete process.env.PAPER_ZONE_SCORE;
   else process.env.PAPER_ZONE_SCORE = saved;
+  if (savedFloor === undefined) delete process.env.PAPER_FAMILY_SCORE_MIN;
+  else process.env.PAPER_FAMILY_SCORE_MIN = savedFloor;
 });
 
 const SUPPLY: ZoneCard = {
@@ -87,5 +92,19 @@ describe("zone score from paper metrics", () => {
     const ranked = rankZoneCards([low, high], (card) => (card.rr > 3 ? "0.9" : "0.2"));
     expect(ranked.map((card) => card.zoneId)).toEqual([high.zoneId, low.zoneId]);
     expect(compareZoneCards(high, low, () => "0.5")).toBeLessThan(0);
+  });
+
+  test("familyFloorVeto: cold is not a veto; low score or realized RR ≤ 0 is", () => {
+    delete process.env.PAPER_ZONE_SCORE;
+    delete process.env.PAPER_FAMILY_SCORE_MIN;
+    expect(familyScoreMin().toText()).toBe("0.5");
+    expect(familyFloorVeto(null)).toBe(false);
+    expect(familyFloorVeto({ score: null, trades: 0, avgRealizedRr: null })).toBe(false);
+    expect(familyFloorVeto({ score: "0.3", trades: 5, avgRealizedRr: "0.2" })).toBe(true);
+    expect(familyFloorVeto({ score: "0.8", trades: 5, avgRealizedRr: "0" })).toBe(true);
+    expect(familyFloorVeto({ score: "0.8", trades: 5, avgRealizedRr: "-0.1" })).toBe(true);
+    expect(familyFloorVeto({ score: "0.8", trades: 5, avgRealizedRr: "0.2" })).toBe(false);
+    process.env.PAPER_ZONE_SCORE = "0";
+    expect(familyFloorVeto({ score: "0.1", trades: 9, avgRealizedRr: "-1" })).toBe(false);
   });
 });

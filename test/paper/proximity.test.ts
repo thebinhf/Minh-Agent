@@ -204,7 +204,7 @@ describe("proximity arm", () => {
     expect(ctx.engine.orders("pending")).toHaveLength(1);
   });
 
-  test("rr_below_min after tick snap waits — does not crash evaluate or reject the card", async () => {
+  test("rr_below_min after tick snap latches rr_fail — does not retry every tick", async () => {
     delete process.env.PAPER_PROXIMITY_ARM;
     delete process.env.PAPER_CONFIRM_15;
     const dir = tempDir();
@@ -217,9 +217,12 @@ describe("proximity arm", () => {
     engine.acceptZone(SUPPLY);
     const marked = await engine.mark();
     expect(marked.proximity.armed).toEqual([]);
-    expect(marked.proximity.rejected).toEqual([]);
+    expect(marked.proximity.rejected).toEqual(["btc-4h-s-20260908-01"]);
     expect(engine.orders("pending")).toEqual([]);
-    expect(engine.zones("accepted")).toHaveLength(1);
+    expect(engine.zones("accepted")).toEqual([]);
+    expect(engine.zones("rejected")[0]?.rejectCode).toBe("rr_fail");
+    const again = await engine.mark();
+    expect(again.proximity.rejected).toEqual([]);
   });
 
   test("opposing CVD does not block ARM (like OI add)", async () => {

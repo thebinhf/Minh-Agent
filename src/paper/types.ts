@@ -397,6 +397,7 @@ export type PaperMetricsFamily = {
   invalidated: number;
   cancelled: number;
   noFillPct: string | null;
+  avgRealizedRr: string | null;
   score: string | null;
 };
 

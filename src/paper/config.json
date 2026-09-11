@@ -21,7 +21,7 @@
     "makerFeeRate": "0.0002",
     "leverageMin": "1",
     "leverageMax": "25",
-    "defaultLeverage": "1",
+    "defaultLeverage": "10",
     "mmRate": "0.005",
     "marginMode": "isolated"
   }

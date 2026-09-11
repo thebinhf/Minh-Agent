@@ -10,6 +10,8 @@ const dirs: string[] = [];
 const savedAccept = process.env.MAP_ACCEPT;
 const savedAgent = process.env.AGENT_MAP;
 const savedQuant = process.env.AGENT_QUANT;
+const savedScore = process.env.PAPER_ZONE_SCORE;
+const savedSkip = process.env.PAPER_MAP_SKIP;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -21,6 +23,10 @@ afterEach(() => {
   else process.env.AGENT_MAP = savedAgent;
   if (savedQuant === undefined) delete process.env.AGENT_QUANT;
   else process.env.AGENT_QUANT = savedQuant;
+  if (savedScore === undefined) delete process.env.PAPER_ZONE_SCORE;
+  else process.env.PAPER_ZONE_SCORE = savedScore;
+  if (savedSkip === undefined) delete process.env.PAPER_MAP_SKIP;
+  else process.env.PAPER_MAP_SKIP = savedSkip;
 });
 
 const SUPPLY: ZoneCard = {
@@ -171,6 +177,39 @@ describe("MAP policy", () => {
     }).reason).toBe("quant_flow");
     expect(decideMapAccept({
       card: SUPPLY, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true, tape,
+    }).reason).toBe("ok");
+  });
+
+  test("HYPE is map_skip by default; PAPER_MAP_SKIP=0 allows it", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.PAPER_MAP_SKIP;
+    const bear = readMapBias(mapPayload({ direction: "bear", lastPrice: String(SUPPLY_ARM_LAST) })).get("BTCUSDT");
+    const hype = { ...SUPPLY, symbol: "HYPEUSDT", zoneId: "hype-4h-s-20260908-01" };
+    expect(decideMapAccept({
+      card: hype, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true,
+    }).reason).toBe("map_skip");
+    process.env.PAPER_MAP_SKIP = "0";
+    expect(decideMapAccept({
+      card: hype, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true,
+    }).reason).toBe("ok");
+  });
+
+  test("family_floor vetoes sampled losers; cold history is not a veto", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.PAPER_ZONE_SCORE;
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+      family: { score: "0.3", trades: 4, avgRealizedRr: "-0.4" },
+    }).reason).toBe("family_floor");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+      family: { score: null, trades: 0, avgRealizedRr: null },
+    }).reason).toBe("ok");
+    process.env.PAPER_ZONE_SCORE = "0";
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+      family: { score: "0.1", trades: 9, avgRealizedRr: "-1" },
     }).reason).toBe("ok");
   });
 });

@@ -3,7 +3,7 @@ import type { ZoneCard, ZoneSide } from "../zones/card";
 
 /**
  * PAPER_ZONE_SCORE=0: keep detector order at MAP accept (metrics still compute scores).
- * Default on. Missing / cold history is not a veto.
+ * Default on. Missing / cold history is not a veto. Floor veto is the same kill.
  */
 export function paperZoneScoreEnabled(): boolean {
   return process.env.PAPER_ZONE_SCORE !== "0";
@@ -13,6 +13,8 @@ export function paperZoneScoreEnabled(): boolean {
 export const ZONE_SCORE_MIN_ATTEMPTS = 3;
 /** Closed trades before winRate counts as a sample. */
 export const ZONE_SCORE_MIN_TRADES = 2;
+/** Default family score floor after a sample exists. Override: PAPER_FAMILY_SCORE_MIN. */
+export const FAMILY_SCORE_MIN_DEFAULT = "0.5";
 
 const FILL_WEIGHT = Dec.from("0.6");
 const WIN_WEIGHT = Dec.from("0.4");
@@ -141,4 +143,32 @@ export function rankZoneCards(
   if (!paperZoneScoreEnabled()) return cards;
   if (!cards.some((card) => scoreOf(card) != null)) return cards;
   return [...cards].sort((a, b) => compareZoneCards(a, b, scoreOf));
+}
+
+export type FamilyStats = {
+  score: string | null;
+  trades: number;
+  avgRealizedRr: string | null;
+};
+
+export function familyScoreMin(): Dec {
+  const raw = process.env.PAPER_FAMILY_SCORE_MIN?.trim();
+  if (raw == null || raw === "") return Dec.from(FAMILY_SCORE_MIN_DEFAULT);
+  return Dec.from(raw);
+}
+
+/**
+ * After a sample, drop families below the score floor or with avgRealizedRr ≤ 0.
+ * Cold / missing history is not a veto. PAPER_ZONE_SCORE=0 skips.
+ */
+export function familyFloorVeto(stats: FamilyStats | null | undefined): boolean {
+  if (!paperZoneScoreEnabled()) return false;
+  if (stats == null) return false;
+  const sampled = stats.score != null || stats.trades >= ZONE_SCORE_MIN_TRADES;
+  if (!sampled) return false;
+  if (stats.score != null && Dec.from(stats.score).lt(familyScoreMin())) return true;
+  if (stats.trades >= ZONE_SCORE_MIN_TRADES && stats.avgRealizedRr != null) {
+    return !Dec.from(stats.avgRealizedRr).gt(Dec.zero());
+  }
+  return false;
 }

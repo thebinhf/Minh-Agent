@@ -353,6 +353,7 @@ describe("paper metrics", () => {
         wins: 2,
         filled: 2,
         score: "1",
+        avgRealizedRr: expect.any(String),
       }),
     ]);
   });

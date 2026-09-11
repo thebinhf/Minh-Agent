@@ -158,6 +158,9 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   let touched = 0;
   const ledgerFamilies = new Map<string, ZoneFamily>();
   for (const row of engine.zones?.("all") ?? []) {
+    if (inWindow(row.acceptedTs, window.fromTs, window.toTs)) {
+      detectedIds.add(row.zoneId);
+    }
     if (row.symbol && row.tf && (row.side === "demand" || row.side === "supply")) {
       ledgerFamilies.set(row.zoneId, familyFromCard({
         symbol: row.symbol,
@@ -228,6 +231,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
   let breakeven = 0;
   const plannedRr: Dec[] = [];
   const realizedRr: Dec[] = [];
+  const realizedRrByZone = new Map<string, Dec[]>();
 
   for (const row of closed) {
     const pnl = Dec.from(row.realizedPnl ?? "0");
@@ -256,7 +260,13 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
     }
     try {
       const risk = Dec.from(row.riskQuote);
-      if (risk.isPos()) realizedRr.push(pnl.div(risk));
+      if (risk.isPos()) {
+        const realizedOne = pnl.div(risk);
+        realizedRr.push(realizedOne);
+        const list = realizedRrByZone.get(zoneKey(zoneId)) ?? [];
+        list.push(realizedOne);
+        realizedRrByZone.set(zoneKey(zoneId), list);
+      }
     } catch {
       // skip
     }
@@ -278,14 +288,14 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
     return a.zoneId.localeCompare(b.zoneId);
   });
 
-  const familyAcc = new Map<string, ReturnType<typeof emptyFamilyBucket> & { rr: Dec[] }>();
+  const familyAcc = new Map<string, ReturnType<typeof emptyFamilyBucket> & { rr: Dec[]; realized: Dec[] }>();
   for (const bucket of zones) {
     const family = resolveZoneFamily(bucket.zoneId, ledgerFamilies);
     if (!family) continue;
     const key = familyKey(family);
     let row = familyAcc.get(key);
     if (!row) {
-      row = { ...emptyFamilyBucket(family), rr: [] };
+      row = { ...emptyFamilyBucket(family), rr: [], realized: [] };
       familyAcc.set(key, row);
     }
     row.trades += bucket.trades;
@@ -296,6 +306,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
     row.invalidated += bucket.invalidated;
     row.cancelled += bucket.cancelled;
     row.rr.push(...(rrByZone.get(zoneKey(bucket.zoneId)) ?? []));
+    row.realized.push(...(realizedRrByZone.get(zoneKey(bucket.zoneId)) ?? []));
   }
   const byFamily: PaperMetricsFamily[] = [...familyAcc.values()].map((row) => {
     const attempts = row.filled + row.invalidated + row.cancelled;
@@ -310,6 +321,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
       breakeven: row.breakeven,
       winRate: ratio(row.wins, row.trades),
       avgRr: meanDec(row.rr),
+      avgRealizedRr: meanDec(row.realized),
       filled: row.filled,
       invalidated: row.invalidated,
       cancelled: row.cancelled,
