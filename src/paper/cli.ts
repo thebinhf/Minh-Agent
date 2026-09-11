@@ -12,6 +12,7 @@ import { DEFAULT_METRICS_DAYS, parseMetricsDays, paperMetrics } from "./metrics"
 import { parseZoneId } from "./gates";
 import { acceptTokenKind, lookupSuggestedZone } from "./zone-accept";
 import { runReplayBatchFromFeed, runReplayFromFeed } from "./replay";
+import { parseReplayMapTimes, runReplayMapFromFeed } from "./replay-map";
 import type { AlertStatus, OrderStatus, PaperStatus } from "./types";
 
 export const PAPER_USAGE = `Usage:
@@ -39,6 +40,7 @@ export const PAPER_USAGE = `Usage:
   bun run paper mark
   bun run paper replay SYMBOL --from TIME --to TIME --side long|short --price PRICE --sl PRICE --tp PRICE --tf 240,60,15 [--interval 15] [--funding-rate RATE] [--cross] [--invalidate PRICE] [--no-oco]
   bun run paper replay-batch FILE.json
+  bun run paper replay-map SYMBOL --from TIME --to TIME
 
 Paper simulation only — no API keys, no real orders.
 Fills and marks come from the local feed at 127.0.0.1:43180.
@@ -52,6 +54,7 @@ alert fires once when last prints through the level. No mid-watch PnL spam.
 Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
+replay-map walks 4H detect → policy → 15m ARM/OCO on local klines. Quant tape missing (not invented). Slippage 0. Separate *-replay-map.sqlite.
 arm = limit + alert (long → below limit, short → above). status is one JSON. event is OCO desk (no /confirm). day is UTC session fills/OCO/closes.
 zone accept ZONEID copies a GET /zones card into the ledger (or FILE.json for a hand-drawn card). Does not arm.
 metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). Missing rates are null.
@@ -144,6 +147,7 @@ export type PaperCliCommand =
       zoneId?: string | null;
     }
   | { name: "replay-batch"; path: string }
+  | { name: "replay-map"; symbol: string; fromTs: number; toTs: number }
   | { name: "zone-list"; status: "accepted" | "rejected" | "expired" | "all" }
   | { name: "zone-accept"; token: string }
   | { name: "zone-reject"; zoneId: string; code?: string };
@@ -321,6 +325,17 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
       invalidatePrice: flag(rest, "--invalidate"),
       alertPrice: flag(rest, "--alert-price"),
     };
+  }
+  if (command === "replay-map") {
+    const symbol = positionalSymbol(rest);
+    const fromRaw = flag(rest, "--from");
+    const toRaw = flag(rest, "--to");
+    if (!symbol || !fromRaw || !toRaw) throw new PaperUsageError(PAPER_USAGE);
+    try {
+      return { name: "replay-map", symbol, ...parseReplayMapTimes(fromRaw, toRaw) };
+    } catch {
+      throw new PaperUsageError(PAPER_USAGE);
+    }
   }
   if (command === "replay-batch") {
     const path = rest.find((arg) => !arg.startsWith("-"));
@@ -511,6 +526,25 @@ async function main(): Promise<void> {
   if (command.name === "replay") {
     try {
       const body = await runReplayFromFeed(command);
+      console.log(JSON.stringify(body, null, 2));
+    } catch (error) {
+      if (error instanceof PaperSafetyError) {
+        console.error(`[minh:paper] ${error.message}`);
+        process.exit(1);
+      }
+      if (error instanceof PaperReject) {
+        console.log(JSON.stringify(error.toJSON(), null, 2));
+        process.exit(1);
+      }
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (command.name === "replay-map") {
+    try {
+      const body = await runReplayMapFromFeed(command);
       console.log(JSON.stringify(body, null, 2));
     } catch (error) {
       if (error instanceof PaperSafetyError) {

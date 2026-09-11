@@ -101,7 +101,7 @@ Daemon (`systemd`, `Restart=always`) already runs feed + paper tick + EVENT noti
 
 On confirmed **1H / 4H** bars the closer dumps `GET /map` to `map-latest.json`. On **4H**: MAP_ACCEPT pick → agent policy → `acceptZone`. Family score from 7-day paper metrics ranks before the per-symbol cap when a family has enough fills/trades; missing score is not a veto (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` disables the old auto-copy. `AGENT_MAP=0` disables this policy (no-op) — old copy still runs. Stale gates → no accept / no new arm; do not close opens. Tick **proximity-arms** when last is in the proximal band and the last confirmed 15m agrees. `PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off. `/zones` itself still does not arm.
 
-Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`.
+Review: `bun run paper week` (7-day funnel detected→accepted→armed→touched→filled + family scores). Override: `paper zone reject`. Method walk (not live desk): `bun run paper replay-map SYMBOL --from --to` — same detect/policy/ARM, no future bars, quant missing, slippage 0.
 
 `GET /map-latest` reads the last dump (404 before the first close).
 
