@@ -207,10 +207,16 @@ export async function runProximityArm(
     if (gateCard(row.card) === "candidate") candidates.push(row.card);
   }
   const occupied = occupiedSymbols(engine);
+  let free = cap - occupied.size;
+  if (candidates.length === 0 || free <= 0) return { armed, rejected };
+  if (candidates.length === 1) {
+    const card = candidates[0]!;
+    if (!occupied.has(card.symbol)) await armCard(card);
+    return { armed, rejected };
+  }
   const stats = familyStatsFromEngine(engine, now);
   const scoreOf = (card: ZoneCard) => stats.get(familyKey(familyFromCard(card)))?.score ?? null;
   const ranked = [...candidates].sort((a, b) => compareZoneCards(a, b, scoreOf));
-  let free = cap - occupied.size;
   for (const card of ranked) {
     if (free <= 0) break;
     if (occupied.has(card.symbol)) continue;
