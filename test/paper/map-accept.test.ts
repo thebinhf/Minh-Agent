@@ -88,6 +88,9 @@ describe("map accept (P5)", () => {
     }).get("BTCUSDT")).toBe(79600);
     expect(pickAcceptable([SUPPLY], new Map([["BTCUSDT", 80_000]]))).toEqual([]);
     delete process.env.PAPER_MAP_SKIP;
+    expect(mapSkipSymbol("HYPEUSDT")).toBe(false);
+    expect(shouldAcceptCard({ ...SUPPLY, symbol: "HYPEUSDT" }, 79_600)).toBe(true);
+    process.env.PAPER_MAP_SKIP = "HYPEUSDT";
     expect(mapSkipSymbol("HYPEUSDT")).toBe(true);
     expect(shouldAcceptCard({ ...SUPPLY, symbol: "HYPEUSDT" }, 79_600)).toBe(false);
     process.env.PAPER_MAP_SKIP = "0";

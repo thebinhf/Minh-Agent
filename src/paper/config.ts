@@ -70,7 +70,7 @@ function normalizeAccount(raw: PaperAccountSeed): PaperAccountSeed {
     feeRate: raw.feeRate ?? "0",
     makerFeeRate: raw.makerFeeRate ?? "0.0002",
     leverageMin: raw.leverageMin ?? "1",
-    leverageMax: raw.leverageMax ?? "25",
+    leverageMax: raw.leverageMax ?? "150",
     defaultLeverage: raw.defaultLeverage ?? "1",
     mmRate: raw.mmRate ?? "0.005",
     marginMode: raw.marginMode === "cross" ? "cross" : "isolated",

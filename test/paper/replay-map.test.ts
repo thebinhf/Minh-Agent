@@ -292,11 +292,11 @@ describe("paper replay-map", () => {
     expect(existsSync(config.dbPath)).toBe(false);
   });
 
-  test("skipReasons counts map_skip (HYPE) and family_floor; feed watchlist still has HYPEUSDT", async () => {
+  test("skipReasons counts map_skip when PAPER_MAP_SKIP is set; unset lets HYPE accept", async () => {
     delete process.env.MAP_ACCEPT;
     delete process.env.AGENT_MAP;
     delete process.env.PAPER_ZONE_SCORE;
-    delete process.env.PAPER_MAP_SKIP;
+    process.env.PAPER_MAP_SKIP = "HYPEUSDT";
     const dir = tempDir();
     dirs.push(dir);
     const config = await paperConfig(dir);
@@ -324,6 +324,7 @@ describe("paper replay-map", () => {
     expect(floor.skipReasons.family_floor).toBeGreaterThan(0);
     expect(floor.accepted).toEqual([]);
 
+    delete process.env.PAPER_MAP_SKIP;
     process.env.AGENT_MAP = "0";
     const oldPath = await runReplayMap({
       config,
@@ -332,7 +333,8 @@ describe("paper replay-map", () => {
       request: { symbol: "HYPEUSDT", fromTs: 0, toTs: lastClose },
       dbPath: join(dir, "replay-map-hype0.sqlite"),
     });
-    expect(oldPath.skipReasons.map_skip).toBeGreaterThan(0);
+    expect(oldPath.skipReasons.map_skip).toBe(0);
+    expect(oldPath.accepted.length).toBeGreaterThan(0);
 
     const feed = await loadConfig();
     expect(feed.symbols).toContain("HYPEUSDT");

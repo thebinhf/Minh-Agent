@@ -111,6 +111,14 @@ export class Dec {
     return new Dec((this.raw / step.raw) * step.raw);
   }
 
+  /** Ceiling to a positive step (raise leverage until IM fits). */
+  ceilToStep(step: Dec): Dec {
+    if (!step.isPos()) throw new Error("step must be positive");
+    if (this.isNeg()) throw new Error("ceilToStep expects a non-negative value");
+    if (this.raw % step.raw === 0n) return this;
+    return new Dec((this.raw / step.raw + 1n) * step.raw);
+  }
+
   /** Nearest step (Bybit UI tick snap). Half-up on exact halves. */
   roundToStep(step: Dec): Dec {
     if (!step.isPos()) throw new Error("step must be positive");

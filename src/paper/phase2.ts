@@ -1,6 +1,7 @@
 import { Dec, REL_TOL } from "./decimal";
 import { PaperReject } from "./errors";
 import type { PaperAccountRow, PaperMarginMode, PaperSide, TakeProfitPlan } from "./types";
+import type { InstrumentSpec } from "./venue";
 
 export function parseMarginMode(raw: string | null | undefined): PaperMarginMode {
   const value = (raw ?? "isolated").trim().toLowerCase();
@@ -24,18 +25,113 @@ function assertTpSide(side: PaperSide, entry: Dec, takeProfit: Dec): void {
   }
 }
 
-export function requireLeverage(account: PaperAccountRow, requested: string | undefined): Dec {
+/** Effective band: instrument spec binds; account min/max are an extra operator ceiling. */
+export function leverageBand(account: PaperAccountRow, spec: InstrumentSpec): { min: Dec; max: Dec } {
+  const accountMin = Dec.from(account.leverage_min ?? "1");
+  const accountMax = Dec.from(account.leverage_max ?? "150");
+  const specMin = Dec.from(spec.minLeverage);
+  const specMax = Dec.from(spec.maxLeverage);
+  const min = accountMin.gt(specMin) ? accountMin : specMin;
+  const max = accountMax.lt(specMax) ? accountMax : specMax;
+  if (!min.isPos() || min.gt(max)) {
+    throw new PaperReject("leverage_out_of_band", "leverage", {
+      leverageMin: min.toText(),
+      leverageMax: max.toText(),
+      accountMin: account.leverage_min ?? "1",
+      accountMax: account.leverage_max ?? "150",
+      specMin: spec.minLeverage,
+      specMax: spec.maxLeverage,
+    });
+  }
+  return { min, max };
+}
+
+export function requireLeverage(
+  account: PaperAccountRow,
+  requested: string | undefined,
+  spec: InstrumentSpec,
+): Dec {
   const leverage = Dec.from((requested ?? account.default_leverage ?? "1").trim());
-  const min = Dec.from(account.leverage_min ?? "1");
-  const max = Dec.from(account.leverage_max ?? "25");
+  const { min, max } = leverageBand(account, spec);
   if (!leverage.isPos() || leverage.lt(min) || leverage.gt(max)) {
     throw new PaperReject("leverage_out_of_band", "leverage", {
       leverage: leverage.toText(),
-      leverageMin: account.leverage_min ?? "1",
-      leverageMax: account.leverage_max ?? "25",
+      leverageMin: min.toText(),
+      leverageMax: max.toText(),
     });
   }
   return leverage;
+}
+
+/**
+ * Minimum leverage so IM + estimated close fee + open fee fit `available`.
+ * Null when even infinite leverage cannot cover the two fee terms.
+ */
+export function minLeverageForMargin(input: {
+  qty: Dec;
+  entry: Dec;
+  side: PaperSide;
+  feeRate: Dec;
+  available: Dec;
+}): Dec | null {
+  const notional = input.qty.mul(input.entry);
+  if (!notional.isPos() || !input.available.isPos()) return null;
+  const leftover = input.available.sub(notional.mul(input.feeRate).mul(Dec.from("2")));
+  if (!leftover.isPos()) return null;
+  const invFactor = input.side === "long"
+    ? Dec.from("1").sub(input.feeRate)
+    : Dec.from("1").add(input.feeRate);
+  if (!invFactor.isPos()) return null;
+  const needed = notional.mul(invFactor).div(leftover);
+  return needed.isPos() ? needed : null;
+}
+
+/**
+ * Keep `requested` when IM already fits. Otherwise raise to the minimum that
+ * fits, snapped up to `leverageStep`, capped at `max` (already the band max).
+ * Does not lower below `requested`. Caller still `assertMargin`.
+ */
+export function fitLeverage(input: {
+  requested: Dec;
+  qty: Dec;
+  entry: Dec;
+  side: PaperSide;
+  feeRate: Dec;
+  available: Dec;
+  spec: InstrumentSpec;
+  max: Dec;
+}): Dec {
+  const openFee = feeOn(input.qty, input.entry, input.feeRate);
+  const fits = (lev: Dec): boolean => {
+    const margin = marginOn(input.qty, input.entry, lev, {
+      side: input.side,
+      feeRate: input.feeRate,
+      entry: input.entry,
+    });
+    return !input.available.sub(margin).sub(openFee).isNeg();
+  };
+  if (fits(input.requested)) return input.requested;
+  const step = Dec.from(input.spec.leverageStep);
+  const cap = input.max.floorToStep(step);
+  const needed = minLeverageForMargin({
+    qty: input.qty,
+    entry: input.entry,
+    side: input.side,
+    feeRate: input.feeRate,
+    available: input.available,
+  });
+  let lev = input.requested;
+  if (needed) {
+    const target = needed.gt(cap) ? cap : needed;
+    lev = target.ceilToStep(step);
+    if (lev.gt(cap)) lev = cap;
+    if (lev.lt(input.requested)) lev = input.requested;
+  }
+  if (!fits(lev) && lev.lt(cap)) {
+    const bumped = lev.add(step);
+    lev = bumped.gt(cap) ? cap : bumped;
+  }
+  return lev;
 }
 
 export function feeOn(qty: Dec, price: Dec, feeRate: Dec): Dec {

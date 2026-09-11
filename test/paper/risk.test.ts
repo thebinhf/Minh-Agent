@@ -105,6 +105,8 @@ describe("risk engine", () => {
     const cfg = await loadPaperConfig();
     expect(cfg.account.minRr).toBe("2");
     expect(cfg.account.defaultRiskPct).toBe("0.02");
+    expect(cfg.account.leverageMax).toBe("150");
+    expect(cfg.account.defaultLeverage).toBe("10");
   });
 
   test("MTF normalizes unique intervals and keeps HTF→LTF order", () => {
