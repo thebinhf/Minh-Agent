@@ -92,6 +92,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists |
+| `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
 
 `BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper refuses to start if they are set.

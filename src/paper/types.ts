@@ -90,6 +90,31 @@ export type PaperQuantTape = {
   flowReading: "buy_dom" | "sell_dom" | null;
 };
 
+export type PaperDepthLevel = {
+  price: string;
+  size: string;
+};
+
+export type PaperDepth = {
+  symbol: string;
+  recvTs: number | null;
+  bestBid: string | null;
+  bestAsk: string | null;
+  bids: PaperDepthLevel[];
+  asks: PaperDepthLevel[];
+};
+
+/** How a taker fill chose its price. `off` = PAPER_SLIPPAGE=0. */
+export type SlippageFallback = "none" | "last" | "limit" | "off";
+
+export type SlippageMeta = {
+  slippage: string;
+  slippageBps: string;
+  levels: number;
+  bookCapped: boolean;
+  fallback: SlippageFallback;
+};
+
 export type PaperFeed = {
   health(): Promise<PaperFeedHealth>;
   ticker(symbol: string): Promise<PaperTicker | null>;
@@ -97,6 +122,8 @@ export type PaperFeed = {
   lastKline(symbol: string, interval: string): Promise<PaperKlineSnap | null>;
   /** Optional /map tape for the single quant veto. Missing = do not invent. */
   quant?(symbol: string): Promise<PaperQuantTape | null>;
+  /** Optional live L50. Missing / stale = fill last or limit; not a veto. */
+  depth?(symbol: string): Promise<PaperDepth | null>;
 };
 
 export type PaperAccountRow = {
