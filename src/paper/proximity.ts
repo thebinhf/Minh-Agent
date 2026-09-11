@@ -21,15 +21,15 @@ export function confirm15Enabled(): boolean {
 }
 
 /**
- * Max symbols with a pending OCO or open position. Default 3.
+ * Max symbols with a pending OCO or open position. Default 2.
  * PAPER_ARM_MAX=0 → unlimited (still one pending/open per symbol).
  */
 export function paperArmMaxSymbols(): number | null {
   const raw = process.env.PAPER_ARM_MAX;
   if (raw === "0") return null;
-  if (raw == null || raw.trim() === "") return 3;
+  if (raw == null || raw.trim() === "") return 2;
   const n = Number(raw.trim());
-  if (!Number.isInteger(n) || n < 1) return 3;
+  if (!Number.isInteger(n) || n < 1) return 2;
   return n;
 }
 

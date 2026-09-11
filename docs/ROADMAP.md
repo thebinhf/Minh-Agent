@@ -31,8 +31,8 @@ Compare against the #64 one-book rolling baseline. One change per walk. `paper r
 
 1. Chop A/B (same 180d tape): `AGENT_BIAS_CHOP=0` lost ~3130 equity — keep 4H mixed as deny. 1H chop no longer collapses 4H (playbook stand-aside; equity −32, noise). `proximal` (4H mixed only in-band) lost ~2964 vs that default — keep deny. Flag stays for reruns.
 2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 180d vs keep-1H: accepted 175 vs 264, W/L 14/26 vs 23/37, equity **9992 vs 11427 (−1435)**. 1-loss floor also kills families that later win (LINK supply 4t/75% → 1 loss). Keep default 2.
-3. `PAPER_ARM_MAX=2` vs `5` vs `0` — occupancy vs fill quality.
-4. `PAPER_MAP_SKIP=HYPEUSDT` — skip HYPE again vs default none (watch for `hype_accepted`).
+3. `PAPER_ARM_MAX` 180d vs keep-1H ARM=3: **2 = 12460 (+1033)**, 3 = 11427, 5 = 11057 (−369), 0 unlimited = 10536 (−891). Tighter cap, fewer losing fills, `family_floor` 2272 vs 3756. Default **2**.
+4. `PAPER_MAP_SKIP=HYPEUSDT` vs keep-1H (HYPE on): accepted 247 vs 264, W/L 21/31 vs 23/37, equity **12002 vs 11427 (+576)**. HYPE demand/supply were 4t/25% / RR −0.25. `hype_accepted` gone, `map_skip` 1475. Default stays **none** (venue spec is valid; skip is strategy). Combined ARM=2 + skip-HYPE is the next walk — each flag now has its own review.
 
 Do **not** combine flags until each A/B has a review JSON. Do not invent CVD for the historical window — live tape must accrue first.
 
