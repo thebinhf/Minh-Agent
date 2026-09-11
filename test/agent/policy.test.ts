@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { agentMapEnabled, decideMapAccept, onMapCloseAccept } from "../../src/agent/policy";
+import { agentMapEnabled, decideMapAccept, emptySkipReasons, onMapCloseAccept } from "../../src/agent/policy";
 import { readMapBias } from "../../src/agent/bias";
 import { mockFeed, OPEN_LONG, paperEngine } from "../paper/helpers";
 import type { ZoneCard } from "../../src/zones/card";
@@ -311,7 +311,7 @@ describe("onMapCloseAccept wiring", () => {
         },
       },
     );
-    expect(result).toEqual({ accepted: [], skipped: 0, skipReasons: {} });
+    expect(result).toEqual({ accepted: [], skipped: 0, skipReasons: emptySkipReasons() });
     expect(fetched).toBe(0);
     expect(ctx.engine.zones("accepted")).toEqual([]);
     expect(ctx.engine.positions("open")).toHaveLength(1);
@@ -327,9 +327,17 @@ describe("onMapCloseAccept wiring", () => {
     const result = await onMapCloseAccept(
       { interval: "240", map: mapPayload({ direction: "bear", lastPrice: "79400" }) },
       ctx.engine,
-      { fetchCards: async () => [SUPPLY], health: HEALTH_OK },
+      {
+        fetchCards: async () => [
+          SUPPLY,
+          { ...SUPPLY, symbol: "HYPEUSDT", zoneId: "hype-4h-s-20260908-01" },
+        ],
+        health: HEALTH_OK,
+      },
     );
     expect(result?.accepted).toEqual([]);
+    expect(result?.skipReasons?.deep_mitigate).toBeGreaterThan(0);
+    expect(result?.skipReasons?.map_skip).toBeGreaterThan(0);
     expect(ctx.engine.zones("accepted")).toEqual([]);
   });
 

@@ -10,7 +10,7 @@ import {
   proximityDecision,
 } from "../zones/proximity";
 import { familyStatsFromEngine } from "./map-accept";
-import { compareZoneCards, familyFromCard, familyKey } from "./score";
+import { compareZoneCards, familyFromCard, familyKey, paperZoneScoreEnabled, type FamilyStats } from "./score";
 
 export function proximityArmEnabled(): boolean {
   return process.env.PAPER_PROXIMITY_ARM !== "0";
@@ -122,6 +122,7 @@ export async function runProximityArm(
   now = Date.now(),
   quantBySymbol?: Map<string, PaperQuantTape>,
   kline15BySymbol?: Map<string, PaperKlineSnap>,
+  familyByKey?: Map<string, FamilyStats>,
 ): Promise<ProximityArmResult> {
   const armed: string[] = [];
   const rejected: string[] = [];
@@ -214,8 +215,12 @@ export async function runProximityArm(
     if (!occupied.has(card.symbol)) await armCard(card);
     return { armed, rejected };
   }
-  const stats = familyStatsFromEngine(engine, now);
-  const scoreOf = (card: ZoneCard) => stats.get(familyKey(familyFromCard(card)))?.score ?? null;
+  const stats = familyByKey ?? familyStatsFromEngine(engine, now);
+  const scoreOf = (card: ZoneCard) => (
+    paperZoneScoreEnabled()
+      ? stats.get(familyKey(familyFromCard(card)))?.score ?? null
+      : null
+  );
   const ranked = [...candidates].sort((a, b) => compareZoneCards(a, b, scoreOf));
   for (const card of ranked) {
     if (free <= 0) break;

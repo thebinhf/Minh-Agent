@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { createPaperEngine } from "../../src/paper/engine";
 import { openPaperDb } from "../../src/paper/db";
-import { confirm15Bar } from "../../src/paper/proximity";
+import { confirm15Bar, runProximityArm } from "../../src/paper/proximity";
 import { mockFeed, paperConfig, tempDir, UNIVERSE } from "./helpers";
 import type { ZoneCard } from "../../src/zones/card";
 
@@ -11,6 +11,7 @@ const saved = process.env.PAPER_PROXIMITY_ARM;
 const savedQuant = process.env.AGENT_QUANT;
 const savedConfirm = process.env.PAPER_CONFIRM_15;
 const savedArmMax = process.env.PAPER_ARM_MAX;
+const savedScore = process.env.PAPER_ZONE_SCORE;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -24,6 +25,8 @@ afterEach(() => {
   else process.env.PAPER_CONFIRM_15 = savedConfirm;
   if (savedArmMax === undefined) delete process.env.PAPER_ARM_MAX;
   else process.env.PAPER_ARM_MAX = savedArmMax;
+  if (savedScore === undefined) delete process.env.PAPER_ZONE_SCORE;
+  else process.env.PAPER_ZONE_SCORE = savedScore;
 });
 
 async function engineWithLev(feed = mockFeed(), leverage = "10") {
@@ -302,6 +305,67 @@ describe("proximity arm", () => {
     expect(again.proximity.armed).toEqual([]);
     expect(ctx.engine.orders("pending")[0]?.symbol).toBe("ETHUSDT");
     expect(ctx.engine.orders("pending")).toHaveLength(1);
+  });
+
+  test("PAPER_ARM_MAX ranks scored family over higher-rr cold; score kill falls through to rr", async () => {
+    delete process.env.PAPER_PROXIMITY_ARM;
+    delete process.env.PAPER_CONFIRM_15;
+    delete process.env.PAPER_ZONE_SCORE;
+    process.env.PAPER_ARM_MAX = "1";
+    const ETH: ZoneCard = {
+      ...SUPPLY,
+      zoneId: "eth-4h-s-20260908-01",
+      symbol: "ETHUSDT",
+      zoneLow: 3_450,
+      zoneHigh: 3_520,
+      distal: 3_520,
+      proximal: 3_450,
+      entry: 3_480,
+      sl: 3_560,
+      tp: 3_200,
+      rr: 3.5,
+      hardInvalid: 3_560,
+      softInvalid: 3_520,
+    };
+    const ETH_15 = {
+      interval: "15",
+      open: "3490",
+      close: "3470",
+      startTs: SUPPLY_15.startTs,
+      confirm: true as const,
+    };
+    const feed = mockFeed({
+      lastPrice: "79280",
+      markPrice: "79280",
+      tickers: {
+        BTCUSDT: { lastPrice: "79280", markPrice: "79280" },
+        ETHUSDT: { lastPrice: "3470", markPrice: "3470" },
+      },
+      klines: { "15": SUPPLY_15 },
+    });
+    feed.lastKline = async (symbol, interval) => {
+      if (interval === "15") return symbol === "ETHUSDT" ? ETH_15 : SUPPLY_15;
+      const close = symbol === "ETHUSDT" ? "3470" : "79280";
+      return { interval, close, startTs: Date.now(), confirm: true };
+    };
+    const lastBySymbol = new Map<string, number>([["BTCUSDT", 79280], ["ETHUSDT", 3470]]);
+    const kline15 = new Map([["BTCUSDT", SUPPLY_15], ["ETHUSDT", ETH_15]]);
+    const scored = new Map([["BTCUSDT:240:supply", { score: "0.86", trades: 7, avgRealizedRr: "1.5" }]]);
+
+    const ctx = await engineWithLev(feed);
+    ctx.engine.acceptZone(SUPPLY);
+    ctx.engine.acceptZone(ETH);
+    const ranked = await runProximityArm(ctx.engine, lastBySymbol, Date.now(), undefined, kline15, scored);
+    expect(ranked.armed).toEqual(["btc-4h-s-20260908-01"]);
+    expect(ctx.engine.orders("pending")[0]?.symbol).toBe("BTCUSDT");
+
+    process.env.PAPER_ZONE_SCORE = "0";
+    const ctx2 = await engineWithLev(feed);
+    ctx2.engine.acceptZone(SUPPLY);
+    ctx2.engine.acceptZone(ETH);
+    const killed = await runProximityArm(ctx2.engine, lastBySymbol, Date.now(), undefined, kline15, scored);
+    expect(killed.armed).toEqual(["eth-4h-s-20260908-01"]);
+    expect(ctx2.engine.orders("pending")[0]?.symbol).toBe("ETHUSDT");
   });
 });
 
