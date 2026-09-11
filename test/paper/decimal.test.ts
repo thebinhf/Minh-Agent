@@ -32,9 +32,11 @@ describe("Dec TEXT math", () => {
     expect(bad.lteRel(budget, REL_TOL)).toBe(false);
   });
 
-  test("floors and rounds to a venue step", () => {
+  test("floors, ceils, and rounds to a venue step", () => {
     expect(Dec.from("0.1007").floorToStep(Dec.from("0.001")).toText()).toBe("0.1");
     expect(Dec.from("0.0333").floorToStep(Dec.from("0.001")).toText()).toBe("0.033");
+    expect(Dec.from("1.7027").ceilToStep(Dec.from("0.01")).toText()).toBe("1.71");
+    expect(Dec.from("1.71").ceilToStep(Dec.from("0.01")).toText()).toBe("1.71");
     expect(Dec.from("56984.9246").roundToStep(Dec.from("0.1")).toText()).toBe("56984.9");
     expect(Dec.from("0.1").isOnStep(Dec.from("0.001"))).toBe(true);
     expect(Dec.from("0.1007").isOnStep(Dec.from("0.001"))).toBe(false);

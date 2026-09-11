@@ -180,11 +180,15 @@ describe("MAP policy", () => {
     }).reason).toBe("ok");
   });
 
-  test("HYPE is map_skip by default; PAPER_MAP_SKIP=0 allows it", () => {
+  test("PAPER_MAP_SKIP=HYPEUSDT skips; unset allows HYPE", () => {
     delete process.env.AGENT_MAP;
     delete process.env.PAPER_MAP_SKIP;
     const bear = readMapBias(mapPayload({ direction: "bear", lastPrice: String(SUPPLY_ARM_LAST) })).get("BTCUSDT");
     const hype = { ...SUPPLY, symbol: "HYPEUSDT", zoneId: "hype-4h-s-20260908-01" };
+    expect(decideMapAccept({
+      card: hype, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true,
+    }).reason).toBe("ok");
+    process.env.PAPER_MAP_SKIP = "HYPEUSDT";
     expect(decideMapAccept({
       card: hype, bias: bear, last: SUPPLY_ARM_LAST, tradingAllowed: true,
     }).reason).toBe("map_skip");
@@ -337,7 +341,7 @@ describe("onMapCloseAccept wiring", () => {
     );
     expect(result?.accepted).toEqual([]);
     expect(result?.skipReasons?.deep_mitigate).toBeGreaterThan(0);
-    expect(result?.skipReasons?.map_skip).toBeGreaterThan(0);
+    expect(result?.skipReasons?.map_skip ?? 0).toBe(0);
     expect(ctx.engine.zones("accepted")).toEqual([]);
   });
 

@@ -20,7 +20,7 @@
     "feeRate": "0.00055",
     "makerFeeRate": "0.0002",
     "leverageMin": "1",
-    "leverageMax": "25",
+    "leverageMax": "150",
     "defaultLeverage": "10",
     "mmRate": "0.005",
     "marginMode": "isolated"

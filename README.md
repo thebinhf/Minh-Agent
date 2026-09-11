@@ -93,14 +93,14 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
 | `PAPER_FAMILY_SCORE_MIN` | `0.5` | Score floor after a sample. Cold / missing history is not a veto |
-| `PAPER_MAP_SKIP` | `HYPEUSDT` | Comma symbols MAP will not auto-accept. `0` or blank = none. Feed watchlist unchanged |
+| `PAPER_MAP_SKIP` | (none) | Comma symbols MAP will not auto-accept. Unset / `0` / blank = none. Feed watchlist unchanged |
 | `PAPER_ARM_MAX` | `3` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId`. Occupied slots stay. `0` = unlimited (still one per symbol) |
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
 
 `BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper refuses to start if they are set.
 
-Tight BTC stops at `defaultLeverage=1` skip with `insufficient_margin`. Seed is **10x**.
+Tight BTC stops at `defaultLeverage=1` may need more IM than cash. Seed is **10x**; if that IM still does not fit, paper raises leverage to the minimum that fits, capped at `min(account.leverageMax, spec.maxLeverage)` (watchlist max **150**). Existing paper DBs keep their stored `leverage_max` until PATCH.
 
 ## Usage
 

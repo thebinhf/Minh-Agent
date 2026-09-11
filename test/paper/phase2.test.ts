@@ -4,13 +4,18 @@ import { Dec } from "../../src/paper/decimal";
 import { PaperReject } from "../../src/paper/errors";
 import {
   feeOn,
+  fitLeverage,
   fundingAmount,
+  leverageBand,
   liqPrice,
+  marginOn,
+  minLeverageForMargin,
   parseTakeProfits,
   requireLeverage,
 } from "../../src/paper/phase2";
 import { requireInstrument, snapPrice } from "../../src/paper/venue";
-import { OPEN_LONG, mockFeed, paperEngine } from "./helpers";
+import { createPaperEngine } from "../../src/paper/engine";
+import { OPEN_LONG, mockFeed, paperEngine, tempStore } from "./helpers";
 
 function btcLiq(side: "long" | "short", entry: string, leverage: string, mm = "0.005"): string {
   return snapPrice(liqPrice(side, Dec.from(entry), Dec.from(leverage), Dec.from(mm)), requireInstrument("BTCUSDT")).toText();
@@ -59,6 +64,7 @@ const ACCOUNT = {
 
 describe("phase2 helpers", () => {
   test("fee, liq, funding, and leverage band come from account values", () => {
+    const btc = requireInstrument("BTCUSDT");
     expect(feeOn(Dec.from("0.1"), Dec.from("63000"), Dec.from("0.00055")).toText()).toBe("3.465");
     expect(liqPrice("long", Dec.from("63000"), Dec.from("10"), Dec.from("0.005")).toText()).toBe(
       Dec.from("63000").mul(Dec.from("0.9")).div(Dec.from("0.995")).toText(),
@@ -68,13 +74,68 @@ describe("phase2 helpers", () => {
     );
     expect(fundingAmount("long", Dec.from("0.1"), Dec.from("63000"), Dec.from("0.0001")).toText()).toBe("-0.63");
     expect(fundingAmount("short", Dec.from("0.1"), Dec.from("63000"), Dec.from("0.0001")).toText()).toBe("0.63");
-    expect(requireLeverage(ACCOUNT, "10").toText()).toBe("10");
+    expect(requireLeverage(ACCOUNT, "10", btc).toText()).toBe("10");
     try {
-      requireLeverage(ACCOUNT, "50");
+      requireLeverage(ACCOUNT, "50", btc);
       throw new Error("expected reject");
     } catch (error) {
       expect(reject(error).error).toBe("leverage_out_of_band");
     }
+  });
+
+  test("instrument spec binds the leverage cap; account max is an extra ceiling", () => {
+    const btc = requireInstrument("BTCUSDT");
+    const ena = requireInstrument("ENAUSDT");
+    const wide = { ...ACCOUNT, leverage_max: "150" };
+    expect(leverageBand(wide, btc).max.toText()).toBe("150");
+    expect(leverageBand(wide, ena).max.toText()).toBe("50");
+    expect(requireLeverage(wide, "50", btc).toText()).toBe("50");
+    try {
+      requireLeverage(wide, "100", ena);
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(reject(error).error).toBe("leverage_out_of_band");
+    }
+    expect(requireLeverage(wide, "50", ena).toText()).toBe("50");
+  });
+
+  test("fitLeverage keeps the request when IM fits and raises to the min that fits remaining cash", () => {
+    const btc = requireInstrument("BTCUSDT");
+    const qty = Dec.from("0.1");
+    const entry = Dec.from("63000");
+    const requested = Dec.from("1");
+    const keep = fitLeverage({
+      requested,
+      qty,
+      entry,
+      side: "long",
+      feeRate: Dec.zero(),
+      available: Dec.from("10000"),
+      spec: btc,
+      max: Dec.from("25"),
+    });
+    expect(keep.toText()).toBe("1");
+    const raised = fitLeverage({
+      requested,
+      qty,
+      entry,
+      side: "long",
+      feeRate: Dec.zero(),
+      available: Dec.from("3700"),
+      spec: btc,
+      max: Dec.from("25"),
+    });
+    expect(raised.toText()).toBe("1.71");
+    expect(marginOn(qty, entry, raised).lte(Dec.from("3700"))).toBe(true);
+    const needed = minLeverageForMargin({
+      qty,
+      entry,
+      side: "long",
+      feeRate: Dec.zero(),
+      available: Dec.from("3700"),
+    });
+    expect(needed).not.toBeNull();
+    expect(needed!.ceilToStep(Dec.from("0.01")).toText()).toBe("1.71");
   });
 
   test("multi-TP percents must sum to 1 and sort nearest first", () => {
@@ -129,8 +190,78 @@ describe("phase2 engine", () => {
     expect(engine.account().availableCash).toBe("9370");
   });
 
-  test("rejects a second open when remaining cash cannot cover new IM", async () => {
+  test("BTC 50x is allowed when account max is 150; ENA 100x is not (spec 50)", async () => {
+    const { engine, store } = await harness();
+    store.setPhase2({
+      feeRate: "0",
+      leverageMin: "1",
+      leverageMax: "150",
+      defaultLeverage: "1",
+      mmRate: "0.005",
+    });
+    const btc = await engine.open({ ...OPEN_LONG, leverage: "50" });
+    expect(btc.position.leverage).toBe("50");
+    await engine.close(btc.position.id);
+
+    const enaCtx = await tempStore();
+    dirs.push(enaCtx.dir);
+    enaCtx.store.setPhase2({
+      feeRate: "0",
+      leverageMin: "1",
+      leverageMax: "150",
+      defaultLeverage: "1",
+      mmRate: "0.005",
+    });
+    const enaEngine = createPaperEngine({
+      store: enaCtx.store,
+      feed: mockFeed({ lastPrice: "1", markPrice: "1" }),
+      config: enaCtx.config,
+      universe: { symbols: ["ENAUSDT"], intervals: ["15", "60", "240"] },
+    });
+    try {
+      await enaEngine.open({
+        symbol: "ENAUSDT",
+        side: "long",
+        stopLoss: "0.5",
+        takeProfit: "2",
+        timeframes: ["240", "60", "15"],
+        riskPct: "0.03",
+        leverage: "100",
+      });
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(reject(error).error).toBe("leverage_out_of_band");
+    }
+    const ena = await enaEngine.open({
+      symbol: "ENAUSDT",
+      side: "long",
+      stopLoss: "0.5",
+      takeProfit: "2",
+      timeframes: ["240", "60", "15"],
+      riskPct: "0.03",
+      leverage: "50",
+    });
+    expect(ena.position.leverage).toBe("50");
+  });
+
+  test("raises leverage to the minimum that fits remaining cash", async () => {
     const { engine } = await harness();
+    await engine.open(OPEN_LONG);
+    const second = await engine.open({ ...OPEN_LONG, symbol: "ETHUSDT" });
+    expect(Dec.from(second.position.leverage).gt(Dec.from("1"))).toBe(true);
+    expect(second.position.leverage).toBe("1.71");
+    expect(engine.account().openPositions).toBe(2);
+  });
+
+  test("rejects a second open when remaining cash cannot cover IM at the band max", async () => {
+    const { engine, store } = await harness();
+    store.setPhase2({
+      feeRate: "0",
+      leverageMin: "1",
+      leverageMax: "1",
+      defaultLeverage: "1",
+      mmRate: "0.005",
+    });
     await engine.open(OPEN_LONG);
     try {
       await engine.open({ ...OPEN_LONG, symbol: "ETHUSDT" });

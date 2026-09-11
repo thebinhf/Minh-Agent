@@ -94,7 +94,7 @@ One row for MVP (`id = 1`, name `minh-paper`).
 | `default_risk_pct` | TEXT NOT NULL | Used when an open omits `riskPct`; must sit inside `[min, max]`. |
 | `min_rr` | TEXT | Optional floor (reward / risk). **NULL = no RR gate.** Do not default this to `2` in source. Operator seed in `config.json` is `"2"`. |
 | `fee_rate` | TEXT NOT NULL | Taker fee on notional. Product default `0.00055`. Tests may seed `0`. |
-| `leverage_min` / `leverage_max` / `default_leverage` | TEXT NOT NULL | Band + default. Product `1` / `25` / `1`. |
+| `leverage_min` / `leverage_max` / `default_leverage` | TEXT NOT NULL | Band + default. Product seed `1` / `150` / `10`. Per-coin instrument max still binds (BTC 150, ENA 50, HYPE 75). Existing books keep stored `leverage_max` until PATCH. |
 | `mm_rate` | TEXT NOT NULL | Maintenance-margin rate for isolated liq. Product default `0.005`. |
 | `created_ts` | INTEGER NOT NULL | Unix ms |
 | `updated_ts` | INTEGER NOT NULL | Unix ms |
@@ -363,8 +363,8 @@ bun run paper mark
   "minRr": "2",
   "feeRate": "0.00055",
   "leverageMin": "1",
-  "leverageMax": "25",
-  "defaultLeverage": "1",
+  "leverageMax": "150",
+  "defaultLeverage": "10",
   "mmRate": "0.005",
   "marginMode": "isolated",
   "marginUsed": "0",
@@ -589,7 +589,7 @@ Locked for this PR. All rates come from `paper_accounts` / `src/paper/config.jso
 
 ### Risk band (1–10%)
 
-Operator may raise or lower `riskPct` per trade inside **1–10%** of equity (`0.01`–`0.10`). Product default when omitted remains `0.02`. Existing ledgers pick up the new band from config on open. A 10% request can still fail `insufficient_margin` at 1× if IM does not fit — raise leverage or widen the stop; do not invent qty.
+Operator may raise or lower `riskPct` per trade inside **1–10%** of equity (`0.01`–`0.10`). Product default when omitted remains `0.02`. Existing ledgers pick up the new band from config on open. A 10% request can still fail `insufficient_margin` if IM does not fit even at the per-coin cap — widen the stop or free cash; do not invent qty.
 
 ### Fees
 
@@ -617,7 +617,7 @@ liq short = [entry*qty + entry*qty/lev] / [qty + qty*mm_rate]
 # stored liq is snapped to tickSize; skipped when leverage = 1
 ```
 
-Liq is evaluated only when `leverage > 1` (1× keeps MVP behavior). Product band `1–25`, default `1`, then floored to the instrument `leverageStep`. Reject `leverage_out_of_band` outside the account **or** instrument band.
+Liq is evaluated only when `leverage > 1` (1× keeps MVP behavior). Product seed `1–150`, default `10`, then floored to the instrument `leverageStep`. Effective cap is `min(account.leverageMax, spec.maxLeverage)`. If IM at the requested (or default) leverage does not fit remaining cash, paper raises leverage to the minimum that fits, capped at that band — it does not max leverage when the request already fits. Reject `leverage_out_of_band` outside the band. Reject `insufficient_margin` if even the cap does not fit. Bybit risk-limit tiers by notional are out of scope.
 
 ### Cross (account)
 

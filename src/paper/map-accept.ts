@@ -17,15 +17,13 @@ export function mapAcceptEnabled(): boolean {
   return process.env.MAP_ACCEPT !== "0";
 }
 
-const DEFAULT_MAP_SKIP = ["HYPEUSDT"];
-
 /**
  * Symbols the feed still caches but MAP will not auto-accept.
- * Default HYPEUSDT (180d: accept without ARM). PAPER_MAP_SKIP=0 or blank = none.
+ * Unset / blank / `0` = skip none. `PAPER_MAP_SKIP=HYPEUSDT` still works if set.
  */
 export function mapSkipSymbols(): string[] {
   const raw = process.env.PAPER_MAP_SKIP;
-  if (raw === undefined) return [...DEFAULT_MAP_SKIP];
+  if (raw === undefined) return [];
   const trimmed = raw.trim();
   if (trimmed === "" || trimmed === "0") return [];
   return trimmed.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean);

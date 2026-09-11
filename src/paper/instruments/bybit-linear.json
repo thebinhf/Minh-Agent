@@ -2,7 +2,7 @@
   "venue": "bybit",
   "category": "linear",
   "contractType": "LinearPerpetual",
-  "asOf": "2026-09-06",
+  "asOf": "2026-09-11",
   "source": "public GET /v5/market/instruments-info?category=linear",
   "symbols": {
     "BTCUSDT": {
@@ -144,6 +144,22 @@
       "minOrderQty": "0.1",
       "maxOrderQty": "41000.0",
       "maxMktOrderQty": "15000.0",
+      "minNotionalValue": "5",
+      "minLeverage": "1",
+      "maxLeverage": "75.00",
+      "leverageStep": "0.01"
+    },
+    "HYPEUSDT": {
+      "base": "HYPE",
+      "quote": "USDT",
+      "priceScale": "3",
+      "tickSize": "0.010",
+      "minPrice": "0.010",
+      "maxPrice": "199999.980",
+      "qtyStep": "0.01",
+      "minOrderQty": "0.01",
+      "maxOrderQty": "73500.00",
+      "maxMktOrderQty": "14700.00",
       "minNotionalValue": "5",
       "minLeverage": "1",
       "maxLeverage": "75.00",

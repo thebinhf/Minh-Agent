@@ -18,7 +18,9 @@ import {
   estimateCrossLiq,
   feeOn,
   fundingAmount,
+  fitLeverage,
   furthestTakeProfit,
+  leverageBand,
   liqHit,
   liqPrice,
   maintenanceMargin,
@@ -90,6 +92,7 @@ import type {
   PaperFeed,
   PaperFillSource,
   PaperKlineSnap,
+  PaperMarginMode,
   PaperOrderRow,
   PaperPositionRow,
   PaperQuantTape,
@@ -326,7 +329,7 @@ function viewAccount(store: PaperDb): AccountView {
     feeRate: account.fee_rate ?? "0",
     makerFeeRate: account.maker_fee_rate ?? "0",
     leverageMin: account.leverage_min ?? "1",
-    leverageMax: account.leverage_max ?? "25",
+    leverageMax: account.leverage_max ?? "150",
     defaultLeverage: account.default_leverage ?? "1",
     mmRate: account.mm_rate ?? "0.005",
     marginMode,
@@ -670,7 +673,7 @@ export function createPaperEngine(opts: {
     return map;
   }
 
-  function assertMargin(margin: Dec, openFee: Dec): void {
+  function availableForOpen(): { available: Dec; used: Dec; marginMode: PaperMarginMode } {
     const account = store.getAccount();
     const opens = store.listOpen();
     const used = sumMargin(opens);
@@ -678,7 +681,13 @@ export function createPaperEngine(opts: {
     const availBase = marginMode === "cross"
       ? Dec.from(account.cash).add(sumUnrealized(opens))
       : Dec.from(account.cash);
-    if (availBase.sub(used).sub(margin).sub(openFee).isNeg()) {
+    return { available: availBase.sub(used), used, marginMode };
+  }
+
+  function assertMargin(margin: Dec, openFee: Dec): void {
+    const account = store.getAccount();
+    const { available, used, marginMode } = availableForOpen();
+    if (available.sub(margin).sub(openFee).isNeg()) {
       throw new PaperReject("insufficient_margin", "leverage", {
         cash: account.cash,
         margin: margin.toText(),
@@ -853,7 +862,8 @@ export function createPaperEngine(opts: {
     const account = store.getAccount();
     const spec = requireInstrument(symbol, instruments);
     const riskPct = requireBandPct(account, request.riskPct);
-    const leverage = snapLeverage(requireLeverage(account, request.leverage), spec);
+    const band = leverageBand(account, spec);
+    const requestedLev = snapLeverage(requireLeverage(account, request.leverage, spec), spec);
     const entry = snapPrice(entryRaw, spec);
     const stopLoss = snapPrice(Dec.from(request.stopLoss.trim()), spec);
     const snappedTps = request.takeProfits?.map((plan) => ({
@@ -879,6 +889,16 @@ export function createPaperEngine(opts: {
     const rewardQuote = sized.rewardDist.mul(qty);
     assertOptionalMinRr(account, sized.rr);
     const openFee = feeOn(qty, entry, feeRate);
+    const leverage = snapLeverage(fitLeverage({
+      requested: requestedLev,
+      qty,
+      entry,
+      side,
+      feeRate,
+      available: availableForOpen().available,
+      spec,
+      max: band.max,
+    }), spec);
     const margin = marginOn(qty, entry, leverage, { side, feeRate, entry });
     assertMargin(margin, openFee);
     const liq = liqForOpen({ symbol, side, qty, entry, leverage, feeRate });
