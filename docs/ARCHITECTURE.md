@@ -25,6 +25,7 @@ HTTP contract: [http.md](http.md).
 | `src/index.ts` | Composition root |
 | `src/brief-pack.ts` | CLI for `GET /brief-pack` |
 | `src/feed/bb/` | Public WS, SQLite, read-only HTTP |
+| `src/features/` | As-of OI/funding/flow/cascade (replay-map + policy). Missing ≠ 0 |
 | `src/zones/` | Zone-card v1, HTF detector, ledger helpers, proximity |
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
@@ -38,6 +39,7 @@ HTTP contract: [http.md](http.md).
 | --- | --- | --- |
 | App | `src/index.ts` | Boot + wire. No exchange I/O. |
 | Feed | `src/feed/bb/` | Public WS / REST / SQLite / HTTP. Owns kline lag. Does not arm. |
+| Features | `src/features/` | As-of tape. Does not arm. Missing ≠ 0. |
 | Zones | `src/zones/` | Schema + suggest. `GET /zones` is GET-only. |
 | Agent | `src/agent/` | 4H HH/HL bias + accept policy. Does not arm. Does not change `/map`. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |

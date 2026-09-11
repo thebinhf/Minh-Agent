@@ -27,6 +27,7 @@ import {
   replayPrints,
   type ReplayBar,
 } from "./replay";
+import { asOfTape, type AsOfStore } from "../features/tape";
 import type { PaperConfig, PaperSide } from "./types";
 
 export function replayMapDbPath(paperDbPath: string): string {
@@ -89,7 +90,7 @@ export type ReplayMapResult = {
   ltfBars: number;
   ticks: number;
   slippage: "0";
-  quant: "missing";
+  quant: "asof" | "missing";
   accepted: string[];
   armed: string[];
   filled: number;
@@ -104,8 +105,10 @@ export async function runReplayMap(opts: {
   series: Record<string, ReplayBar[]>;
   request: ReplayMapRequest;
   dbPath: string;
+  features?: AsOfStore | null;
 }): Promise<ReplayMapResult> {
   const { config, universe, series, request, dbPath } = opts;
+  const features = opts.features ?? null;
   if (request.toTs <= request.fromTs) {
     throw new PaperReject("replay_window", "replay-map", {
       fromTs: request.fromTs,
@@ -129,7 +132,26 @@ export async function runReplayMap(opts: {
 
   resetDb(dbPath);
   const store = openPaperDb(dbPath, config.account);
-  const feed = createReplayFeed({ symbol, series, klineClosed: true });
+  let quantQuality: "asof" | "missing" = "missing";
+  const feed = createReplayFeed({
+    symbol,
+    series,
+    klineClosed: true,
+    quantAt: features
+      ? (sym, ts) => {
+        const closes = prefixAt(all240, ts);
+        const lastBar = closes[closes.length - 1];
+        const row = asOfTape(features, {
+          symbol: sym,
+          asof: ts,
+          lastPrice: lastBar ? Number(lastBar.close) : null,
+          closes: closes.slice(-20).map((item) => item.close),
+        });
+        if (row.quality === "asof") quantQuality = "asof";
+        return row.tape;
+      }
+      : undefined,
+  });
   const engine = createPaperEngine({
     store,
     feed,
@@ -176,6 +198,15 @@ export async function runReplayMap(opts: {
         }
       } else {
         const minRr = engine.account().minRr;
+        const asofRow = features
+          ? asOfTape(features, {
+            symbol,
+            asof,
+            lastPrice: last,
+            closes: bars240.slice(-20).map((item) => item.close),
+          })
+          : null;
+        if (asofRow?.quality === "asof") quantQuality = "asof";
         for (const card of cards) {
           const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
           const decision = decideMapAccept({
@@ -186,7 +217,7 @@ export async function runReplayMap(opts: {
             acceptedForSymbol: held,
             tradingAllowed: true,
             now: asof,
-            tape: null,
+            tape: asofRow?.tape ?? null,
           });
           if (!decision.allow) continue;
           try {
@@ -237,7 +268,7 @@ export async function runReplayMap(opts: {
     ltfBars,
     ticks,
     slippage: "0",
-    quant: "missing",
+    quant: quantQuality,
     accepted: [...new Set(accepted)],
     armed,
     filled,
@@ -286,6 +317,7 @@ export async function runReplayMapFromFeed(request: ReplayMapRequest): Promise<R
       series,
       request: { ...request, symbol },
       dbPath,
+      features: feedStore,
     });
   } finally {
     feedStore.close();

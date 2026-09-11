@@ -104,8 +104,13 @@ export function emptyMapFunding(): MapFunding {
 
 export type FundingStore = Pick<TrackerDb, "listFunding">;
 
-export function readFundingBars(store: FundingStore, symbol: string, limit: number): FundingBar[] {
-  const rows = store.listFunding({ symbol, limit, maxLimit: limit });
+export function readFundingBars(
+  store: FundingStore,
+  symbol: string,
+  limit: number,
+  endTs?: number,
+): FundingBar[] {
+  const rows = store.listFunding({ symbol, limit, maxLimit: limit, endTs });
   const bars: FundingBar[] = [];
   for (const row of rows) {
     const fundingTs = Number(row.funding_ts);

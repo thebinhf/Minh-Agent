@@ -148,7 +148,7 @@ bun run paper replay-map BTCUSDT --from 2026-08-01 --to 2026-08-15
 `paper arm` = post-only limit + fire-once alert. OCO: last through SL **before** the limit → `order.invalidated`. After fill, SL/TP run on the position.
 
 Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`. Slippage 0.
-`replay-map` walks 4H detect → policy → 15m ARM on the same tape. Quant missing. `*-replay-map.sqlite`.
+`replay-map` walks 4H detect → policy → 15m ARM on the same tape. Quant as-of from local OI/funding/flow/liq. `*-replay-map.sqlite`.
 
 HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`. See [docs/http.md](docs/http.md).
 

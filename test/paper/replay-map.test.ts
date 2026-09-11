@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { parsePaperArgs } from "../../src/paper/cli";
 import { PaperReject } from "../../src/paper/errors";
 import { runReplayMap } from "../../src/paper/replay-map";
+import type { AsOfStore } from "../../src/features/tape";
 import { intervalMsForTf, type DetectBar } from "../../src/zones/detect";
 import { paperConfig, tempDir, UNIVERSE } from "./helpers";
 import type { ReplayBar } from "../../src/paper/replay";
@@ -131,4 +132,42 @@ describe("paper replay-map", () => {
     expect(existsSync(liveDb)).toBe(false);
     expect(existsSync(replayDb)).toBe(true);
   });
+
+  test("as-of funding tape marks quant asof without inventing future prints", async () => {
+    delete process.env.MAP_ACCEPT;
+    delete process.env.AGENT_MAP;
+    const dir = tempDir();
+    dirs.push(dir);
+    const config = await paperConfig(dir);
+    const impulseClose = 17 * HTF + HTF;
+    const features: AsOfStore = {
+      listOi: () => [],
+      listFunding: ({ endTs }) => {
+        const rows = [
+          { funding_ts: impulseClose, funding_rate: "0.001" },
+          { funding_ts: impulseClose + 1, funding_rate: "0.05" },
+        ];
+        return rows
+          .filter((row) => endTs === undefined || row.funding_ts <= endTs)
+          .map((row) => ({
+            symbol: "BTCUSDT",
+            funding_ts: row.funding_ts,
+            funding_rate: row.funding_rate,
+            recv_ts: row.funding_ts,
+          }));
+      },
+      sumFlowWindow: () => ({ buyNotional: "0", sellNotional: "0" }),
+      listLiquidations: () => [],
+    };
+    const result = await runReplayMap({
+      config,
+      universe: UNIVERSE,
+      series: { "240": supplyHtf() },
+      request: { symbol: "BTCUSDT", fromTs: 0, toTs: impulseClose },
+      dbPath: join(dir, "replay-map.sqlite"),
+      features,
+    });
+    expect(result.quant).toBe("asof");
+  });
 });
+

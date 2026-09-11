@@ -214,8 +214,9 @@ export function readOiBars(
   symbol: string,
   interval: OiInterval,
   limit: number,
+  endTs?: number,
 ): OiBar[] {
-  const rows = store.listOi({ symbol, interval, limit, maxLimit: limit });
+  const rows = store.listOi({ symbol, interval, limit, maxLimit: limit, endTs });
   const bars: OiBar[] = [];
   for (const row of rows) {
     const startTs = Number(row.start_ts);
