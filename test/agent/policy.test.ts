@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { agentMapEnabled, biasChopEnabled, decideMapAccept, emptySkipReasons, onMapCloseAccept } from "../../src/agent/policy";
+import { agentMapEnabled, biasChopEnabled, biasChopMode, decideMapAccept, emptySkipReasons, onMapCloseAccept } from "../../src/agent/policy";
 import { readMapBias } from "../../src/agent/bias";
 import { mockFeed, OPEN_LONG, paperEngine } from "../paper/helpers";
 import type { ZoneCard } from "../../src/zones/card";
@@ -127,6 +127,42 @@ describe("MAP policy", () => {
     expect(decideMapAccept({
       card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, acceptedForSymbol: 2, tradingAllowed: true,
     }).reason).toBe("ledger_cap");
+  });
+
+  test("1H chop keeps 4H; 4H chop proximal only when last is in-band", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.AGENT_BIAS_CHOP;
+    expect(biasChopMode()).toBe("deny");
+    const hourChop = readMapBias(mapPayload({
+      direction: "bull", hour: "chop", lastPrice: String(ARM_DEMAND_LAST),
+    })).get("BTCUSDT");
+    expect(hourChop?.htf).toBe("bull");
+    expect(decideMapAccept({
+      card: DEMAND, bias: hourChop, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("ok");
+    expect(decideMapAccept({
+      card: DEMAND, bias: hourChop, last: MIDRANGE_WAIT_LAST, tradingAllowed: true,
+    }).reason).toBe("stand_aside");
+    process.env.AGENT_BIAS_CHOP = "off";
+    expect(biasChopMode()).toBe("off");
+    delete process.env.AGENT_BIAS_CHOP;
+    const chop4h = readMapBias(mapPayload({
+      direction: "chop", lastPrice: String(ARM_DEMAND_LAST),
+    })).get("BTCUSDT");
+    expect(chop4h?.htf).toBe("chop");
+    expect(decideMapAccept({
+      card: DEMAND, bias: chop4h, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("bias_chop");
+    process.env.AGENT_BIAS_CHOP = "proximal";
+    expect(biasChopMode()).toBe("proximal");
+    expect(biasChopEnabled()).toBe(true);
+    expect(decideMapAccept({
+      card: DEMAND, bias: chop4h, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("ok");
+    expect(decideMapAccept({
+      card: DEMAND, bias: chop4h, last: MIDRANGE_WAIT_LAST, tradingAllowed: true,
+    }).reason).toBe("bias_chop");
+    delete process.env.AGENT_BIAS_CHOP;
   });
 
   test("mid-range + not proximal→entry → stand aside; in-band same-direction still allows", () => {

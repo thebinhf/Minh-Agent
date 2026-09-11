@@ -20,6 +20,8 @@ export {
 export {
   POLICY_REASONS,
   agentMapEnabled,
+  biasChopEnabled,
+  biasChopMode,
   decideMapAccept,
   loadFeedHealth,
   onMapCloseAccept,
@@ -27,6 +29,7 @@ export {
   type MapPolicyInput,
   type PolicyDecision,
   type PolicyReason,
+  type BiasChopMode,
 } from "./policy";
 
 export {

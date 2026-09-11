@@ -3,7 +3,7 @@
  * `/map` stays "no bias" — this layer reads klines, it does not change the HTTP contract.
  *
  * Locked: 4H HH/HL = bull, LH/LL = bear, mixed = chop.
- * 1H must not oppose 4H; 1H chop → stand aside.
+ * 1H must not oppose 4H. 1H chop does **not** override 4H — policy stands aside mid-range.
  */
 
 export const MAP_BIASES = ["bull", "bear", "chop"] as const;
@@ -123,26 +123,26 @@ export function isMidRange(last: number | undefined, swing: SwingRange | null): 
   return last > lo && last < hi;
 }
 
-/** 1H chop → stand aside. 1H must not oppose 4H. Mixed 4H = chop. */
+/** 1H chop does not override 4H. 1H oppose 4H → chop. Mixed 4H = chop. */
 export function combineHtfBias(bias4h: MapBias, bias1h: MapBias): MapBias {
-  switch (bias1h) {
+  switch (bias4h) {
     case "chop":
       return "chop";
     case "bull":
     case "bear":
-      switch (bias4h) {
+      switch (bias1h) {
         case "chop":
-          return "chop";
+          return bias4h;
         case "bull":
         case "bear":
           return bias1h === bias4h ? bias4h : "chop";
         default: {
-          const _exhaustive: never = bias4h;
+          const _exhaustive: never = bias1h;
           return _exhaustive;
         }
       }
     default: {
-      const _exhaustive: never = bias1h;
+      const _exhaustive: never = bias4h;
       return _exhaustive;
     }
   }

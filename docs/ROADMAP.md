@@ -19,7 +19,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | --- | --- | --- |
 | **P0 lab** | `bun run paper review FILE.json` compact QC (`skipReasons`, `quantCoverage`, flags). [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + optional systemd timer | Operator enable |
 | **P1 honesty** | `quantCoverage` on every as-of read. `BYBIT_TAPE_SYMBOLS` opt-in (`watchlist` / `*` / comma / `0`) | Tape stays BTC ETH SOL |
-| **P2 flags** | `AGENT_BIAS_CHOP=0` (chop is not a MAP deny). `PAPER_FAMILY_FLOOR_MIN_TRADES` (RR floor sample) | Chop kill on. Floor min trades = 2 |
+| **P2 flags** | `AGENT_BIAS_CHOP` (`deny` / `0` / `proximal`). `PAPER_FAMILY_FLOOR_MIN_TRADES` (RR floor sample). 1H chop does not override 4H | Chop kill = 4H mixed only. Floor min trades = 2 |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec).
 
@@ -29,8 +29,8 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 
 Compare against the #64 one-book rolling baseline. One change per walk. `paper review` is the QC table.
 
-1. `AGENT_BIAS_CHOP=0` — how much of `skipReasons.bias_chop` was hiding edge vs noise.
-2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 1-trade losers floor or not.
+1. Chop A/B (same 180d tape): `AGENT_BIAS_CHOP=0` lost ~3130 equity — keep 4H mixed as deny. 1H chop no longer collapses 4H (playbook stand-aside; equity −32, noise). `proximal` (4H mixed only in-band) lost ~2964 vs that default — keep deny. Flag stays for reruns.
+2. `PAPER_FAMILY_FLOOR_MIN_TRADES=1` — 180d vs keep-1H: accepted 175 vs 264, W/L 14/26 vs 23/37, equity **9992 vs 11427 (−1435)**. 1-loss floor also kills families that later win (LINK supply 4t/75% → 1 loss). Keep default 2.
 3. `PAPER_ARM_MAX=2` vs `5` vs `0` — occupancy vs fill quality.
 4. `PAPER_MAP_SKIP=HYPEUSDT` — skip HYPE again vs default none (watch for `hype_accepted`).
 

@@ -29,7 +29,22 @@ export function agentMapEnabled(): boolean {
 
 /** AGENT_BIAS_CHOP=0: 4H chop is not a MAP deny (A/B). Default on. */
 export function biasChopEnabled(): boolean {
-  return process.env.AGENT_BIAS_CHOP !== "0";
+  return biasChopMode() !== "off";
+}
+
+/**
+ * How 4H mixed chop is gated at MAP accept.
+ * `deny` (default): all chop is `bias_chop`.
+ * `off` (`AGENT_BIAS_CHOP=0`): chop is not a veto.
+ * `proximal`: chop is allowed only when last is in proximal→entry.
+ */
+export type BiasChopMode = "deny" | "off" | "proximal";
+
+export function biasChopMode(): BiasChopMode {
+  const raw = process.env.AGENT_BIAS_CHOP?.trim().toLowerCase();
+  if (raw === "0" || raw === "off") return "off";
+  if (raw === "proximal") return "proximal";
+  return "deny";
 }
 
 const DROP_CODES = ["deep_mitigate", "htf_break", "expired"] as const;
@@ -161,9 +176,14 @@ export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
   }
   const htf: MapBias = bias?.htf ?? "chop";
   switch (htf) {
-    case "chop":
-      if (biasChopEnabled()) return { allow: false, reason: "bias_chop" };
-      break;
+    case "chop": {
+      const mode = biasChopMode();
+      if (mode === "off") break;
+      if (mode === "proximal") {
+        if (last != null && Number.isFinite(last) && proximityDecision(card, last) === "arm") break;
+      }
+      return { allow: false, reason: "bias_chop" };
+    }
     case "bull":
     case "bear":
       if (htf !== biasForSide(card.side)) return { allow: false, reason: "bias_mismatch" };
