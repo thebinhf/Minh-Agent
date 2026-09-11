@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
+import { Dec } from "../../src/paper/decimal";
 import { PaperReject } from "../../src/paper/errors";
 import { OPEN_LONG, mockFeed, paperEngine } from "./helpers";
 
@@ -39,7 +40,7 @@ describe("paper engine", () => {
     expect(engine.account().cash).toBe("10000");
   });
 
-  test("allows 1% and 10% risk; 10% at 1x can still fail IM", async () => {
+  test("allows 1% and 10% risk; 10% at 1x raises leverage to fit IM", async () => {
     const low = await harness();
     const onePct = await low.engine.open({ ...OPEN_LONG, riskPct: "0.01" });
     expect(onePct.position.riskPct).toBe("0.01");
@@ -52,8 +53,21 @@ describe("paper engine", () => {
     expect(tenPct.position.status).toBe("open");
 
     const highFlat = await harness();
+    const bumped = await highFlat.engine.open({ ...OPEN_LONG, riskPct: "0.10" });
+    expect(bumped.position.riskPct).toBe("0.1");
+    expect(Dec.from(bumped.position.leverage).gt(Dec.from("1"))).toBe(true);
+    expect(bumped.position.status).toBe("open");
+
+    const capped = await harness();
+    capped.store.setPhase2({
+      feeRate: "0",
+      leverageMin: "1",
+      leverageMax: "1",
+      defaultLeverage: "1",
+      mmRate: "0.005",
+    });
     try {
-      await highFlat.engine.open({ ...OPEN_LONG, riskPct: "0.10" });
+      await capped.engine.open({ ...OPEN_LONG, riskPct: "0.10" });
       throw new Error("expected reject");
     } catch (error) {
       expect(reject(error).error).toBe("insufficient_margin");
