@@ -333,7 +333,13 @@ describe("paper L50 slippage", () => {
       }),
     }));
     try {
-      await engine.open({ ...OPEN_LONG, stopLoss: "62900", takeProfit: "80000" });
+      await engine.open({
+        ...OPEN_LONG,
+        stopLoss: "62900",
+        takeProfit: "80000",
+        riskPct: "0.01",
+        leverage: "10",
+      });
       throw new Error("expected reject");
     } catch (error) {
       expect(reject(error).error).toBe("sl_side");
