@@ -7,11 +7,10 @@ import {
   lastPricesFromMap,
   mapAcceptEnabled,
   mapSkipSymbol,
-  pickAcceptable,
   runMapAccept,
   type MapAcceptResult,
 } from "../paper/map-accept";
-import type { CancelCode, ZoneCard, ZoneSide } from "../zones/card";
+import { parseZoneCard, type CancelCode, type ZoneCard, type ZoneSide } from "../zones/card";
 import { LEDGER_CAP_PER_SYMBOL, zoneExpiresTs } from "../zones/ledger";
 import { proximityDecision } from "../zones/proximity";
 import { familyFloorVeto, familyFromCard, familyKey, type FamilyStats } from "../paper/score";
@@ -54,6 +53,36 @@ export type PolicyDecision = {
   allow: boolean;
   reason: PolicyReason;
 };
+
+export function emptySkipReasons(): Record<PolicyReason, number> {
+  const out = {} as Record<PolicyReason, number>;
+  for (const reason of POLICY_REASONS) out[reason] = 0;
+  return out;
+}
+
+export function bumpSkipReason(
+  out: Record<PolicyReason, number>,
+  reason: PolicyReason | string,
+  n = 1,
+): void {
+  if (reason === "ok" || n <= 0) return;
+  for (const allowed of POLICY_REASONS) {
+    if (allowed === reason) {
+      out[allowed] += n;
+      return;
+    }
+  }
+}
+
+export function mergeSkipReasons(
+  out: Record<PolicyReason, number>,
+  extra: Record<string, number> | undefined,
+): void {
+  if (!extra) return;
+  for (const [reason, n] of Object.entries(extra)) {
+    if (typeof n === "number") bumpSkipReason(out, reason, n);
+  }
+}
 
 function biasForSide(side: ZoneSide): MapBias {
   switch (side) {
@@ -234,18 +263,24 @@ export async function onMapCloseAccept(
     klineLagOk: lagOk,
   });
   if (!gates.tradingAllowed) {
-    return { accepted: [], skipped: 0 };
+    return { accepted: [], skipped: 0, skipReasons: emptySkipReasons() };
   }
 
   const cards = await fetchCards(feedUrl);
   const biases = readMapBias(info.map);
   const tapes = readMapQuant(info.map);
   const minRr = engine.account().minRr;
-  const picked = pickAcceptable(cards, lastBySymbol);
   const familyByKey = familyStatsFromEngine(engine, now);
   const allow: ZoneCard[] = [];
   let skipped = 0;
-  for (const card of picked) {
+  const skipReasons = emptySkipReasons();
+  for (const raw of cards) {
+    let card: ZoneCard;
+    try {
+      card = parseZoneCard(raw);
+    } catch {
+      continue;
+    }
     const standing = engine.zones("accepted", now).filter((row) => row.symbol === card.symbol).length;
     const decision = decideMapAccept({
       card,
@@ -260,10 +295,12 @@ export async function onMapCloseAccept(
     });
     if (!decision.allow) {
       skipped += 1;
+      bumpSkipReason(skipReasons, decision.reason);
       continue;
     }
     allow.push(card);
   }
   const result = runMapAccept(engine, allow, lastBySymbol, now, familyByKey);
-  return { accepted: result.accepted, skipped: skipped + result.skipped };
+  mergeSkipReasons(skipReasons, result.skipReasons);
+  return { accepted: result.accepted, skipped: skipped + result.skipped, skipReasons };
 }

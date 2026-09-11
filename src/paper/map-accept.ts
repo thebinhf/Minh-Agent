@@ -76,6 +76,7 @@ export function pickAcceptable(cards: unknown[], lastBySymbol: Map<string, numbe
 export type MapAcceptResult = {
   accepted: string[];
   skipped: number;
+  skipReasons: Record<string, number>;
 };
 
 /**
@@ -94,26 +95,64 @@ export function runMapAccept(
 ): MapAcceptResult {
   const accepted: string[] = [];
   let skipped = 0;
-  if (!mapAcceptEnabled()) return { accepted, skipped: cards.length };
+  const skipReasons: Record<string, number> = {};
+  const bump = (reason: string) => {
+    skipped += 1;
+    skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+  };
+  if (!mapAcceptEnabled()) return { accepted, skipped: cards.length, skipReasons };
   const stats = familyByKey ?? familyStatsFromEngine(engine, now);
-  const picked = rankAcceptable(pickAcceptable(cards, lastBySymbol), stats);
-  for (const card of picked) {
+  const picked: ZoneCard[] = [];
+  for (const raw of cards) {
+    let card: ZoneCard;
+    try {
+      card = parseZoneCard(raw);
+    } catch {
+      continue;
+    }
+    if (mapSkipSymbol(card.symbol)) {
+      bump("map_skip");
+      continue;
+    }
+    const last = lastBySymbol.get(card.symbol);
+    if (last != null && Number.isFinite(last)) {
+      const decision = proximityDecision(card, last);
+      if (decision === "deep") {
+        bump("deep_mitigate");
+        continue;
+      }
+      if (decision === "invalid") {
+        bump("htf_break");
+        continue;
+      }
+    }
+    picked.push(card);
+  }
+  const ranked = rankAcceptable(picked, stats);
+  for (const card of ranked) {
     if (familyFloorVeto(stats.get(familyKey(familyFromCard(card))))) {
-      skipped += 1;
+      bump("family_floor");
       continue;
     }
     try {
       engine.acceptZone(card, now);
       accepted.push(card.zoneId);
     } catch (error) {
-      skipped += 1;
       if (error instanceof PaperReject) {
-        if (error.error === "duplicate_zone" || error.error === "ledger_cap") continue;
+        if (error.error === "duplicate_zone") {
+          skipped += 1;
+          continue;
+        }
+        if (error.error === "ledger_cap") {
+          bump("ledger_cap");
+          continue;
+        }
       }
+      skipped += 1;
       throw error;
     }
   }
-  return { accepted, skipped };
+  return { accepted, skipped, skipReasons };
 }
 
 export function familyStatsFromEngine(engine: PaperEngine, now: number, days = 7): Map<string, FamilyStats> {

@@ -94,7 +94,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
 | `PAPER_FAMILY_SCORE_MIN` | `0.5` | Score floor after a sample. Cold / missing history is not a veto |
 | `PAPER_MAP_SKIP` | `HYPEUSDT` | Comma symbols MAP will not auto-accept. `0` or blank = none. Feed watchlist unchanged |
-| `PAPER_ARM_MAX` | `3` | Max symbols with pending/open. `0` = unlimited (still one per symbol) |
+| `PAPER_ARM_MAX` | `3` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId`. Occupied slots stay. `0` = unlimited (still one per symbol) |
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
 

@@ -2,7 +2,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import { loadConfig as loadFeedConfig } from "../feed/bb/config";
 import { openDb } from "../feed/bb/db";
 import { intervalToMs, parseTimeArg } from "../feed/bb/recovery";
-import { agentMapEnabled, decideMapAccept } from "../agent/policy";
+import { agentMapEnabled, bumpSkipReason, decideMapAccept, emptySkipReasons, mergeSkipReasons, type PolicyReason } from "../agent/policy";
 import {
   biasFromBars,
   combineHtfBias,
@@ -147,6 +147,7 @@ export type ReplayMapResult = {
   armed: string[];
   filled: number;
   invalidated: number;
+  skipReasons: Record<PolicyReason, number>;
   metrics: ReturnType<PaperEngine["metrics"]>;
   account: ReturnType<PaperEngine["account"]>;
 };
@@ -170,6 +171,7 @@ export type ReplayMapBook = {
   armed: string[];
   filled: number;
   invalidated: number;
+  skipReasons: Record<PolicyReason, number>;
   metrics: ReturnType<PaperEngine["metrics"]>;
   account: ReturnType<PaperEngine["account"]>;
   trainDays?: number;
@@ -259,6 +261,7 @@ export async function runReplayMap(opts: {
 
   const accepted: string[] = [];
   const armed: string[] = [];
+  const skipReasons = emptySkipReasons();
   let ticks = 0;
   let ltfBars = 0;
   let frozen: Map<string, FamilyStats> | null = opts.familyByKey ?? null;
@@ -300,6 +303,7 @@ export async function runReplayMap(opts: {
     if (mapAcceptEnabled()) {
       if (!agentMapEnabled()) {
         const copied = runMapAccept(engine, cards, lastBySymbol, asof, familyByKey);
+        mergeSkipReasons(skipReasons, copied.skipReasons);
         for (const id of copied.accepted) {
           if (!accepted.includes(id)) accepted.push(id);
         }
@@ -330,13 +334,20 @@ export async function runReplayMap(opts: {
             tape: asofRow?.tape ?? null,
             family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
           });
-          if (!decision.allow) continue;
+          if (!decision.allow) {
+            bumpSkipReason(skipReasons, decision.reason);
+            continue;
+          }
           try {
             engine.acceptZone(card, asof);
             accepted.push(card.zoneId);
           } catch (error) {
             if (error instanceof PaperReject) {
-              if (error.error === "duplicate_zone" || error.error === "ledger_cap") continue;
+              if (error.error === "duplicate_zone") continue;
+              if (error.error === "ledger_cap") {
+                bumpSkipReason(skipReasons, "ledger_cap");
+                continue;
+              }
             }
             throw error;
           }
@@ -389,6 +400,7 @@ export async function runReplayMap(opts: {
     armed,
     filled,
     invalidated,
+    skipReasons,
     metrics,
     account,
   };
@@ -624,6 +636,7 @@ export async function runReplayMapBook(opts: {
 
   const accepted: string[] = [];
   const armed: string[] = [];
+  const skipReasons = emptySkipReasons();
   let ticks = 0;
   let ltfBars = 0;
   let frozen: Map<string, FamilyStats> | null = null;
@@ -676,6 +689,7 @@ export async function runReplayMapBook(opts: {
       if (mapAcceptEnabled()) {
         if (!agentMapEnabled()) {
           const copied = runMapAccept(engine, cards, lastBySymbol, asof, familyByKey);
+          mergeSkipReasons(skipReasons, copied.skipReasons);
           for (const id of copied.accepted) {
             if (!accepted.includes(id)) accepted.push(id);
           }
@@ -706,13 +720,20 @@ export async function runReplayMapBook(opts: {
               tape: asofRow?.tape ?? null,
               family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
             });
-            if (!decision.allow) continue;
+            if (!decision.allow) {
+              bumpSkipReason(skipReasons, decision.reason);
+              continue;
+            }
             try {
               engine.acceptZone(card, asof);
               accepted.push(card.zoneId);
             } catch (error) {
               if (error instanceof PaperReject) {
-                if (error.error === "duplicate_zone" || error.error === "ledger_cap") continue;
+                if (error.error === "duplicate_zone") continue;
+                if (error.error === "ledger_cap") {
+                  bumpSkipReason(skipReasons, "ledger_cap");
+                  continue;
+                }
               }
               throw error;
             }
@@ -760,6 +781,7 @@ export async function runReplayMapBook(opts: {
     armed,
     filled,
     invalidated,
+    skipReasons,
     metrics,
     account,
     ...(opts.trainDays != null ? { trainDays: opts.trainDays } : {}),
