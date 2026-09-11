@@ -20,7 +20,8 @@ import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./config";
 import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine, type PaperUniverse } from "./engine";
 import { PaperReject } from "./errors";
-import { mapAcceptEnabled, runMapAccept } from "./map-accept";
+import { familyStatsFromEngine, familyStatsFromMetrics, mapAcceptEnabled, runMapAccept } from "./map-accept";
+import { familyFromCard, familyKey, rankZoneCards, type FamilyStats } from "./score";
 import {
   createReplayFeed,
   loadReplaySeries,
@@ -101,12 +102,17 @@ function closedBy(bars: ReplayBar[], asof: number, intervalMs: number): ReplayBa
 }
 
 function walkSide(engine: {
-  orders: (status: "pending") => Array<{ side: PaperSide }>;
-  positions: (status: "open") => Array<{ side: PaperSide }>;
-}): PaperSide {
-  return engine.orders("pending")[0]?.side
-    ?? engine.positions("open")[0]?.side
-    ?? "long";
+  orders: (status: "pending") => Array<{ side: PaperSide; symbol?: string }>;
+  positions: (status: "open") => Array<{ side: PaperSide; symbol?: string }>;
+}, symbol?: string): PaperSide {
+  const pending = engine.orders("pending");
+  const open = engine.positions("open");
+  if (symbol) {
+    return pending.find((row) => row.symbol === symbol)?.side
+      ?? open.find((row) => row.symbol === symbol)?.side
+      ?? "long";
+  }
+  return pending[0]?.side ?? open[0]?.side ?? "long";
 }
 
 export type ReplayMapRequest = {
@@ -121,6 +127,8 @@ export type ReplayMapFromFeed = {
   toTs?: number;
   days?: number;
   now?: number;
+  oneBook?: boolean;
+  trainDays?: number;
 };
 
 export type ReplayMapResult = {
@@ -143,6 +151,38 @@ export type ReplayMapResult = {
   account: ReturnType<PaperEngine["account"]>;
 };
 
+export type ReplayMapBook = {
+  mode: "paper";
+  replayMap: true;
+  watchlist: true;
+  oneBook: true;
+  days: number;
+  fromTs: number;
+  toTs: number;
+  symbols: string[];
+  skipped: Array<{ symbol: string; error: string }>;
+  htfBars: number;
+  ltfBars: number;
+  ticks: number;
+  slippage: "0";
+  quant: "asof" | "missing";
+  accepted: string[];
+  armed: string[];
+  filled: number;
+  invalidated: number;
+  metrics: ReturnType<PaperEngine["metrics"]>;
+  account: ReturnType<PaperEngine["account"]>;
+  trainDays?: number;
+  train?: {
+    days: number;
+    fromTs: number;
+    toTs: number;
+    familyFloor: Array<{ family: string } & FamilyStats>;
+    metrics: ReturnType<PaperEngine["metrics"]>;
+    account: ReturnType<PaperEngine["account"]>;
+  };
+};
+
 export type ReplayMapWatchlist = {
   mode: "paper";
   replayMap: true;
@@ -162,6 +202,8 @@ export async function runReplayMap(opts: {
   request: ReplayMapRequest;
   dbPath: string;
   features?: AsOfStore | null;
+  trainDays?: number;
+  familyByKey?: Map<string, FamilyStats>;
 }): Promise<ReplayMapResult> {
   const { config, universe, series, request, dbPath } = opts;
   const features = opts.features ?? null;
@@ -219,13 +261,20 @@ export async function runReplayMap(opts: {
   const armed: string[] = [];
   let ticks = 0;
   let ltfBars = 0;
+  let frozen: Map<string, FamilyStats> | null = opts.familyByKey ?? null;
+  const trainEnd = opts.trainDays != null
+    ? request.fromTs + opts.trainDays * DAY_MS
+    : null;
   const first = htf[0]!;
-  feed.setPrint(first.close, Math.min(request.fromTs, first.startTs));
+  feed.setPrint(first.close, Math.min(request.fromTs, first.startTs), symbol);
 
   for (let i = 0; i < htf.length; i++) {
     const bar = htf[i]!;
     const closeTs = bar.startTs + htfMs;
     const asof = Math.min(closeTs, request.toTs);
+    if (trainEnd != null && frozen == null && closeTs > trainEnd) {
+      frozen = familyStatsFromEngine(engine, trainEnd, opts.trainDays!);
+    }
     const bars240 = prefixAt(all240, bar.startTs).slice(-ZONE_KLINE_LIMITS["240"]);
     const bars60 = closedBy(all60, asof, hourMs).slice(-ZONE_KLINE_LIMITS["60"]);
     const cards = detectZoneCards(asDetect(bars240), {
@@ -246,9 +295,11 @@ export async function runReplayMap(opts: {
     };
     const last = Number(bar.close);
     const lastBySymbol = new Map<string, number>([[symbol, last]]);
+    const elapsedDays = Math.max(1, Math.min(365, Math.ceil((asof - request.fromTs) / DAY_MS)));
+    const familyByKey = frozen ?? familyStatsFromEngine(engine, asof, elapsedDays);
     if (mapAcceptEnabled()) {
       if (!agentMapEnabled()) {
-        const copied = runMapAccept(engine, cards, lastBySymbol, asof);
+        const copied = runMapAccept(engine, cards, lastBySymbol, asof, familyByKey);
         for (const id of copied.accepted) {
           if (!accepted.includes(id)) accepted.push(id);
         }
@@ -263,7 +314,10 @@ export async function runReplayMap(opts: {
           })
           : null;
         if (asofRow?.quality === "asof") quantQuality = "asof";
-        for (const card of cards) {
+        const ranked = rankZoneCards(cards, (card) => (
+          familyByKey.get(familyKey(familyFromCard(card)))?.score ?? null
+        ));
+        for (const card of ranked) {
           const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
           const decision = decideMapAccept({
             card,
@@ -274,6 +328,7 @@ export async function runReplayMap(opts: {
             tradingAllowed: true,
             now: asof,
             tape: asofRow?.tape ?? null,
+            family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
           });
           if (!decision.allow) continue;
           try {
@@ -298,11 +353,11 @@ export async function runReplayMap(opts: {
     ));
     ltfBars += window15.length;
     for (const m15 of window15) {
-      const prints = replayPrints(walkSide(engine), m15);
+      const prints = replayPrints(walkSide(engine, symbol), m15);
       const step = Math.max(1, Math.floor(m15Ms / 4));
       for (let p = 0; p < prints.length; p++) {
         const ts = m15.startTs + (p + 1) * step;
-        feed.setPrint(prints[p]!, ts);
+        feed.setPrint(prints[p]!, ts, symbol);
         const marked = await engine.evaluate(ts);
         ticks += 1;
         for (const id of marked.proximity.armed) {
@@ -341,7 +396,7 @@ export async function runReplayMap(opts: {
 
 export async function runReplayMapFromFeed(
   request: ReplayMapFromFeed,
-): Promise<ReplayMapResult | ReplayMapWatchlist> {
+): Promise<ReplayMapResult | ReplayMapWatchlist | ReplayMapBook> {
   assertNoApiKeys();
   const paper = await loadPaperConfig();
   const feedCfg = await loadFeedConfig();
@@ -351,6 +406,14 @@ export async function runReplayMapFromFeed(
     days: request.days,
     now: request.now,
   });
+  if (request.trainDays != null) {
+    if (!Number.isInteger(request.trainDays) || request.trainDays < 1 || request.trainDays >= window.days) {
+      throw new PaperReject("replay_window", "replay-map", {
+        trainDays: request.trainDays,
+        days: window.days,
+      });
+    }
+  }
   const symbols = request.symbols === "watchlist"
     ? [...feedCfg.symbols]
     : request.symbols.map((item) => item.trim().toUpperCase()).filter(Boolean);
@@ -363,11 +426,8 @@ export async function runReplayMapFromFeed(
   const lookback240 = ZONE_KLINE_LIMITS["240"] * intervalToMs("240");
   const lookback60 = ZONE_KLINE_LIMITS["60"] * intervalToMs("60");
 
-  async function one(symbol: string): Promise<ReplayMapResult> {
-    const dbPath = replayMapSymbolDb(paper.dbPath, symbol, many);
-    assertSeparateDb(dbPath, feedCfg.dbPath);
-    assertSeparateDb(paper.dbPath, dbPath);
-    const series: Record<string, ReplayBar[]> = {
+  function loadSeries(symbol: string): Record<string, ReplayBar[]> {
+    return {
       "240": loadReplaySeries(feedStore, {
         symbol,
         interval: "240",
@@ -387,17 +447,49 @@ export async function runReplayMapFromFeed(
         toTs: window.toTs,
       }),
     };
-    return runReplayMap({
-      config: paper,
-      universe,
-      series,
-      request: { symbol, fromTs: window.fromTs, toTs: window.toTs },
-      dbPath,
-      features: feedStore,
-    });
   }
 
   try {
+    if (request.oneBook) {
+      const seriesBySymbol: Record<string, Record<string, ReplayBar[]>> = {};
+      const skipped: ReplayMapBook["skipped"] = [];
+      for (const symbol of symbols) {
+        const series = loadSeries(symbol);
+        if ((series["240"] ?? []).length === 0) {
+          skipped.push({ symbol, error: "replay_no_bars" });
+          continue;
+        }
+        seriesBySymbol[symbol] = series;
+      }
+      return await runReplayMapBook({
+        config: paper,
+        universe,
+        seriesBySymbol,
+        fromTs: window.fromTs,
+        toTs: window.toTs,
+        skipped,
+        features: feedStore,
+        trainDays: request.trainDays,
+        dbPath: replayMapDbPath(paper.dbPath),
+        feedDbPath: feedCfg.dbPath,
+      });
+    }
+
+    async function one(symbol: string): Promise<ReplayMapResult> {
+      const dbPath = replayMapSymbolDb(paper.dbPath, symbol, many);
+      assertSeparateDb(dbPath, feedCfg.dbPath);
+      assertSeparateDb(paper.dbPath, dbPath);
+      return runReplayMap({
+        config: paper,
+        universe,
+        series: loadSeries(symbol),
+        request: { symbol, fromTs: window.fromTs, toTs: window.toTs },
+        dbPath,
+        features: feedStore,
+        trainDays: request.trainDays,
+      });
+    }
+
     if (!many) return await one(symbols[0]!);
     const rows: ReplayMapResult[] = [];
     const skipped: ReplayMapWatchlist["skipped"] = [];
@@ -426,6 +518,253 @@ export async function runReplayMapFromFeed(
   } finally {
     feedStore.close();
   }
+}
+
+export async function runReplayMapBook(opts: {
+  config: PaperConfig;
+  universe: PaperUniverse;
+  seriesBySymbol: Record<string, Record<string, ReplayBar[]>>;
+  fromTs: number;
+  toTs: number;
+  dbPath: string;
+  feedDbPath: string;
+  skipped?: ReplayMapBook["skipped"];
+  features?: AsOfStore | null;
+  trainDays?: number;
+}): Promise<ReplayMapBook> {
+  const window = replayMapWindow({ fromTs: opts.fromTs, toTs: opts.toTs });
+  const symbols = Object.keys(opts.seriesBySymbol);
+  if (symbols.length === 0) {
+    throw new PaperReject("replay_window", "replay-map", { symbols });
+  }
+  assertSeparateDb(opts.dbPath, opts.feedDbPath);
+  assertSeparateDb(opts.config.dbPath, opts.dbPath);
+
+  const htfMs = intervalToMs("240");
+  const hourMs = intervalToMs("60");
+  const m15Ms = intervalToMs("15");
+  const features = opts.features ?? null;
+
+  type BookEvent =
+    | { ts: number; order: 0; symbol: string; bar: ReplayBar; nextStart: number }
+    | { ts: number; order: 1; symbol: string; m15: ReplayBar };
+
+  const books = new Map<string, {
+    all240: ReplayBar[];
+    all60: ReplayBar[];
+    all15: ReplayBar[];
+    htf: ReplayBar[];
+  }>();
+  const events: BookEvent[] = [];
+  let htfBars = 0;
+
+  for (const symbol of symbols) {
+    const series = opts.seriesBySymbol[symbol]!;
+    const all240 = [...(series["240"] ?? [])].sort((a, b) => a.startTs - b.startTs);
+    const all60 = [...(series["60"] ?? [])].sort((a, b) => a.startTs - b.startTs);
+    const all15 = [...(series["15"] ?? [])].sort((a, b) => a.startTs - b.startTs);
+    const htf = all240.filter((bar) => {
+      const closeTs = bar.startTs + htfMs;
+      return closeTs >= window.fromTs && bar.startTs <= window.toTs;
+    });
+    if (htf.length === 0) continue;
+    books.set(symbol, { all240, all60, all15, htf });
+    htfBars += htf.length;
+    for (let i = 0; i < htf.length; i++) {
+      const bar = htf[i]!;
+      const closeTs = bar.startTs + htfMs;
+      const nextStart = htf[i + 1]?.startTs ?? window.toTs + 1;
+      const windowEnd = nextStart > closeTs ? nextStart : closeTs + htfMs;
+      events.push({ ts: closeTs, order: 0, symbol, bar, nextStart });
+      for (const m15 of all15) {
+        if (m15.startTs >= closeTs && m15.startTs < windowEnd && m15.startTs <= window.toTs) {
+          events.push({ ts: m15.startTs, order: 1, symbol, m15 });
+        }
+      }
+    }
+  }
+  if (events.length === 0) {
+    throw new PaperReject("replay_no_bars", "replay-map", { symbols, interval: "240" });
+  }
+  events.sort((a, b) => a.ts - b.ts || a.order - b.order || a.symbol.localeCompare(b.symbol));
+
+  resetDb(opts.dbPath);
+  const store = openPaperDb(opts.dbPath, opts.config.account);
+  let quantQuality: "asof" | "missing" = "missing";
+  const feed = createReplayFeed({
+    seriesBySymbol: opts.seriesBySymbol,
+    klineClosed: true,
+    quantAt: features
+      ? (sym, ts) => {
+        const book = books.get(sym);
+        const closes = prefixAt(book?.all240 ?? [], ts);
+        const lastBar = closes[closes.length - 1];
+        const row = asOfTape(features, {
+          symbol: sym,
+          asof: ts,
+          lastPrice: lastBar ? Number(lastBar.close) : null,
+          closes: closes.slice(-20).map((item) => item.close),
+        });
+        if (row.quality === "asof") quantQuality = "asof";
+        return row.tape;
+      }
+      : undefined,
+  });
+  const engine = createPaperEngine({
+    store,
+    feed,
+    config: { ...opts.config, dbPath: opts.dbPath, staleMs: Math.max(opts.config.staleMs, 60_000) },
+    universe: opts.universe,
+  });
+
+  const firstHtf = events.find((item) => item.order === 0);
+  if (firstHtf && firstHtf.order === 0) {
+    feed.setPrint(firstHtf.bar.close, Math.min(window.fromTs, firstHtf.bar.startTs), firstHtf.symbol);
+  }
+
+  const accepted: string[] = [];
+  const armed: string[] = [];
+  let ticks = 0;
+  let ltfBars = 0;
+  let frozen: Map<string, FamilyStats> | null = null;
+  let train: ReplayMapBook["train"];
+  const trainEnd = opts.trainDays != null ? window.fromTs + opts.trainDays * DAY_MS : null;
+
+  for (const event of events) {
+    if (trainEnd != null && frozen == null && event.ts > trainEnd) {
+      const metrics = engine.metrics(opts.trainDays!, trainEnd);
+      frozen = familyStatsFromMetrics(metrics);
+      train = {
+        days: opts.trainDays!,
+        fromTs: window.fromTs,
+        toTs: trainEnd,
+        familyFloor: metrics.byFamily.map((row) => ({
+          family: row.family,
+          score: row.score,
+          trades: row.trades,
+          avgRealizedRr: row.avgRealizedRr ?? null,
+        })),
+        metrics,
+        account: engine.account(),
+      };
+    }
+    if (event.order === 0) {
+      const { symbol, bar } = event;
+      const book = books.get(symbol)!;
+      const closeTs = bar.startTs + htfMs;
+      const asof = Math.min(closeTs, window.toTs);
+      const bars240 = prefixAt(book.all240, bar.startTs).slice(-ZONE_KLINE_LIMITS["240"]);
+      const bars60 = closedBy(book.all60, asof, hourMs).slice(-ZONE_KLINE_LIMITS["60"]);
+      const cards = detectZoneCards(asDetect(bars240), {
+        symbol,
+        tf: "240",
+        intervalMs: intervalMsForTf("240"),
+        now: asof,
+      });
+      const bias: SymbolBias = {
+        symbol,
+        "240": biasFromBars(asBias(bars240)),
+        "60": biasFromBars(asBias(bars60)),
+        htf: combineHtfBias(biasFromBars(asBias(bars240)), biasFromBars(asBias(bars60))),
+        klineLagOk: true,
+        nearestSwing: nearestSwing(asBias(bars240)),
+      };
+      const last = Number(bar.close);
+      const lastBySymbol = new Map<string, number>([[symbol, last]]);
+      const elapsedDays = Math.max(1, Math.min(365, Math.ceil((asof - window.fromTs) / DAY_MS)));
+      const familyByKey = frozen ?? familyStatsFromEngine(engine, asof, elapsedDays);
+      if (mapAcceptEnabled()) {
+        if (!agentMapEnabled()) {
+          const copied = runMapAccept(engine, cards, lastBySymbol, asof, familyByKey);
+          for (const id of copied.accepted) {
+            if (!accepted.includes(id)) accepted.push(id);
+          }
+        } else {
+          const minRr = engine.account().minRr;
+          const asofRow = features
+            ? asOfTape(features, {
+              symbol,
+              asof,
+              lastPrice: last,
+              closes: bars240.slice(-20).map((item) => item.close),
+            })
+            : null;
+          if (asofRow?.quality === "asof") quantQuality = "asof";
+          const ranked = rankZoneCards(cards, (card) => (
+            familyByKey.get(familyKey(familyFromCard(card)))?.score ?? null
+          ));
+          for (const card of ranked) {
+            const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
+            const decision = decideMapAccept({
+              card,
+              bias,
+              last,
+              minRr,
+              acceptedForSymbol: held,
+              tradingAllowed: true,
+              now: asof,
+              tape: asofRow?.tape ?? null,
+              family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+            });
+            if (!decision.allow) continue;
+            try {
+              engine.acceptZone(card, asof);
+              accepted.push(card.zoneId);
+            } catch (error) {
+              if (error instanceof PaperReject) {
+                if (error.error === "duplicate_zone" || error.error === "ledger_cap") continue;
+              }
+              throw error;
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    ltfBars += 1;
+    const prints = replayPrints(walkSide(engine, event.symbol), event.m15);
+    const step = Math.max(1, Math.floor(m15Ms / 4));
+    for (let p = 0; p < prints.length; p++) {
+      const ts = event.m15.startTs + (p + 1) * step;
+      feed.setPrint(prints[p]!, ts, event.symbol);
+      const marked = await engine.evaluate(ts);
+      ticks += 1;
+      for (const id of marked.proximity.armed) {
+        if (!armed.includes(id)) armed.push(id);
+      }
+    }
+  }
+
+  const metrics = engine.metrics(Math.min(window.days, 365), window.toTs);
+  const account = engine.account();
+  const filled = engine.orders("filled").length;
+  const invalidated = engine.orders("invalidated").length;
+  store.close();
+  return {
+    mode: "paper",
+    replayMap: true,
+    watchlist: true,
+    oneBook: true,
+    days: window.days,
+    fromTs: window.fromTs,
+    toTs: window.toTs,
+    symbols,
+    skipped: opts.skipped ?? [],
+    htfBars,
+    ltfBars,
+    ticks,
+    slippage: "0",
+    quant: quantQuality,
+    accepted: [...new Set(accepted)],
+    armed,
+    filled,
+    invalidated,
+    metrics,
+    account,
+    ...(opts.trainDays != null ? { trainDays: opts.trainDays } : {}),
+    ...(train ? { train } : {}),
+  };
 }
 
 export async function runReplayMapWatchlist(opts: {

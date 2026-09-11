@@ -3,7 +3,7 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parsePaperArgs } from "../../src/paper/cli";
 import { PaperReject } from "../../src/paper/errors";
-import { runReplayMap, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow } from "../../src/paper/replay-map";
+import { runReplayMap, runReplayMapBook, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow } from "../../src/paper/replay-map";
 import type { AsOfStore } from "../../src/features/tape";
 import { intervalMsForTf, type DetectBar } from "../../src/zones/detect";
 import { paperConfig, tempDir, UNIVERSE } from "./helpers";
@@ -70,9 +70,17 @@ describe("paper replay-map", () => {
     expect(cmd).toEqual({ name: "replay-map", symbols: "watchlist", days: 180 });
     const one = parsePaperArgs(["replay-map", "ETHUSDT", "--days", "30"]);
     expect(one).toEqual({ name: "replay-map", symbols: ["ETHUSDT"], days: 30 });
+    expect(parsePaperArgs(["replay-map", "--days", "180", "--one-book", "--train-days", "90"])).toEqual({
+      name: "replay-map",
+      symbols: "watchlist",
+      days: 180,
+      oneBook: true,
+      trainDays: 90,
+    });
     expect(REPLAY_MAP_MAX_DAYS).toBe(180);
     expect(() => parsePaperArgs(["replay-map", "--days", "181"])).toThrow();
     expect(() => parsePaperArgs(["replay-map", "--days", "180", "--from", "2026-01-01"])).toThrow();
+    expect(() => parsePaperArgs(["replay-map", "--days", "90", "--train-days", "90"])).toThrow();
   });
 
   test("replayMapWindow --days 180 is now minus 180d", () => {
@@ -235,6 +243,44 @@ describe("paper replay-map", () => {
     expect(body.rows).toHaveLength(1);
     expect(body.rows[0]?.symbol).toBe("BTCUSDT");
     expect(body.skipped).toEqual([{ symbol: "ETHUSDT", error: "replay_no_bars" }]);
+    expect(existsSync(config.dbPath)).toBe(false);
+  });
+
+  test("one-book shares one equity across symbols", async () => {
+    delete process.env.MAP_ACCEPT;
+    process.env.AGENT_MAP = "0";
+    const dir = tempDir();
+    dirs.push(dir);
+    const config = await paperConfig(dir);
+    const htf = supplyHtf();
+    const lastClose = htf[htf.length - 1]!.startTs + HTF;
+    const m15Ms = 15 * 60 * 1000;
+    const m15: ReplayBar[] = [];
+    for (let t = 0; t < lastClose; t += m15Ms) {
+      m15.push({ startTs: t, open: "100", high: "101", low: "99", close: "100" });
+    }
+    const feedDb = join(dir, "market.sqlite");
+    const bookDb = join(dir, "replay-map.sqlite");
+    const body = await runReplayMapBook({
+      config,
+      universe: { symbols: ["BTCUSDT", "ETHUSDT"], intervals: ["15", "60", "240"] },
+      seriesBySymbol: {
+        BTCUSDT: { "240": htf, "60": [], "15": m15 },
+        ETHUSDT: { "240": htf, "60": [], "15": m15 },
+      },
+      fromTs: 0,
+      toTs: lastClose,
+      dbPath: bookDb,
+      feedDbPath: feedDb,
+    });
+    expect(body.oneBook).toBe(true);
+    expect(body.symbols.sort()).toEqual(["BTCUSDT", "ETHUSDT"]);
+    expect(body.htfBars).toBe(htf.length * 2);
+    expect(body.ltfBars).toBeGreaterThan(0);
+    expect(body.ticks).toBeGreaterThan(0);
+    expect(body.slippage).toBe("0");
+    expect(body.account.startingCash).toBe("10000");
+    expect(existsSync(bookDb)).toBe(true);
     expect(existsSync(config.dbPath)).toBe(false);
   });
 });
