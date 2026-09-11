@@ -19,12 +19,13 @@ Environment=BYBIT_DB_PATH=/var/lib/bybit-ws-tracker/market.sqlite
 Environment=PAPER_HTTP_HOST=127.0.0.1
 Environment=PAPER_HTTP_PORT=43181
 # 24/7: WS + paper tick + MAP dump on 1H/4H close. MAP_CLOSE=0 to disable dump.
-# Optional MAP_CLOSE_WEBHOOK=https://…  (JSON map.close — not an order)
 Environment=MAP_CLOSE=1
 # MAP_ACCEPT=0 disables the old auto-ledger of GET /zones cards on 4H close.
 # AGENT_MAP=0 disables agent policy (no-op); old MAP_ACCEPT copy still runs.
 # PAPER_PROXIMITY_ARM=0 disables auto rest of accepted ledger cards.
-# BYBIT_TAPE_SYMBOLS=watchlist expands CVD/liq to the full watchlist (default BTC ETH SOL).
+# Optional MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close  (JSON map.close — not an order)
+# Code default for BYBIT_TAPE_SYMBOLS is BTC ETH SOL. This unit expands CVD/liq to the watchlist.
+Environment=BYBIT_TAPE_SYMBOLS=watchlist
 NoNewPrivileges=true
 PrivateTmp=true
 

@@ -1,11 +1,12 @@
 # HTTP API
 
-Two localhost binds. JSON, `cache-control: no-store`, CORS `*`. No auth. No live orders.
+Three localhost binds. JSON, `cache-control: no-store`, CORS `*`. No auth. No live orders.
 
 | Bind | Process | Methods |
 | --- | --- | --- |
 | `http://127.0.0.1:43180` | Feed — public market cache | `GET`, `OPTIONS` |
 | `http://127.0.0.1:43181` | Paper — simulated broker | `GET`, `POST`, `OPTIONS` |
+| `http://127.0.0.1:43182` | Live-shadow — policy observer | `GET`, `POST`, `OPTIONS` |
 
 Unknown path → `404` `{ "error": "not found" }`. Wrong method → `405` `{ "error": "method not allowed" }`.
 
@@ -308,12 +309,31 @@ curl -sS http://127.0.0.1:43181/paper/week
 
 ---
 
+## Live-shadow (`:43182`)
+
+Separate process (`bun run live`). Own sqlite. Reads feed HTTP. **Does not** open the paper ledger, rest OCO, or send orders.
+
+| Route | Notes |
+| --- | --- |
+| `GET /live/health` | `{ ok, mode: "live-shadow", feed, db, gates, orders: false }` |
+| `GET /live/shadow` | Standing shadow cards + `wouldArm` + recent plan events |
+| `POST /live/map-close` | `{ interval, map }` (webhook `map.close` body). 4H plans; 1H → `plan: null` |
+
+Polls `GET /map-latest` for 4H fingerprint changes. Optional feed `MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close`. `LIVE_SHADOW=0` refuses start. `LIVE_DB_PATH` must not equal paper or feed sqlite.
+
+```bash
+curl -sS http://127.0.0.1:43182/live/health
+curl -sS http://127.0.0.1:43182/live/shadow
+```
+
+---
+
 ## Loop → routes
 
-| State | Feed | Paper |
-| --- | --- | --- |
-| MAP (4H close) | `GET /map`, `GET /zones` | `POST /paper/zones` (automatic: `MAP_ACCEPT` on; agent policy unless `AGENT_MAP=0`) |
-| ARM | — | tick / `POST /paper/arm` |
-| EVENT | optional `GET /confirm` | `GET /paper/event` |
+| State | Feed | Paper | Live-shadow |
+| --- | --- | --- | --- |
+| MAP (4H close) | `GET /map`, `GET /zones` | `POST /paper/zones` (automatic: `MAP_ACCEPT` on; agent policy unless `AGENT_MAP=0`) | `POST /live/map-close` / poll `/map-latest` (plan only) |
+| ARM | — | tick / `POST /paper/arm` | tick would-arm (no OCO) |
+| EVENT | optional `GET /confirm` | `GET /paper/event` | — |
 
 Playbook: [operator.md](operator.md). Paper spec: [paper-trading.md](paper-trading.md). Feed internals: [exchanges/BB.md](exchanges/BB.md).

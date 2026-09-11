@@ -6,9 +6,9 @@ Verify against `src/` before treating older PRs as product scope.
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Single-process Bun runtime | Live | `bun run start` → `src/index.ts` |
+| Single-process Bun runtime | Live | `bun run start` → `src/index.ts` (feed + paper). Live-shadow is a **second** process (`bun run live`) |
 | TypeScript 7.x | Live | `bun run typecheck` |
-| Bybit public WS market cache | Live | `src/feed/bb/` — 10 linear symbols including HYPEUSDT. L50 book on the full watchlist. Liq prints + CVD default BTC/ETH/SOL; `BYBIT_TAPE_SYMBOLS=watchlist` expands to every config symbol (`0` = none). Replay cannot invent historical publicTrade/liq. See [exchanges/BB.md](exchanges/BB.md) |
+| Bybit public WS market cache | Live | `src/feed/bb/` — 10 linear symbols including HYPEUSDT. L50 book on the full watchlist. Liq prints + CVD default BTC/ETH/SOL; `BYBIT_TAPE_SYMBOLS=watchlist` expands to every config symbol (`0` = none). Host unit sets watchlist. Replay cannot invent historical publicTrade/liq. See [exchanges/BB.md](exchanges/BB.md) |
 | Stale-pong watchdog | Live | Force reconnect if no pong after grace + `pongStaleMs` |
 | Kline lag watchdog | Live | `GET /health` `klineLag` — 15/60/240 stop advancing for `klineLagMs` (default 3m) while ticker WS is live. Log once on trip/recover. Not mid-watch PnL. |
 | REST kline gap-fill | Live | After subscribe; best-effort (REST may be geo-blocked; tries `restFallbacks`) |
@@ -41,6 +41,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Paper replay-map | Live | `bun run paper replay-map [SYMBOL] --days 180` (or `--from --to`). Omit symbol = watchlist (10). `--one-book` one equity. `--train-days 90` freezes family floor for the holdout. Walk confirmed 4H detect → MAP policy → 15m ARM/OCO. No future bars. Quant tape **as-of**. `quantCoverage` counts ok vs missing per field (flow/cascade empty window is missing, not 0). `skipReasons` counts MAP denials (`family_floor`, `map_skip`, bias, quant, `rr_fail`) separately from ledger `cancelCodes`. Metrics cover the window (not a trailing 7d). Slippage 0. Per-symbol `*-replay-map-SYMBOL.sqlite` unless `--one-book`. Empty tape → `skipped`. Retention `klinesDays` 180. `PAPER_MAP_SKIP` optional (unset = none). |
 | Paper review | Live | `bun run paper review FILE.json` — compact QC from a replay-map JSON (one-book / single / watchlist `rows[]`). Flags: `hype_accepted`, `flow_missing`, `cascade_missing`, `tape_skipped`, `quant_missing`, `coverage_absent`. `bun run paper ab BASE.json VARIANT.json` is variant minus base (accepted, skipReasons, equity). Does not walk bars. Lab: [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh). A/B: [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh) (one flag: `baseline` / `chop0` / `floor1` / `arm2` / `arm5` / `arm0` / `skiphype`). |
 | Paper operator surface | Live | `paper status` / `paper event` / `paper arm` / `paper day` / `paper week` — desk, OCO event, limit+alert, UTC session, 7-day funnel. |
+| Live shadow | Live | `bun run live` / `src/live/` — separate process, own sqlite, bind `:43182`. Mirrors MAP/ARM policy without `acceptZone` / `paperArm` / orders. Family always cold. `GET /live/health`, `GET /live/shadow`, `POST /live/map-close`. Polls feed `/map-latest`. `LIVE_SHADOW=0` off. See [ROADMAP.md](ROADMAP.md) |
 | Paper entry kill-switch | Live | New `paper open` / `paper limit` / `POST /paper/positions` / `POST /paper/orders` / `paper arm` reject when `GET /health` WS is down (`feed_unhealthy`) or `klineLag.ok=false` (`kline_lag`). `/brief-pack` `gates: { tradingAllowed, reasons }`. Does not auto-close opens. No extra mid-range alerts. |
 | Paper metrics | Live | SQLite `paper_events` + closed positions. `GET /paper/metrics?days=N` / `bun run paper metrics --days N`. Win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). `cancelCodes` splits noFill into `never_touched` vs `ops_cancel`; submit-time `kline_lag` / `feed_unhealthy` / `rr_below_min` increment `gates_block` / `rr_fail`. Bound pending tags `deep_mitigate` / `htf_break` / `expired` when the ledger card dies. `byFamily` / `score` rank MAP accept from 7-day paper stats (`PAPER_ZONE_SCORE=0` off). Optional `zoneId` on open/limit/arm. `/zones` does not auto-arm. |
 | Orderbook snapshot gate | Live | Clear RAM on connect; ignore deltas until snapshot/`u=1` |
@@ -52,7 +53,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Item | Why |
 | --- | --- |
 | Trading / private Bybit topics | Public linear market data only. No API keys. |
-| Live orders / paper→live bridge | Forbidden. Paper refuses to start if Bybit key env vars are set. |
+| Live orders / paper→live bridge | Forbidden. Paper and live-shadow refuse to start if Bybit key env vars are set. |
 | Browser dashboard | No operator UI. |
 | Timer scans / ICT-as-signal | MAP is 4H close. ICT is optional confirm, not a detector. |
 
@@ -60,7 +61,7 @@ Verify against `src/` before treating older PRs as product scope.
 
 | Doc | Purpose |
 | --- | --- |
-| [http.md](http.md) | HTTP API (`:43180` feed, `:43181` paper) |
+| [http.md](http.md) | HTTP API (`:43180` feed, `:43181` paper, `:43182` live-shadow) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Process + layers |
 | [exchanges/BB.md](exchanges/BB.md) | Bybit tracker feature |
 | [paper-trading.md](paper-trading.md) | Paper spec (risk, fees, OCO, replay) |

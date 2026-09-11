@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml)
 
-Public Bybit linear market cache and a **paper** PA + Supply/Demand engine. One Bun process. No API keys, no live orders, no paper→live.
+Public Bybit linear market cache and a **paper** PA + Supply/Demand engine. Feed + paper share one Bun process. Live-shadow is a second process. No API keys, no live orders, no paper→live.
 
 ## Overview
 
@@ -38,6 +38,8 @@ src/index.ts
 ├── src/feed/bb     :43180   public WS → SQLite → HTTP
 ├── src/zones                zone-card schema + HTF suggest
 └── src/paper       :43181   ledger, OCO, tick, metrics
+
+src/live            :43182   MAP/ARM shadow (own sqlite, no orders)
 ```
 
 Feed HTTP never imports paper. The composition root injects the paper desk into `/brief-pack` and accepts `/zones` cards on 4H close.
@@ -48,6 +50,7 @@ Feed HTTP never imports paper. The composition root injects the paper desk into 
 | [`src/feed/bb/`](src/feed/bb/) | Bybit public WS, SQLite, HTTP |
 | [`src/zones/`](src/zones/) | Zone-card v1, detector, proximity |
 | [`src/paper/`](src/paper/) | Paper broker |
+| [`src/live/`](src/live/) | Live-shadow observer |
 | [`deploy/`](deploy/) | systemd unit + `pull-restart.sh` |
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -77,6 +80,10 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_DB_PATH` | feed SQLite | Market cache |
 | `PAPER_HTTP_HOST` / `PAPER_HTTP_PORT` | `127.0.0.1` / `43181` | Paper bind |
 | `PAPER_DB_PATH` | paper SQLite | Ledger (must not equal the feed DB) |
+| `LIVE_HTTP_HOST` / `LIVE_HTTP_PORT` | `127.0.0.1` / `43182` | Live-shadow bind (`bun run live`) |
+| `LIVE_DB_PATH` | live-shadow SQLite | Must not equal paper or feed |
+| `LIVE_FEED_URL` | `http://127.0.0.1:43180` | Public tape. Does not start a second WS |
+| `LIVE_SHADOW` | on (`0` disables) | Kill switch for the observer process |
 | `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
 | `BYBIT_OI` | on (`0` disables) | REST OI history fill |
 | `BYBIT_OI_EXTREME` | `2` | `|deltaPct|` % for `oi.trend` / `oi.reading` |
@@ -101,7 +108,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
 
-`BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper refuses to start if they are set.
+`BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper and live-shadow refuse to start if they are set.
 
 Tight BTC stops at `defaultLeverage=1` may need more IM than cash. Seed is **10x**; if that IM still does not fit, paper raises leverage to the minimum that fits, capped at `min(account.leverageMax, spec.maxLeverage)` (watchlist max **150**). Existing paper DBs keep their stored `leverage_max` until PATCH.
 
@@ -109,6 +116,7 @@ Tight BTC stops at `defaultLeverage=1` may need more IM than cash. Seed is **10x
 
 ```bash
 bun run start                 # feed :43180 + paper :43181
+bun run live                  # shadow :43182 (own sqlite, no orders)
 bun run map                   # HTF watchlist + klineLag
 bun run zones                 # suggest-only cards (does not arm)
 bun run paper event           # pending OCO + alerts + accepted zones
@@ -164,11 +172,23 @@ Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`
 
 HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`. See [docs/http.md](docs/http.md).
 
+### Live-shadow (`127.0.0.1:43182`)
+
+Separate process. Own sqlite. Mirrors MAP/ARM **without** ledger writes or orders.
+
+```bash
+bun run live
+curl -sS http://127.0.0.1:43182/live/health
+curl -sS http://127.0.0.1:43182/live/shadow
+```
+
+`POST /live/map-close` accepts the feed `map.close` webhook. Polls `GET /map-latest` if the webhook is unset. Family is always cold (not a veto).
+
 Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](docs/paper-trading.md).
 
 ## Operations
 
-Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`). After a green merge:
+Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, `BYBIT_TAPE_SYMBOLS=watchlist`). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). After a green merge:
 
 ```bash
 deploy/pull-restart.sh
@@ -190,7 +210,7 @@ CI is GitHub Actions on `main` and PRs (no daemon, no keys). See [docs/ci.md](do
 
 | Doc | Content |
 | --- | --- |
-| [docs/http.md](docs/http.md) | HTTP API (`:43180` / `:43181`) |
+| [docs/http.md](docs/http.md) | HTTP API (`:43180` / `:43181` / `:43182`) |
 | [docs/operator.md](docs/operator.md) | MAP / ARM / EVENT |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers |
 | [docs/paper-trading.md](docs/paper-trading.md) | Paper spec |

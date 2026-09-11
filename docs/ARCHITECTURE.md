@@ -1,6 +1,6 @@
 # Architecture — Minh (明)
 
-One Bun process. I/O at the feed edge. Features under `src/`. See the [README](../README.md) for the 24/7 loop.
+One Bun process for feed + paper. Live-shadow is a **second** process. I/O at the feed edge. Features under `src/`. See the [README](../README.md) for the 24/7 loop.
 
 ```text
 src/index.ts
@@ -8,6 +8,9 @@ src/index.ts
   → src/zones       zone-card schema + HTF suggest + proximity math
   → src/agent       paper-only MAP bias + accept policy (no arm)
   → src/paper       simulated broker → SQLite → HTTP :43181
+
+src/live/cli.ts     live-shadow observer → SQLite → HTTP :43182
+                    (reads feed HTTP; never opens paper; never orders)
 ```
 
 Feed HTTP never imports paper. The composition root:
@@ -29,7 +32,8 @@ HTTP contract: [http.md](http.md).
 | `src/zones/` | Zone-card v1, HTF detector, ledger helpers, proximity |
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
-| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` | Tests |
+| `src/live/` | Live-shadow observer (own DB, own HTTP). Policy only |
+| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` `test/live/` | Tests |
 | `deploy/` | systemd + `pull-restart.sh` |
 | `.github/workflows/` | typecheck + test (no daemon, no keys) |
 
@@ -43,6 +47,7 @@ HTTP contract: [http.md](http.md).
 | Zones | `src/zones/` | Schema + suggest. `GET /zones` is GET-only. |
 | Agent | `src/agent/` | 4H HH/HL bias + accept policy. Does not arm. Does not change `/map`. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |
+| Live | `src/live/` | Shadow MAP/ARM. Own DB, own HTTP. Never `acceptZone` / `paperArm`. |
 
 ## Feed HTTP (`:43180`)
 
@@ -73,10 +78,19 @@ HTTP contract: [http.md](http.md).
 | `POST /paper/arm` | Manual limit + alert |
 | `GET /paper/status` `/metrics` `/day` | Desk |
 
+## Live-shadow HTTP (`:43182`)
+
+| Route | Role |
+| --- | --- |
+| `GET /live/health` | Feed gates + `orders: false` |
+| `GET /live/shadow` | Standing shadow cards + would-arm |
+| `POST /live/map-close` | 4H plan (webhook). 1H is a no-op |
+
 ## CLI
 
 ```text
 bun run start
+bun run live
 bun run map | zones | confirm | brief | brief-pack | query | backfill
 bun run paper zone accept ZONEID
 bun run paper event
