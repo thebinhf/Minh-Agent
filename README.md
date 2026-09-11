@@ -121,6 +121,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /oi` | OI history + `trend` (quant veto, not a signal) |
 | `GET /funding` | Funding history (quant veto, `crowded`) |
 | `GET /flow` | Taker CVD 4H/15m (quant veto, `buy_dom`/`sell_dom`) |
+| `GET /features` | As-of quant tape (debug). Not a signal |
 | `GET /liq-heatmap` | Actual liq prints (not orderbook `/heatmap`) |
 | `GET /liq-model` | Estimated forward map (not prints; not a target) |
 | `ws://127.0.0.1:43180/ws` | Local push: ticker / confirmed kline / liq |

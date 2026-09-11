@@ -46,6 +46,7 @@ describe("paper safety", () => {
       "src/paper/replay.ts",
       "src/paper/replay-map.ts",
       "src/features/tape.ts",
+      "src/features/snapshot.ts",
       "src/paper/ops.ts",
       "src/paper/proximity.ts",
       "src/paper/zone-accept.ts",
