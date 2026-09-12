@@ -28,6 +28,11 @@ Environment=MAP_CLOSE=1
 Environment=MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close
 # CVD/liq default is the full watchlist. BYBIT_TAPE_SYMBOLS=0 disables. Comma list intersects.
 Environment=BYBIT_TAPE_SYMBOLS=watchlist
+# Tape retention 4320h = 180d, matching retention.klinesDays. The defaults (flow 24h /
+# liq 48h) prune tape before a 180d walk can read it: quantCoverage.flow lands at ~0.3%.
+# Prune only moves forward — the window accrues from the day this is set, never retroactively.
+Environment=BYBIT_FLOW_HOURS=4320
+Environment=BYBIT_LIQ_HOURS=4320
 # Observer lock: GET only on paper HTTP/CLI mutations. MAP/ARM/EVENT still run.
 Environment=PAPER_OBSERVE=1
 # Fail-soft shadow slice on GET /observe. Unset = shadow.quality missing (not down).

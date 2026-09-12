@@ -298,10 +298,16 @@ Defaults live in `src/feed/bb/config.json`. Environment variables win when set:
 | `BYBIT_PONG_STALE_MS` | watchdog stale-pong threshold |
 | `BYBIT_KLINE_LAG_MS` | 15/60/240 kline-lag threshold while ticker is live (default 180000) |
 | `BYBIT_GAP_FILL` | `0` disables REST kline gap-fill |
+| `BYBIT_FLOW_HOURS` | `flow_bars` (1m taker CVD) retention in hours. Default 24 |
+| `BYBIT_LIQ_HOURS` | `liquidations` (actual prints) retention in hours. Default 48 |
 
-SQLite tables: `ticker_latest`, `ticker_snapshots` (opt-in), `orderbook_latest`, `orderbook_snapshots`, `klines`, `connection_health`, `meta`.
+SQLite tables: `ticker_latest`, `ticker_snapshots` (opt-in), `orderbook_latest`, `orderbook_snapshots`, `klines`, `open_interest`, `funding`, `flow_bars`, `liquidations`, `connection_health`, `meta`.
 
-Retention prune drops old snapshot rows and confirmed klines on a timer (`retention` in `config.json`), then checkpoints WAL and vacuums when the freelist is large.
+Retention prune drops old snapshot rows, confirmed klines, OI/funding, `flow_bars` and `liquidations` on a timer (`retention` in `config.json`, env overrides above), then checkpoints WAL and vacuums when the freelist is large.
+
+Only klines / OI / funding have a REST backfill. `flow_bars` and `liquidations` are WS-only, so their retention window is also the **entire** tape you will ever have — widen it before you need it, not after. At the default 24h a 180d `replay-map` walk sees `quantCoverage.flow` ≈ 0.3% (only the trailing day). Setting both to `4320` (180d) aligns the tape window with `klinesDays`, so coverage accrues to full over the following 180 days.
+
+Sizing: a 180d db is ~100 MB today, dominated by ~231k `klines` rows. `flow_bars` measured 5,139 rows / 24h across the 10-symbol watchlist; full coverage is 14.4k rows/day, so 180d projects to ~2.6M rows — order 100–300 MB extra depending on how many symbol-minutes actually print, plus ~30 MB of `liquidations`. Keep roughly 2× the file size free: `VACUUM` rewrites in place and steady-state pruning keeps the freelist above the 15% trigger.
 
 ## Deploy
 

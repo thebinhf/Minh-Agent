@@ -68,7 +68,7 @@ deploy/enable-mesh.sh
 deploy/pull-restart.sh
 ```
 
-`klinesDays` is already 180. OI/funding REST backfill is public (failover if api.bybit.com 403). Flow/liq only exist after WS collection starts. Walks are operator (`deploy/replay-map-ab.sh`), not CI. Do not invent CVD.
+`klinesDays` is already 180. OI/funding REST backfill is public (failover if api.bybit.com 403). Flow/liq only exist after WS collection starts — there is no REST backfill for either, so the tracker unit sets `BYBIT_FLOW_HOURS=4320` / `BYBIT_LIQ_HOURS=4320` (180d, matching `klinesDays`) and coverage accrues forward from the day that lands. Widening retention is not inventing history: everything before collection started stays missing. Walks are operator (`deploy/replay-map-ab.sh`), not CI. Do not invent CVD.
 
 REST geo-block is a venue constraint, not a product bug.
 
