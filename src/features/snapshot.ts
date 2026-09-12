@@ -1,6 +1,7 @@
 import { normalizeBriefSymbol } from "../feed/bb/brief";
 import type { TrackerDb } from "../feed/bb/db";
 import { intervalToMs, parseTimeArg } from "../feed/bb/recovery";
+import { asOfShock, type AsOfShock } from "./shock";
 import { asOfTape, type AsOfStore, type AsOfTape } from "./tape";
 
 export const FEATURES_NOTE = "quant veto — not a signal";
@@ -13,6 +14,7 @@ export type SnapshotFeatures = {
   quality: AsOfTape["quality"];
   fields: AsOfTape["fields"];
   tape: AsOfTape["tape"];
+  shock: AsOfShock;
   meta: {
     db: string;
     note: typeof FEATURES_NOTE;
@@ -54,7 +56,7 @@ function closedCloses(store: FeaturesStore, symbol: string, asof: number): strin
 }
 
 /**
- * Read-only as-of tape for debug. Does not arm. Missing stays null.
+ * Read-only as-of tape + 4H kline shock. Does not arm. Missing stays null.
  */
 export function buildFeatures(
   store: FeaturesStore,
@@ -75,6 +77,7 @@ export function buildFeatures(
     quality: row.quality,
     fields: row.fields,
     tape: row.tape,
+    shock: asOfShock(store, { symbol, asof: opts.asof }),
     meta: { db: opts.dbPath, note: FEATURES_NOTE },
   };
 }
