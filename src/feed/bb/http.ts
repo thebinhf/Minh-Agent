@@ -16,6 +16,7 @@ import { mapClosePath } from "./map-close";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 import { buildFeatures, parseFeaturesAsof } from "../../features/snapshot";
+import { buildTa, parseTaAsof } from "../../ta/snapshot";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
@@ -281,6 +282,21 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
           asof,
           dbPath: config.dbPath,
         }));
+      }
+
+      if (path === "/ta") {
+        const asof = parseTaAsof(url.searchParams.get("asof"));
+        if (typeof asof === "object") {
+          return json(asof, 400);
+        }
+        const body = buildTa(store, {
+          symbol: url.searchParams.get("symbol"),
+          interval: url.searchParams.get("interval"),
+          asof,
+          dbPath: config.dbPath,
+        });
+        if ("error" in body) return json(body, 400);
+        return json(body);
       }
 
       if (path === "/liq-heatmap") {
