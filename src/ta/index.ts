@@ -18,3 +18,4 @@ export {
 export { barsFromKlines, type TaBar } from "./bars";
 export { packMethods, type TaMethodResult, type TaQuality } from "./pack";
 export { buildTa, emptyTa, parseTaAsof, type SnapshotTa, type TaStore } from "./snapshot";
+export { taArmFromBars, taOscFromBars, taOscFromMap, type ArmTapeBar } from "./arm-tape";

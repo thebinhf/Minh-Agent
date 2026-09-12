@@ -56,6 +56,7 @@ describe("TA catalog", () => {
     const files = [
       "src/agent/policy.ts",
       "src/agent/quant.ts",
+      "src/agent/ta-gate.ts",
       "src/paper/map-accept.ts",
       "src/paper/proximity.ts",
       "src/live/plan.ts",

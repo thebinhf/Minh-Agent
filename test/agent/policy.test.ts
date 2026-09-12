@@ -13,6 +13,7 @@ const savedQuant = process.env.AGENT_QUANT;
 const savedScore = process.env.PAPER_ZONE_SCORE;
 const savedSkip = process.env.PAPER_MAP_SKIP;
 const savedChop = process.env.AGENT_BIAS_CHOP;
+const savedOsc = process.env.AGENT_TA_OSC;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -30,6 +31,8 @@ afterEach(() => {
   else process.env.PAPER_MAP_SKIP = savedSkip;
   if (savedChop === undefined) delete process.env.AGENT_BIAS_CHOP;
   else process.env.AGENT_BIAS_CHOP = savedChop;
+  if (savedOsc === undefined) delete process.env.AGENT_TA_OSC;
+  else process.env.AGENT_TA_OSC = savedOsc;
 });
 const SUPPLY: ZoneCard = {
   zoneId: "btc-4h-s-20260908-01",
@@ -127,6 +130,24 @@ describe("MAP policy", () => {
     expect(decideMapAccept({
       card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, acceptedForSymbol: 2, tradingAllowed: true,
     }).reason).toBe("ledger_cap");
+  });
+
+  test("AGENT_TA_OSC=accept denies opposing RSI/div; missing osc is not a veto", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.AGENT_TA_OSC;
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+      osc: { rsi14: 82, divergence: null },
+    }).reason).toBe("ok");
+    process.env.AGENT_TA_OSC = "accept";
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+      osc: { rsi14: 82, divergence: null },
+    }).reason).toBe("ta_osc");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("ok");
   });
 
   test("1H chop keeps 4H; 4H chop proximal only when last is in-band", () => {

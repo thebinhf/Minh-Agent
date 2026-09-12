@@ -4,6 +4,8 @@ import { httpFeed } from "../paper/feed";
 import { gatesFromFeedHealth } from "../paper/gates";
 import type { PaperKlineSnap } from "../paper/types";
 import type { QuantTape } from "../agent/quant";
+import { taArmFlagsOn, taOscMode, taShockMode, type TaArmTape } from "../agent/ta-gate";
+import { taArmFromBars, taBarsFromSnaps, taOscFromMap } from "../ta/arm-tape";
 import { liveEnabled, loadLiveConfig, type LiveConfig } from "./config";
 import { openLiveDb, type LiveDb } from "./db";
 import { startLiveHttp } from "./http";
@@ -19,7 +21,9 @@ export type LiveTape = {
   health: () => Promise<{ ok: boolean; url?: string; klineLagOk?: boolean }>;
   tickers: () => Promise<Array<{ symbol: string; lastPrice: string | null }>>;
   lastKline: (symbol: string, interval: string) => Promise<PaperKlineSnap | null>;
+  recentKlines?: (symbol: string, interval: string, limit: number) => Promise<PaperKlineSnap[]>;
   quant?: (symbol: string) => Promise<QuantTape | null>;
+  shock?: (symbol: string) => Promise<string | null>;
   mapLatest?: () => Promise<unknown | null>;
 };
 
@@ -38,7 +42,9 @@ function defaultTape(feedUrl: string): LiveTape {
     health: () => fetchFeedHealth(feedUrl),
     tickers: () => feed.tickers(),
     lastKline: (symbol, interval) => feed.lastKline(symbol, interval),
+    recentKlines: (symbol, interval, limit) => feed.recentKlines?.(symbol, interval, limit) ?? Promise.resolve([]),
     quant: (symbol) => feed.quant?.(symbol) ?? Promise.resolve(null),
+    shock: (symbol) => feed.shock?.(symbol) ?? Promise.resolve(null),
     async mapLatest() {
       try {
         const res = await fetch(`${base}/map-latest`);
@@ -79,6 +85,7 @@ export async function startLive(opts?: {
       fetchCards: opts?.fetchCards,
       minRr: config.minRr,
       health,
+      oscBySymbol: taOscMode() === "accept" ? taOscFromMap(info.map) : undefined,
     });
   }
 
@@ -126,6 +133,7 @@ export async function startLive(opts?: {
     }
     const kline15BySymbol = new Map<string, PaperKlineSnap>();
     const quantBySymbol = new Map<string, QuantTape>();
+    const taBySymbol = new Map<string, TaArmTape>();
     for (const row of store.accepted(now)) {
       if (!lastBySymbol.has(row.symbol)) continue;
       try {
@@ -142,12 +150,28 @@ export async function startLive(opts?: {
           // missing quant is not a veto
         }
       }
+      if (taArmFlagsOn()) {
+        try {
+          const h4 = tape.recentKlines
+            ? taBarsFromSnaps(await tape.recentKlines(row.symbol, "240", 120))
+            : [];
+          const m15 = tape.recentKlines
+            ? taBarsFromSnaps(await tape.recentKlines(row.symbol, "15", 40))
+            : [];
+          let shock: string | null = null;
+          if (taShockMode() === "arm" && tape.shock) shock = await tape.shock(row.symbol);
+          taBySymbol.set(row.symbol, taArmFromBars(h4, m15, shock));
+        } catch {
+          // missing TA tape is not a wait
+        }
+      }
     }
     const arm = planArm(store, lastBySymbol, {
       now,
       kline15BySymbol,
       quantBySymbol,
       tradingAllowed: gates.tradingAllowed,
+      taBySymbol: taBySymbol.size > 0 ? taBySymbol : undefined,
     });
     if (arm.wouldArm.length) {
       console.log(`[minh:live] would-arm ${arm.wouldArm.join(",")}`);

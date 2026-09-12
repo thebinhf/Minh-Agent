@@ -91,10 +91,37 @@ export function httpFeed(feedUrl: string): PaperFeed {
       return {
         interval,
         open: asText(row.open),
+        high: asText(row.high),
+        low: asText(row.low),
         close: asText(row.close),
+        volume: asText(row.volume),
         startTs: asTs(row.start_ts),
         confirm: asConfirm(row.confirm),
       };
+    },
+
+    async recentKlines(symbol: string, interval: string, limit: number): Promise<PaperKlineSnap[]> {
+      const cap = Math.max(1, Math.min(limit, 240));
+      const params = new URLSearchParams({
+        symbol,
+        interval,
+        limit: String(cap),
+        confirm: "true",
+      });
+      const res = await fetch(`${base}/klines?${params}`);
+      if (!res.ok) return [];
+      const body = (await res.json()) as { klines?: Array<Record<string, unknown>> };
+      const rows = body.klines ?? [];
+      return rows.slice().reverse().map((row) => ({
+        interval,
+        open: asText(row.open),
+        high: asText(row.high),
+        low: asText(row.low),
+        close: asText(row.close),
+        volume: asText(row.volume),
+        startTs: asTs(row.start_ts),
+        confirm: asConfirm(row.confirm),
+      }));
     },
 
     async quant(symbol: string): Promise<PaperQuantTape | null> {
@@ -105,6 +132,19 @@ export function httpFeed(feedUrl: string): PaperFeed {
         const body = await res.json() as { maps?: unknown[] };
         const item = body.maps?.[0] ?? body;
         return tapeFromMapItem(item);
+      } catch {
+        return null;
+      }
+    },
+
+    async shock(symbol: string): Promise<string | null> {
+      const params = new URLSearchParams({ symbol });
+      try {
+        const res = await fetch(`${base}/features?${params}`);
+        if (!res.ok) return null;
+        const body = await res.json() as { shock?: { reading?: unknown } };
+        const reading = body.shock?.reading;
+        return typeof reading === "string" && reading.length > 0 ? reading : null;
       } catch {
         return null;
       }

@@ -44,3 +44,27 @@ export {
   type QuantReason,
   type QuantTape,
 } from "./quant";
+
+export {
+  emptyTaArmTape,
+  emptyTaOscTape,
+  fibArmOk,
+  oscAcceptVeto,
+  revArmOk,
+  shockArmOk,
+  taArmFlagsOn,
+  taArmWait,
+  taFibMode,
+  taOscMode,
+  taRevMode,
+  taShockMode,
+  taVolMode,
+  volArmOk,
+  type TaArmTape,
+  type TaFibMode,
+  type TaOscMode,
+  type TaOscTape,
+  type TaRevMode,
+  type TaShockMode,
+  type TaVolMode,
+} from "./ta-gate";

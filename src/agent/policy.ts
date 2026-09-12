@@ -16,6 +16,7 @@ import { proximityDecision } from "../zones/proximity";
 import { familyFloorVeto, familyFromCard, familyKey, type FamilyStats } from "../paper/score";
 import { isMidRange, readMapBias, type MapBias, type SymbolBias } from "./bias";
 import { quantVeto, readMapQuant, type QuantTape } from "./quant";
+import { oscAcceptVeto, type TaOscTape } from "./ta-gate";
 
 /**
  * AGENT_MAP=0: this policy is a no-op. 4H close still uses the old MAP_ACCEPT
@@ -66,6 +67,7 @@ export const POLICY_REASONS = [
   "quant_flow",
   "family_floor",
   "map_skip",
+  "ta_osc",
 ] as const;
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 
@@ -153,6 +155,7 @@ export type MapPolicyInput = {
   now?: number;
   tape?: QuantTape | null;
   family?: FamilyStats | null;
+  osc?: TaOscTape | null;
 };
 
 /**
@@ -214,6 +217,8 @@ export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
   }
   const veto = quantVeto(card.side, input.tape);
   if (!veto.allow) return { allow: false, reason: veto.reason };
+  const oscVeto = oscAcceptVeto(card.side, input.osc);
+  if (oscVeto) return { allow: false, reason: oscVeto };
   return { allow: true, reason: "ok" };
 }
 
@@ -268,6 +273,7 @@ export async function onMapCloseAccept(
     feedUrl?: string;
     fetchCards?: (feedUrl: string) => Promise<unknown[]>;
     health?: PaperFeedHealth;
+    oscBySymbol?: Map<string, TaOscTape>;
   } = {},
 ): Promise<MapAcceptResult | null> {
   if (info.interval !== "240") return null;
@@ -318,6 +324,7 @@ export async function onMapCloseAccept(
       now,
       tape: tapes.get(card.symbol),
       family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+      osc: opts.oscBySymbol?.get(card.symbol) ?? null,
     });
     if (!decision.allow) {
       skipped += 1;

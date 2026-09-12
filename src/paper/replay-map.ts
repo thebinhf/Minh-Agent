@@ -29,6 +29,9 @@ import {
   type ReplayBar,
 } from "./replay";
 import { asOfTape, bumpQuantCoverage, emptyQuantCoverage, type AsOfStore, type QuantCoverage } from "../features/tape";
+import { asOfShock, type ShockStore } from "../features/shock";
+import { taOscFromBars, taBarsFromSnaps } from "../ta/arm-tape";
+import { taOscMode, taShockMode, type TaOscTape } from "../agent/ta-gate";
 import type { PaperConfig, PaperSide } from "./types";
 
 export const REPLAY_MAP_MAX_DAYS = 180;
@@ -129,6 +132,30 @@ function noteAsOf(
   const row = asOfTape(features, opts);
   bumpQuantCoverage(coverage, row.fields);
   return row;
+}
+
+function replaySnaps(bars: ReplayBar[], interval: string) {
+  return bars.map((bar) => ({
+    interval,
+    startTs: bar.startTs,
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume ?? null,
+    confirm: true as const,
+  }));
+}
+
+function oscFromReplay(bars: ReplayBar[]): TaOscTape | null {
+  if (taOscMode() !== "accept") return null;
+  return taOscFromBars(taBarsFromSnaps(replaySnaps(bars, "240")));
+}
+
+function shockFromStore(store: AsOfStore | null | undefined, symbol: string, asof: number): string | null {
+  if (taShockMode() !== "arm" || !store) return null;
+  if (typeof (store as Partial<ShockStore>).listKlines !== "function") return null;
+  return asOfShock(store as unknown as ShockStore, { symbol, asof }).reading;
 }
 
 export type ReplayMapRequest = {
@@ -270,6 +297,7 @@ export async function runReplayMap(opts: {
         return row?.tape ?? null;
       }
       : undefined,
+    shockAt: (sym, ts) => shockFromStore(features, sym, ts),
   });
   const engine = createPaperEngine({
     store,
@@ -350,6 +378,7 @@ export async function runReplayMap(opts: {
             now: asof,
             tape: asofRow?.tape ?? null,
             family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+            osc: oscFromReplay(bars240),
           });
           if (!decision.allow) {
             bumpSkipReason(skipReasons, decision.reason);
@@ -640,6 +669,7 @@ export async function runReplayMapBook(opts: {
         return row?.tape ?? null;
       }
       : undefined,
+    shockAt: (sym, ts) => shockFromStore(features, sym, ts),
   });
   const engine = createPaperEngine({
     store,

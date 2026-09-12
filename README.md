@@ -100,6 +100,11 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
 | `AGENT_BIAS_CHOP` | `deny` | 4H mixed chop is a MAP deny (`bias_chop`). `0` = off (A/B). `proximal` = allow only when last is in proximal→entry. 1H chop does not override 4H |
+| `PAPER_TA_FIB` | off | `arm` = ARM wait unless last is nearest fib 0.5/0.618. Missing fib is not a wait |
+| `AGENT_TA_OSC` | off | `accept` = MAP deny when RSI/div opposes the zone. Missing osc is not a veto |
+| `PAPER_TA_VOL` | off | `arm` = ARM wait on kline volume climax (rel ≥ 2). Volume 0 stays missing |
+| `PAPER_TA_SHOCK` | off | `arm` = ARM wait on 4H `impulse` / `vol_spike`. Quiet/missing pass |
+| `PAPER_TA_REV` | off | `arm` = ARM wait unless 15m reversal agrees. Missing reversal is not a wait |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
