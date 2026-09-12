@@ -119,6 +119,7 @@ bun run start                 # feed :43180 + paper :43181
 bun run live                  # shadow :43182 (own sqlite, no orders)
 bun run map                   # HTF watchlist + klineLag
 bun run zones                 # suggest-only cards (does not arm)
+bun run features scan --days 7  # as-of shock + tape points (does not arm)
 bun run paper event           # pending OCO + alerts + accepted zones
 bun run paper week            # 7-day funnel
 ```
@@ -135,7 +136,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /oi` | OI history + `trend` (quant veto, not a signal) |
 | `GET /funding` | Funding history (quant veto, `crowded`) |
 | `GET /flow` | Taker CVD 4H/15m (quant veto, `buy_dom`/`sell_dom`) |
-| `GET /features` | As-of quant tape (debug). Not a signal |
+| `GET /features` | As-of quant tape + 4H kline shock (debug). Not a signal |
 | `GET /liq-heatmap` | Actual liq prints (not orderbook `/heatmap`) |
 | `GET /liq-model` | Estimated forward map (not prints; not a target) |
 | `ws://127.0.0.1:43180/ws` | Local push: ticker / confirmed kline / liq |

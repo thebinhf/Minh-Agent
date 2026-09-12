@@ -28,7 +28,7 @@ HTTP contract: [http.md](http.md).
 | `src/index.ts` | Composition root |
 | `src/brief-pack.ts` | CLI for `GET /brief-pack` |
 | `src/feed/bb/` | Public WS, SQLite, read-only HTTP |
-| `src/features/` | As-of tape + `GET /features`. Missing ≠ 0. Does not arm |
+| `src/features/` | As-of tape + 4H kline shock + `GET /features` / `bun run features scan`. Missing ≠ 0. Does not arm |
 | `src/zones/` | Zone-card v1, HTF detector, ledger helpers, proximity |
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
@@ -59,7 +59,7 @@ HTTP contract: [http.md](http.md).
 | `GET /oi` | OI history (quant veto) |
 | `GET /funding` | Funding history (quant veto) |
 | `GET /flow` | Taker CVD 4H/15m (quant veto) |
-| `GET /features` | As-of quant tape (debug). Not a signal |
+| `GET /features` | As-of quant tape + 4H kline shock (debug). Not a signal |
 | `GET /liq-heatmap` | Actual liq prints heatmap |
 | `GET /liq-model` | Estimated forward map (inventory-capped) |
 | `ws://:43180/ws` | Local relay (ticker / kline close / liq) |

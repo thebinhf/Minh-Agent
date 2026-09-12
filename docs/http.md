@@ -120,18 +120,20 @@ curl -sS 'http://127.0.0.1:43180/flow?symbol=BTCUSDT'
 
 ### `GET /features`
 
-As-of quant tape (same `asOfTape` as `replay-map`). Debug only. Not a signal. Does not arm.
+As-of quant tape (same `asOfTape` as `replay-map`) plus closed-4H kline shock. Debug only. Not a signal. Does not arm.
 
 | Query | Default | Notes |
 | --- | --- | --- |
 | `symbol` | `BTCUSDT` | |
 | `asof` | now | Epoch ms or ISO. Junk → `400` `{ "error": "features_asof" }` |
 
-`quality` is `asof` when any field has a row at `asof`, else `missing`. `tape` is `{ crowded, oiReading, cascade, flowReading }` — nulls stay null. Future rows are cut. `/map` unchanged.
+`quality` is `asof` when any tape field has a row at `asof`, else `missing`. `tape` is `{ crowded, oiReading, cascade, flowReading }` — nulls stay null. `shock` is closed-4H kline displacement (`impulse` if body/ATR ≥ 1, `range_expand` if range/ATR ≥ 1.5, `vol_spike` if volume z ≥ 2 vs prior 20; volume 0 stays missing). Future rows are cut. `/map` unchanged. Not a signal. Does not arm.
 
 ```bash
 curl -sS 'http://127.0.0.1:43180/features?symbol=BTCUSDT'
 curl -sS 'http://127.0.0.1:43180/features?symbol=BTCUSDT&asof=2026-08-01T00:00:00.000Z'
+bun run features BTCUSDT --asof 2026-08-01T00:00:00.000Z
+bun run features scan --days 7
 ```
 
 ### `GET /liq-heatmap`

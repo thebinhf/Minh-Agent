@@ -18,6 +18,7 @@
     "confirm": "bun run src/feed/bb/confirm.ts",
     "zones": "bun run src/feed/bb/zones.ts",
     "paper": "bun run src/paper/cli.ts",
+    "features": "bun run src/features/cli.ts",
     "live": "bun run src/live/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
