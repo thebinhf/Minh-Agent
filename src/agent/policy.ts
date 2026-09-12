@@ -68,6 +68,10 @@ export const POLICY_REASONS = [
   "family_floor",
   "map_skip",
   "ta_osc",
+  "ta_fib",
+  "ta_vol",
+  "ta_shock",
+  "ta_rev",
 ] as const;
 export type PolicyReason = (typeof POLICY_REASONS)[number];
 

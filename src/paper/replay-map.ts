@@ -16,6 +16,7 @@ import {
   type DetectBar,
 } from "../zones/detect";
 import { detectAllSetups } from "../zones/setups";
+import type { ZoneCard } from "../zones/card";
 import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./config";
 import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine, type PaperUniverse } from "./engine";
@@ -31,7 +32,7 @@ import {
 import { asOfTape, bumpQuantCoverage, emptyQuantCoverage, type AsOfStore, type QuantCoverage } from "../features/tape";
 import { asOfShock, type ShockStore } from "../features/shock";
 import { taOscFromBars, taBarsFromSnaps } from "../ta/arm-tape";
-import { taOscMode, taShockMode, type TaOscTape } from "../agent/ta-gate";
+import { taOscMode, taShockMode, type TaArmReason, type TaOscTape } from "../agent/ta-gate";
 import type { PaperConfig, PaperSide } from "./types";
 
 export const REPLAY_MAP_MAX_DAYS = 180;
@@ -150,6 +151,45 @@ function replaySnaps(bars: ReplayBar[], interval: string) {
 function oscFromReplay(bars: ReplayBar[]): TaOscTape | null {
   if (taOscMode() !== "accept") return null;
   return taOscFromBars(taBarsFromSnaps(replaySnaps(bars, "240")));
+}
+
+function replayDecide(input: {
+  card: ZoneCard;
+  bias: SymbolBias;
+  last: number;
+  minRr: string | null;
+  held: number;
+  asof: number;
+  tape: ReturnType<typeof asOfTape>["tape"] | null;
+  family: FamilyStats | null | undefined;
+  bars240: ReplayBar[];
+}) {
+  return decideMapAccept({
+    card: input.card,
+    bias: input.bias,
+    last: input.last,
+    minRr: input.minRr,
+    acceptedForSymbol: input.held,
+    tradingAllowed: true,
+    now: input.asof,
+    tape: input.tape,
+    family: input.family ?? null,
+    osc: oscFromReplay(input.bars240),
+  });
+}
+
+function noteTaWaits(
+  skipReasons: Record<PolicyReason, number>,
+  seen: Set<string>,
+  waits: Array<{ zoneId: string; reason: TaArmReason }> | undefined,
+): void {
+  if (!waits) return;
+  for (const wait of waits) {
+    const key = `${wait.zoneId}:${wait.reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    bumpSkipReason(skipReasons, wait.reason);
+  }
 }
 
 function shockFromStore(store: AsOfStore | null | undefined, symbol: string, asof: number): string | null {
@@ -309,6 +349,7 @@ export async function runReplayMap(opts: {
   const accepted: string[] = [];
   const armed: string[] = [];
   const skipReasons = emptySkipReasons();
+  const taWaited = new Set<string>();
   let ticks = 0;
   let ltfBars = 0;
   let frozen: Map<string, FamilyStats> | null = opts.familyByKey ?? null;
@@ -368,17 +409,16 @@ export async function runReplayMap(opts: {
         ));
         for (const card of ranked) {
           const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
-          const decision = decideMapAccept({
+          const decision = replayDecide({
             card,
             bias,
             last,
             minRr,
-            acceptedForSymbol: held,
-            tradingAllowed: true,
-            now: asof,
+            held,
+            asof,
             tape: asofRow?.tape ?? null,
             family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
-            osc: oscFromReplay(bars240),
+            bars240,
           });
           if (!decision.allow) {
             bumpSkipReason(skipReasons, decision.reason);
@@ -420,6 +460,7 @@ export async function runReplayMap(opts: {
         for (const id of marked.proximity.armed) {
           if (!armed.includes(id)) armed.push(id);
         }
+        noteTaWaits(skipReasons, taWaited, marked.proximity.taWaits);
       }
     }
   }
@@ -686,6 +727,7 @@ export async function runReplayMapBook(opts: {
   const accepted: string[] = [];
   const armed: string[] = [];
   const skipReasons = emptySkipReasons();
+  const taWaited = new Set<string>();
   let ticks = 0;
   let ltfBars = 0;
   let frozen: Map<string, FamilyStats> | null = null;
@@ -756,16 +798,16 @@ export async function runReplayMapBook(opts: {
           ));
           for (const card of ranked) {
             const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
-            const decision = decideMapAccept({
+            const decision = replayDecide({
               card,
               bias,
               last,
               minRr,
-              acceptedForSymbol: held,
-              tradingAllowed: true,
-              now: asof,
+              held,
+              asof,
               tape: asofRow?.tape ?? null,
               family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+              bars240,
             });
             if (!decision.allow) {
               bumpSkipReason(skipReasons, decision.reason);
@@ -801,6 +843,7 @@ export async function runReplayMapBook(opts: {
       for (const id of marked.proximity.armed) {
         if (!armed.includes(id)) armed.push(id);
       }
+      noteTaWaits(skipReasons, taWaited, marked.proximity.taWaits);
     }
   }
 

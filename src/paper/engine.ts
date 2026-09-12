@@ -1403,7 +1403,7 @@ export function createPaperEngine(opts: {
   async function evaluateWithProximity(now = Date.now()) {
     const result = await evaluate(now);
     if (!host.engine) {
-      return { ...result, proximity: { armed: [] as string[], rejected: [] as string[] } };
+      return { ...result, proximity: { armed: [] as string[], rejected: [] as string[], taWaits: [] } };
     }
     const lastBySymbol = new Map<string, number>();
     for (const row of host.engine.zones("accepted", now)) {

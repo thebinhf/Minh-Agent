@@ -4,6 +4,7 @@ import {
   oscAcceptVeto,
   revArmOk,
   shockArmOk,
+  taArmReason,
   taArmWait,
   taFibMode,
   taOscMode,
@@ -55,6 +56,7 @@ describe("P7 TA gates", () => {
     expect(fibArmOk(0.382)).toBe(false);
     expect(fibArmOk(0.786)).toBe(false);
     expect(taArmWait("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null })).toBe(true);
+    expect(taArmReason("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null })).toBe("ta_fib");
     expect(taArmWait("demand", { fibNearest: 0.618, volumeRel: null, reversal: null, shock: null })).toBe(false);
     expect(taArmWait("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null }, "breakout")).toBe(false);
     expect(taArmWait("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null }, "reversal")).toBe(false);
