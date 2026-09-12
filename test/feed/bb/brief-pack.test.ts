@@ -427,10 +427,20 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
     try {
       const res = await fetch(`http://127.0.0.1:${bare.port}/observe`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { mode: string; paper: null; observer: boolean };
+      const body = await res.json() as {
+        mode: string;
+        paper: null;
+        observer: boolean;
+        feed: { ok: boolean };
+        gates: { tradingAllowed: boolean };
+        map: { quality: string };
+      };
       expect(body.mode).toBe("observe");
       expect(body.observer).toBe(true);
       expect(body.paper).toBeNull();
+      expect(body.feed.ok).toBe(false);
+      expect(body.gates.tradingAllowed).toBe(false);
+      expect(body.map.quality).toBe("missing");
     } finally {
       bare.stop();
     }
@@ -439,8 +449,9 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
     });
     try {
       const res = await fetch(`http://127.0.0.1:${injected.port}/observe`);
-      const body = await res.json() as { standing: { accepted: number } };
-      expect(body.standing.accepted).toBe(0);
+      const body = await res.json() as { paper: { standing: { accepted: number } }; map: { quality: string } };
+      expect(body.paper.standing.accepted).toBe(0);
+      expect(body.map.quality).toBe("missing");
     } finally {
       injected.stop();
       store.close();

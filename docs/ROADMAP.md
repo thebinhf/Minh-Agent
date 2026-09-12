@@ -30,13 +30,13 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 
 ## Next
 
-### P8 — setups besides S/D (this PR)
+### Observer desk (this PR)
 
-S/D impulse-base is **one** setup family, not the religion. `detectAllSetups` emits `sd` + breakout-retest + reversal cards onto the same ledger/ARM path. Family score keys `symbol:tf:side` for sd (compat) and `symbol:tf:side:breakout|reversal` for the new families. `GET /ta` remains overlay. ICT (FVG/BOS/CHOCH) stays confirm. Moon / Elliott / Gann / harmonic never emit.
+One `GET /observe`: feed health + last MAP dump + paper desk. You do not poll three ports. P7 flags stay off.
 
-Tape: CVD/liq default is the full watchlist. Replay still cannot invent history.
+### P7 — 180d A/B on the host (after mesh is up)
 
-Walks: `deploy/replay-map-ab.sh sd|breakout|reversal` vs `baseline`. Do not combine with P7 flags on the first walk.
+One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / rev. Do not combine with P8 A/B on the first walk. Replay does not invent CVD.
 
 ### P5 — multi-venue
 
