@@ -348,6 +348,13 @@ describe("paper replay-map", () => {
     const feed = await loadConfig();
     expect(feed.symbols).toContain("HYPEUSDT");
   });
+
+  test("one-book and single-symbol share replayDecide (osc)", async () => {
+    const src = await Bun.file("src/paper/replay-map.ts").text();
+    expect(src).toContain("osc: oscFromReplay");
+    expect(src.match(/decideMapAccept\(/g)?.length).toBe(1);
+    expect(src).toContain("noteTaWaits");
+  });
 });
 
 

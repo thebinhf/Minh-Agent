@@ -11,7 +11,7 @@ import {
 } from "../zones/proximity";
 import { familyStatsFromEngine } from "./map-accept";
 import { compareZoneCards, familyFromCard, familyKey, paperZoneScoreEnabled, type FamilyStats } from "./score";
-import { taArmWait, type TaArmTape } from "../agent/ta-gate";
+import { taArmReason, type TaArmReason, type TaArmTape } from "../agent/ta-gate";
 
 export function proximityArmEnabled(): boolean {
   return process.env.PAPER_PROXIMITY_ARM !== "0";
@@ -37,6 +37,7 @@ export function paperArmMaxSymbols(): number | null {
 export type ProximityArmResult = {
   armed: string[];
   rejected: string[];
+  taWaits: Array<{ zoneId: string; reason: TaArmReason }>;
 };
 
 /**
@@ -128,7 +129,8 @@ export async function runProximityArm(
 ): Promise<ProximityArmResult> {
   const armed: string[] = [];
   const rejected: string[] = [];
-  if (!proximityArmEnabled()) return { armed, rejected };
+  const taWaits: Array<{ zoneId: string; reason: TaArmReason }> = [];
+  if (!proximityArmEnabled()) return { armed, rejected, taWaits };
 
   const busy = zonedBusy(engine);
 
@@ -193,7 +195,11 @@ export async function runProximityArm(
     if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") return "skip";
     const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
     if (!veto.allow) return "skip";
-    if (taArmWait(card.side, taBySymbol?.get(card.symbol), card.setup)) return "skip";
+    const ta = taArmReason(card.side, taBySymbol?.get(card.symbol), card.setup);
+    if (ta) {
+      taWaits.push({ zoneId: card.zoneId, reason: ta });
+      return "skip";
+    }
     return "candidate";
   }
 
@@ -203,7 +209,7 @@ export async function runProximityArm(
       if (gateCard(row.card) !== "candidate") continue;
       await armCard(row.card);
     }
-    return { armed, rejected };
+    return { armed, rejected, taWaits };
   }
 
   const candidates: ZoneCard[] = [];
@@ -212,11 +218,11 @@ export async function runProximityArm(
   }
   const occupied = occupiedSymbols(engine);
   let free = cap - occupied.size;
-  if (candidates.length === 0 || free <= 0) return { armed, rejected };
+  if (candidates.length === 0 || free <= 0) return { armed, rejected, taWaits };
   if (candidates.length === 1) {
     const card = candidates[0]!;
     if (!occupied.has(card.symbol)) await armCard(card);
-    return { armed, rejected };
+    return { armed, rejected, taWaits };
   }
   const stats = familyByKey ?? familyStatsFromEngine(engine, now);
   const scoreOf = (card: ZoneCard) => (
@@ -234,5 +240,5 @@ export async function runProximityArm(
       free -= 1;
     }
   }
-  return { armed, rejected };
+  return { armed, rejected, taWaits };
 }

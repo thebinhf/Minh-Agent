@@ -188,6 +188,7 @@ describe("proximity arm", () => {
       new Map([["BTCUSDT", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null }]]),
     );
     expect(skip.armed).toEqual([]);
+    expect(skip.taWaits).toEqual([{ zoneId: "btc-4h-s-20260908-01", reason: "ta_fib" }]);
     expect(ctx.engine.orders("pending")).toEqual([]);
     const miss = await runProximityArm(
       ctx.engine,

@@ -16,7 +16,7 @@ import { parseZoneCard, type ZoneCard } from "../zones/card";
 import { proximityDecision } from "../zones/proximity";
 import { LEDGER_CAP_PER_SYMBOL } from "../zones/ledger";
 import type { LiveDb, ShadowCard } from "./db";
-import { taArmWait, type TaArmTape, type TaOscTape } from "../agent/ta-gate";
+import { taArmReason, type TaArmTape, type TaOscTape } from "../agent/ta-gate";
 
 export type ShadowMapPlan = {
   accepted: string[];
@@ -206,7 +206,7 @@ export function planArm(
     if (occupied.has(row.symbol)) continue;
     if (opts.tradingAllowed === false) continue;
     if (!quantVeto(row.card.side, opts.quantBySymbol?.get(row.symbol), "arm").allow) continue;
-    if (taArmWait(row.card.side, opts.taBySymbol?.get(row.symbol), row.card.setup)) continue;
+    if (taArmReason(row.card.side, opts.taBySymbol?.get(row.symbol), row.card.setup)) continue;
     candidates.push(row);
   }
 

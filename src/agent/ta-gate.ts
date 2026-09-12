@@ -143,16 +143,26 @@ export function revArmOk(side: ZoneSide, reading: string | null | undefined, set
   }
 }
 
+export type TaArmReason = "ta_fib" | "ta_vol" | "ta_shock" | "ta_rev";
+
+export function taArmReason(
+  side: ZoneSide,
+  tape: TaArmTape | null | undefined,
+  setup?: ZoneSetup | null,
+): TaArmReason | null {
+  if (!taArmFlagsOn()) return null;
+  if (!tape) return null;
+  if (!fibArmOk(tape.fibNearest, setup)) return "ta_fib";
+  if (!volArmOk(tape.volumeRel, setup)) return "ta_vol";
+  if (!shockArmOk(tape.shock, setup)) return "ta_shock";
+  if (!revArmOk(side, tape.reversal, setup)) return "ta_rev";
+  return null;
+}
+
 export function taArmWait(
   side: ZoneSide,
   tape: TaArmTape | null | undefined,
   setup?: ZoneSetup | null,
 ): boolean {
-  if (!taArmFlagsOn()) return false;
-  if (!tape) return false;
-  if (!fibArmOk(tape.fibNearest, setup)) return true;
-  if (!volArmOk(tape.volumeRel, setup)) return true;
-  if (!shockArmOk(tape.shock, setup)) return true;
-  if (!revArmOk(side, tape.reversal, setup)) return true;
-  return false;
+  return taArmReason(side, tape, setup) != null;
 }
