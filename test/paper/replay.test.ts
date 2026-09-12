@@ -250,5 +250,18 @@ describe("paper replay", () => {
     expect(mixed.rows[1]?.outcome).toBe("error");
     expect(mixed.rows[1]?.error).toBe("replay_window");
     expect(mixed.rows[0]?.outcome).toBe("filled");
+
+    const afterUnknown = await runReplayBatch({
+      config,
+      universe: { symbols: [...UNIVERSE.symbols, "NOTAUSDT"], intervals: UNIVERSE.intervals },
+      dbPath: join(dir, "replay-unknown.sqlite"),
+      setups: [
+        { ...setups[0]!, id: "unknown", symbol: "NOTAUSDT" },
+        { ...setups[0]!, id: "ok-after" },
+      ],
+      seriesFor: () => fillSeries,
+    });
+    expect(afterUnknown.rows[0]?.error).toBe("unknown_instrument");
+    expect(afterUnknown.rows[1]?.outcome).toBe("filled");
   });
 });
