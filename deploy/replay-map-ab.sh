@@ -2,7 +2,7 @@
 # One-flag paper A/B walk. Does not combine flags. Does not invent CVD/liq.
 # Paper-only. Does not touch the live ledger. Not GitHub Actions.
 #
-#   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype
+#   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev
 #   deploy/replay-map-ab.sh compare BASE.json VARIANT.json
 set -euo pipefail
 
@@ -26,7 +26,8 @@ if [[ "$NAME" == "compare" ]]; then
 fi
 
 # Clear A/B knobs, then set exactly one. Default = current main (ARM_MAX=2).
-unset AGENT_BIAS_CHOP PAPER_FAMILY_FLOOR_MIN_TRADES PAPER_MAP_SKIP PAPER_ARM_MAX
+unset AGENT_BIAS_CHOP PAPER_FAMILY_FLOOR_MIN_TRADES PAPER_MAP_SKIP PAPER_ARM_MAX \
+  PAPER_TA_FIB AGENT_TA_OSC PAPER_TA_VOL PAPER_TA_SHOCK PAPER_TA_REV
 case "$NAME" in
   baseline) ;;
   chop0) export AGENT_BIAS_CHOP=0 ;;
@@ -35,8 +36,13 @@ case "$NAME" in
   arm5) export PAPER_ARM_MAX=5 ;;
   arm0) export PAPER_ARM_MAX=0 ;;
   skiphype) export PAPER_MAP_SKIP=HYPEUSDT ;;
+  fib) export PAPER_TA_FIB=arm ;;
+  osc) export AGENT_TA_OSC=accept ;;
+  vol) export PAPER_TA_VOL=arm ;;
+  shock) export PAPER_TA_SHOCK=arm ;;
+  rev) export PAPER_TA_REV=arm ;;
   *)
-    echo "usage: $0 baseline|chop0|floor1|arm2|arm5|arm0|skiphype" >&2
+    echo "usage: $0 baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev" >&2
     echo "       $0 compare BASE.json VARIANT.json" >&2
     exit 1
     ;;

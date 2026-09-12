@@ -3,6 +3,8 @@ import { PaperReject } from "./errors";
 import { cancelCodeForReject, parseZoneId, rejectIfEntryBlocked } from "./gates";
 import { paperMetrics } from "./metrics";
 import { pendingProximityReject, pendingQuantSkipFill, runProximityArm } from "./proximity";
+import { taArmFlagsOn, taShockMode, type TaArmTape } from "../agent/ta-gate";
+import { taArmFromBars, taBarsFromSnaps } from "../ta/arm-tape";
 import { ZoneCardError, type CancelCode } from "../zones/card";
 import {
   LEDGER_CAP_PER_SYMBOL,
@@ -1422,12 +1424,34 @@ export function createPaperEngine(opts: {
         // missing 15m is wait, not reject
       }
     }
+    const taBySymbol = new Map<string, TaArmTape>();
+    if (taArmFlagsOn()) {
+      for (const symbol of lastBySymbol.keys()) {
+        try {
+          const h4 = feed.recentKlines
+            ? taBarsFromSnaps(await feed.recentKlines(symbol, "240", 120))
+            : [];
+          const m15 = feed.recentKlines
+            ? taBarsFromSnaps(await feed.recentKlines(symbol, "15", 40))
+            : [];
+          let shock: string | null = null;
+          if (taShockMode() === "arm" && feed.shock) {
+            shock = await feed.shock(symbol);
+          }
+          taBySymbol.set(symbol, taArmFromBars(h4, m15, shock));
+        } catch {
+          // missing TA tape is not a wait
+        }
+      }
+    }
     const proximity = await runProximityArm(
       host.engine,
       lastBySymbol,
       now,
       quantBySymbol,
       kline15BySymbol,
+      undefined,
+      taBySymbol.size > 0 ? taBySymbol : undefined,
     );
     return { ...result, proximity };
   }

@@ -16,6 +16,7 @@ import { parseZoneCard, type ZoneCard } from "../zones/card";
 import { proximityDecision } from "../zones/proximity";
 import { LEDGER_CAP_PER_SYMBOL } from "../zones/ledger";
 import type { LiveDb, ShadowCard } from "./db";
+import { taArmWait, type TaArmTape, type TaOscTape } from "../agent/ta-gate";
 
 export type ShadowMapPlan = {
   accepted: string[];
@@ -80,6 +81,7 @@ export async function planMapClose(
     fetchCards?: (feedUrl: string) => Promise<unknown[]>;
     minRr?: string | null;
     health?: { ok?: boolean; klineLagOk?: boolean };
+    oscBySymbol?: Map<string, TaOscTape>;
   } = {},
 ): Promise<ShadowMapPlan | null> {
   if (info.interval !== "240") return null;
@@ -121,6 +123,7 @@ export async function planMapClose(
       now,
       tape: tapes.get(card.symbol),
       family: null,
+      osc: opts.oscBySymbol?.get(card.symbol) ?? null,
     });
     rows.push({ card, allow: decision.allow, reason: decision.reason });
   }
@@ -172,6 +175,7 @@ export function planArm(
     kline15BySymbol?: Map<string, PaperKlineSnap>;
     quantBySymbol?: Map<string, QuantTape>;
     tradingAllowed?: boolean;
+    taBySymbol?: Map<string, TaArmTape>;
   } = {},
 ): ShadowArmPlan {
   const now = opts.now ?? Date.now();
@@ -202,6 +206,7 @@ export function planArm(
     if (occupied.has(row.symbol)) continue;
     if (opts.tradingAllowed === false) continue;
     if (!quantVeto(row.card.side, opts.quantBySymbol?.get(row.symbol), "arm").allow) continue;
+    if (taArmWait(row.card.side, opts.taBySymbol?.get(row.symbol))) continue;
     candidates.push(row);
   }
 

@@ -66,7 +66,10 @@ export type PaperTicker = {
 export type PaperKlineSnap = {
   interval: string;
   open?: string | null;
+  high?: string | null;
+  low?: string | null;
   close: string | null;
+  volume?: string | null;
   startTs: number | null;
   confirm: boolean | null;
 };
@@ -120,8 +123,12 @@ export type PaperFeed = {
   ticker(symbol: string): Promise<PaperTicker | null>;
   tickers(): Promise<PaperTicker[]>;
   lastKline(symbol: string, interval: string): Promise<PaperKlineSnap | null>;
+  /** Closed klines oldest-first. Missing = TA gates see null tape (not a veto). */
+  recentKlines?(symbol: string, interval: string, limit: number): Promise<PaperKlineSnap[]>;
   /** Optional /map tape for the single quant veto. Missing = do not invent. */
   quant?(symbol: string): Promise<PaperQuantTape | null>;
+  /** Optional 4H kline shock reading (`impulse` / `vol_spike` / …). Missing = not a wait. */
+  shock?(symbol: string): Promise<string | null>;
   /** Optional live L50. Missing / stale = fill last or limit; not a veto. */
   depth?(symbol: string): Promise<PaperDepth | null>;
 };

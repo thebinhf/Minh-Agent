@@ -29,6 +29,7 @@ export type ReplayBar = {
   high: string;
   low: string;
   close: string;
+  volume?: string | null;
 };
 
 export type ReplayRequest = LimitRequest & {
@@ -127,6 +128,8 @@ export function createReplayFeed(opts: {
   klineClosed?: boolean;
   /** As-of quant at the cursor. Missing = do not invent. */
   quantAt?: (symbol: string, ts: number) => PaperQuantTape | null;
+  /** As-of 4H shock reading. Missing = not a wait. */
+  shockAt?: (symbol: string, ts: number) => string | null;
 }): PaperFeed & {
   setPrint: (last: string, ts: number, forSymbol?: string) => void;
   cursorTs: () => number;
@@ -213,11 +216,41 @@ export function createReplayFeed(opts: {
         ? lastClosedBar(bars, cursorTs, intervalToMs(interval))
         : lastBarAtOrBefore(bars, cursorTs);
       if (!bar) return null;
-      return { interval, open: bar.open, close: bar.close, startTs: bar.startTs, confirm: true };
+      return {
+        interval,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume ?? null,
+        startTs: bar.startTs,
+        confirm: true,
+      };
+    },
+    async recentKlines(query: string, interval: string, limit: number): Promise<PaperKlineSnap[]> {
+      const bars = books.get(query.toUpperCase())?.[interval] ?? [];
+      const closed = opts.klineClosed
+        ? bars.filter((bar) => bar.startTs + intervalToMs(interval) <= cursorTs)
+        : bars.filter((bar) => bar.startTs <= cursorTs);
+      const cap = Math.max(1, Math.min(limit, 240));
+      return closed.slice(-cap).map((bar) => ({
+        interval,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume ?? null,
+        startTs: bar.startTs,
+        confirm: true,
+      }));
     },
     async quant(query: string): Promise<PaperQuantTape | null> {
       if (!opts.quantAt) return null;
       return opts.quantAt(query.toUpperCase(), cursorTs);
+    },
+    async shock(query: string): Promise<string | null> {
+      if (!opts.shockAt) return null;
+      return opts.shockAt(query.toUpperCase(), cursorTs);
     },
   };
   return feed;
@@ -253,6 +286,7 @@ export function loadReplaySeries(
     high: string | null;
     low: string | null;
     close: string | null;
+    volume?: string | null;
   }>;
   return rows
     .slice()
@@ -264,6 +298,7 @@ export function loadReplaySeries(
       high: row.high as string,
       low: row.low as string,
       close: row.close as string,
+      volume: row.volume == null || row.volume === "" || row.volume === "0" ? null : String(row.volume),
     }));
 }
 

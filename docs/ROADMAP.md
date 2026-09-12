@@ -13,7 +13,7 @@ Paper week. This is the research loop, not a live desk.
 
 Live-shadow (P4) is a **separate process**. It does not share the paper ledger and does not start in `bun run start`.
 
-## Shipped this cycle (P0–P4, P6 overlay)
+## Shipped this cycle (P0–P4, P6 overlay, P7 flags)
 
 | Slice | What | Default |
 | --- | --- | --- |
@@ -23,22 +23,23 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | **P3 A/B** | `bun run paper ab BASE.json VARIANT.json`. [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh). 180d: chop0/proximal/floor1 losers; `PAPER_ARM_MAX=2` winner; skip-HYPE not additive under ARM=2 | ARM max = 2. Skip default none |
 | **P4 live-shadow** | `bun run live` (`src/live/`). Own sqlite, bind `:43182`. Mirrors MAP/ARM without orders. Family always cold. [`deploy/live-shadow.service`](../deploy/live-shadow.service) | Operator enable. `LIVE_SHADOW=0` off |
 | **P6 overlay** | `GET /ta` 22 methods. Not a signal. Does not arm. ICT confirm only | Off the MAP path |
+| **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Missing tape is not a veto. One flag / one 180d A/B | All **off** |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec). Combined ARM=2 + skip-HYPE lost −216 vs ARM=2 HYPE-on.
 
 ## Next
 
-### P6 — TA overlay pack (this PR)
+### P7 — TA gates (this PR)
 
-`GET /ta` / `bun run ta` (`src/ta/`). 22 methods from local klines + calendar moon. Overlay / context / discretionary / ICT-confirm labels. **Does not** accept zones, rest OCO, or change MAP policy. Missing ≠ 0. FVG/BOS/CHOCH stay `ictAsSignal: false`.
+Flags only. Overlay pack still does not auto-arm. `GET /ta` is not a command source. ICT (FVG/BOS/CHOCH) stays confirm. Moon / Elliott / Gann / harmonic never enter policy.
 
-Not a signal pack. Not a dashboard.
+Lab: `bun run features scan --days 180` before turning `PAPER_TA_SHOCK` on. Walks: `deploy/replay-map-ab.sh fib|osc|vol|shock|rev`. Do not combine flags.
 
 ### P5 — multi-venue
 
 Second public cache (not Bybit) behind the same zone-card + paper desk. Venue adapter owns lot/tick/funding. Policy stays venue-agnostic.
 
-Not this PR.
+After a P7 winner. Not this PR.
 
 ## Host ops (when the box is up)
 

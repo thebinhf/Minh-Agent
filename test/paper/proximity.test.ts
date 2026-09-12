@@ -12,6 +12,7 @@ const savedQuant = process.env.AGENT_QUANT;
 const savedConfirm = process.env.PAPER_CONFIRM_15;
 const savedArmMax = process.env.PAPER_ARM_MAX;
 const savedScore = process.env.PAPER_ZONE_SCORE;
+const savedFib = process.env.PAPER_TA_FIB;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -27,6 +28,8 @@ afterEach(() => {
   else process.env.PAPER_ARM_MAX = savedArmMax;
   if (savedScore === undefined) delete process.env.PAPER_ZONE_SCORE;
   else process.env.PAPER_ZONE_SCORE = savedScore;
+  if (savedFib === undefined) delete process.env.PAPER_TA_FIB;
+  else process.env.PAPER_TA_FIB = savedFib;
 });
 
 async function engineWithLev(feed = mockFeed(), leverage = "10") {
@@ -164,6 +167,37 @@ describe("proximity arm", () => {
     expect(marked.proximity.rejected).toEqual(["btc-4h-s-20260908-01"]);
     expect(ctx.engine.zones("accepted")).toEqual([]);
     expect(ctx.engine.zones("rejected")[0]?.rejectCode).toBe("htf_break");
+  });
+
+  test("PAPER_TA_FIB=arm waits off 0.5/0.618; missing nearest still arms", async () => {
+    process.env.PAPER_TA_FIB = "arm";
+    delete process.env.PAPER_CONFIRM_15;
+    const ctx = await engineWithLev(armFeed());
+    ctx.engine.acceptZone(SUPPLY);
+    const lastBySymbol = new Map([["BTCUSDT", 79_280]]);
+    const k15 = new Map([["BTCUSDT", SUPPLY_15]]);
+    const now = Date.now();
+    const skip = await runProximityArm(
+      ctx.engine,
+      lastBySymbol,
+      now,
+      undefined,
+      k15,
+      undefined,
+      new Map([["BTCUSDT", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null }]]),
+    );
+    expect(skip.armed).toEqual([]);
+    expect(ctx.engine.orders("pending")).toEqual([]);
+    const miss = await runProximityArm(
+      ctx.engine,
+      lastBySymbol,
+      now,
+      undefined,
+      k15,
+      undefined,
+      new Map([["BTCUSDT", { fibNearest: null, volumeRel: null, reversal: null, shock: null }]]),
+    );
+    expect(miss.armed).toEqual(["btc-4h-s-20260908-01"]);
   });
 
   test("forming 15m waits — does not arm and does not reject", async () => {

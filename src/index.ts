@@ -3,6 +3,7 @@ import { EMPTY_BRIEF_PACK_PAPER } from "./feed/bb/brief-pack";
 import { startBybitTracker } from "./feed/bb/index";
 import { startPaper, type PaperFeature } from "./paper/index";
 import { paperDesk } from "./paper/ops";
+import { taOscFromMap } from "./ta/arm-tape";
 
 /**
  * Minh Agent composition root.
@@ -27,7 +28,10 @@ const bb = await startBybitTracker({
   onMapClose: async ({ interval, map }) => {
     try {
       const health = await loadFeedHealth();
-      const result = await onMapCloseAccept({ interval, map }, paperRef?.engine ?? null, { health });
+      const result = await onMapCloseAccept({ interval, map }, paperRef?.engine ?? null, {
+        health,
+        oscBySymbol: taOscFromMap(map),
+      });
       if (result?.accepted.length) {
         console.log(`[minh] map accept ${result.accepted.join(",")}`);
       }

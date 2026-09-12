@@ -11,6 +11,7 @@ import {
 } from "../zones/proximity";
 import { familyStatsFromEngine } from "./map-accept";
 import { compareZoneCards, familyFromCard, familyKey, paperZoneScoreEnabled, type FamilyStats } from "./score";
+import { taArmWait, type TaArmTape } from "../agent/ta-gate";
 
 export function proximityArmEnabled(): boolean {
   return process.env.PAPER_PROXIMITY_ARM !== "0";
@@ -123,6 +124,7 @@ export async function runProximityArm(
   quantBySymbol?: Map<string, PaperQuantTape>,
   kline15BySymbol?: Map<string, PaperKlineSnap>,
   familyByKey?: Map<string, FamilyStats>,
+  taBySymbol?: Map<string, TaArmTape>,
 ): Promise<ProximityArmResult> {
   const armed: string[] = [];
   const rejected: string[] = [];
@@ -191,6 +193,7 @@ export async function runProximityArm(
     if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") return "skip";
     const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
     if (!veto.allow) return "skip";
+    if (taArmWait(card.side, taBySymbol?.get(card.symbol))) return "skip";
     return "candidate";
   }
 
