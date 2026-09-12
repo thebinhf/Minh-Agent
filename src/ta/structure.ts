@@ -269,7 +269,7 @@ export function supplyDemand(
   bars: TaBar[],
   opts: { symbol: string; tf: string; intervalMs: number },
 ) {
-  if (bars.length < 8) return { quality: "missing" as const, reading: null, data: null };
+  if (bars.length < 16) return { quality: "missing" as const, reading: null, data: null };
   const detectBars = bars.map((bar) => ({
     startTs: bar.startTs,
     open: bar.open,

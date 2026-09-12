@@ -2,21 +2,33 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb } from "../../src/feed/bb/db";
+import { openDb, type TrackerDb } from "../../src/feed/bb/db";
 import { startHttp } from "../../src/feed/bb/http";
 import { intervalToMs } from "../../src/feed/bb/recovery";
 import type { TrackerConfig } from "../../src/feed/bb/types";
-import { TA_METHOD_IDS, TA_NOTE } from "../../src/ta/catalog";
+import { TA_KLINE_LIMIT, TA_METHOD_IDS, TA_NOTE } from "../../src/ta/catalog";
 import { buildTa, parseTaAsof } from "../../src/ta/snapshot";
 import { parseTaArgs } from "../../src/ta/cli";
 
 const dirs: string[] = [];
+const stores: TrackerDb[] = [];
 const H4 = intervalToMs("240");
 const ASOF = 1_700_000_000_000;
 
 afterEach(() => {
+  for (const store of stores.splice(0)) {
+    try {
+      store.close();
+    } catch {
+      // already closed
+    }
+  }
   for (const dir of dirs.splice(0)) {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Windows may keep the sqlite handle until process exit.
+    }
   }
 });
 
@@ -24,7 +36,9 @@ function tempDb() {
   const dir = mkdtempSync(join(tmpdir(), "minh-ta-"));
   dirs.push(dir);
   const dbPath = join(dir, "market.sqlite");
-  return { dbPath, store: openDb(dbPath) };
+  const store = openDb(dbPath);
+  stores.push(store);
+  return { dbPath, store };
 }
 
 function seedTrend(store: ReturnType<typeof openDb>, n = 40) {
@@ -134,5 +148,33 @@ describe("GET /ta", () => {
       server.stop();
       store.close();
     }
+  });
+
+  test("historical asof reads closed bars at asof, not the latest window", () => {
+    const { store, dbPath } = tempDb();
+    seedTrend(store, 40);
+    for (let i = 0; i < TA_KLINE_LIMIT + 10; i++) {
+      const start = ASOF + i * H4;
+      store.saveKline("BTCUSDT", {
+        start,
+        end: start + H4,
+        interval: "240",
+        open: "900",
+        high: "910",
+        low: "890",
+        close: "905",
+        volume: "1",
+        turnover: "1",
+        confirm: true,
+        timestamp: start + H4,
+      }, start + H4);
+    }
+    const snap = buildTa(store, { symbol: "BTCUSDT", asof: ASOF, dbPath });
+    expect("error" in snap).toBe(false);
+    if ("error" in snap) return;
+    expect(snap.quality).toBe("ok");
+    expect(snap.last?.startTs).toBe(ASOF - H4);
+    expect(snap.last?.close).not.toBe(905);
+    store.close();
   });
 });

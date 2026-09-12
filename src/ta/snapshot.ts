@@ -98,8 +98,11 @@ export function buildTa(
   if (typeof interval === "object") return interval;
   const symbol = normalizeBriefSymbol(opts.symbol);
   const asof = opts.asof;
-  const rows = readBriefKlines(store, symbol, interval, TA_KLINE_LIMIT);
   const intervalMs = packIntervalMs(interval);
+  const rows = readBriefKlines(store, symbol, interval, TA_KLINE_LIMIT, {
+    endTs: asof - intervalMs,
+    confirm: true,
+  });
   const bars = barsFromKlines(rows, asof, intervalMs);
   const last = lastBar(bars);
   const methods = packMethods(bars, { symbol, tf: interval, intervalMs, asof });

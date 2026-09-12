@@ -141,13 +141,21 @@ export function readBriefTicker(store: BriefStore, symbol: string): BriefTicker 
   }, { ...EMPTY_TICKER });
 }
 
-export function readBriefKlines(store: BriefStore, symbol: string, interval: string, limit: number): BriefKline[] {
+export function readBriefKlines(
+  store: BriefStore,
+  symbol: string,
+  interval: string,
+  limit: number,
+  opts?: { endTs?: number; confirm?: boolean },
+): BriefKline[] {
   return tryRead(() => {
     const rows = store.listKlines({
       symbol,
       interval,
       limit,
       maxLimit: Math.max(limit, 1),
+      ...(opts?.endTs != null ? { endTs: opts.endTs } : {}),
+      ...(opts?.confirm != null ? { confirm: opts.confirm } : {}),
     }) as Array<Record<string, unknown>> | unknown;
     if (!Array.isArray(rows)) return [];
     // listKlines is start_ts DESC (newest first). Reverse so the last row is newest.

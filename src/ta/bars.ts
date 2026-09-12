@@ -35,7 +35,7 @@ export function barsFromKlines(rows: BriefKline[], asof?: number, intervalMs?: n
   const out: TaBar[] = [];
   const cap = asof != null && intervalMs != null ? asof - intervalMs : null;
   for (const row of rows) {
-    if (row.confirm === false) continue;
+    if (row.confirm !== true) continue;
     const startTs = row.start_ts;
     const open = num(row.open);
     const high = num(row.high);
@@ -51,7 +51,7 @@ export function barsFromKlines(rows: BriefKline[], asof?: number, intervalMs?: n
       high,
       low,
       close,
-      volume: volume != null && volume >= 0 ? volume : null,
+      volume: volume != null && volume > 0 ? volume : null,
       confirm: true,
     });
   }
@@ -171,7 +171,8 @@ export function stochastic(bars: TaBar[], period = 14, smooth = 3): { k: number;
       if (bar.low < lo) lo = bar.low;
     }
     const range = hi - lo;
-    raw.push(range === 0 ? 50 : ((window[window.length - 1]!.close - lo) / range) * 100);
+    if (range === 0) return null;
+    raw.push(((window[window.length - 1]!.close - lo) / range) * 100);
   }
   if (raw.length < smooth) return null;
   const k = sma(raw, smooth);
