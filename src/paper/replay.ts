@@ -74,10 +74,30 @@ export function replayDbPath(paperDbPath: string): string {
   return paperDbPath.replace(/\.sqlite$/i, "") + "-replay.sqlite";
 }
 
+export function replaySetupDbPath(dbPath: string, id: string, index: number): string {
+  const slug = id.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "setup";
+  return dbPath.replace(/\.sqlite$/i, "") + `-${index}-${slug}.sqlite`;
+}
+
 export function resetReplayDb(dbPath: string): void {
   for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    if (existsSync(path)) unlinkSync(path);
+    unlinkReplayFile(path);
   }
+}
+
+function unlinkReplayFile(path: string): void {
+  const delaysMs = [0, 25, 50, 100, 200, 400];
+  let last: unknown;
+  for (const delayMs of delaysMs) {
+    if (delayMs > 0) Bun.sleepSync(delayMs);
+    try {
+      if (existsSync(path)) unlinkSync(path);
+      return;
+    } catch (error) {
+      last = error;
+    }
+  }
+  throw last;
 }
 
 function lastBarAtOrBefore(series: ReplayBar[], ts: number): ReplayBar | null {
@@ -272,67 +292,70 @@ export async function runReplay(opts: {
 
   resetReplayDb(dbPath);
   const store = openPaperDb(dbPath, config.account);
-  const feed = createReplayFeed({ symbol, series, fundingRate: request.fundingRate });
-  const engine = createPaperEngine({
-    store,
-    feed,
-    config: { ...config, dbPath, staleMs: Math.max(config.staleMs, 60_000) },
-    universe,
-  });
+  try {
+    const feed = createReplayFeed({ symbol, series, fundingRate: request.fundingRate });
+    const engine = createPaperEngine({
+      store,
+      feed,
+      config: { ...config, dbPath, staleMs: Math.max(config.staleMs, 60_000) },
+      universe,
+    });
 
-  const first = walk[0]!;
-  feed.setPrint(first.open, Math.min(request.fromTs, first.startTs));
-  await engine.limit({
-    symbol,
-    side: request.side,
-    limitPrice: request.limitPrice,
-    stopLoss: request.stopLoss,
-    takeProfit: request.takeProfit,
-    takeProfits: request.takeProfits,
-    timeframes: request.timeframes,
-    riskPct: request.riskPct,
-    leverage: request.leverage,
-    note: request.note,
-    postOnly: request.postOnly,
-    oco: request.oco,
-    invalidatePrice: request.invalidatePrice,
-  }, feed.cursorTs());
+    const first = walk[0]!;
+    feed.setPrint(first.open, Math.min(request.fromTs, first.startTs));
+    await engine.limit({
+      symbol,
+      side: request.side,
+      limitPrice: request.limitPrice,
+      stopLoss: request.stopLoss,
+      takeProfit: request.takeProfit,
+      takeProfits: request.takeProfits,
+      timeframes: request.timeframes,
+      riskPct: request.riskPct,
+      leverage: request.leverage,
+      note: request.note,
+      postOnly: request.postOnly,
+      oco: request.oco,
+      invalidatePrice: request.invalidatePrice,
+    }, feed.cursorTs());
 
-  const events: EventView[] = [];
-  let ticks = 0;
-  const step = Math.max(1, Math.floor(intervalToMs(request.interval) / 4));
-  for (const bar of walk) {
-    const prints = replayPrints(side, bar);
-    for (let i = 0; i < prints.length; i++) {
-      const ts = bar.startTs + i * step;
-      feed.setPrint(prints[i]!, ts);
-      const marked = await engine.evaluate(ts);
-      events.push(...marked.events);
-      ticks += 1;
-      feed.bumpFunding(ts);
-      if (marked.filled.length > 0) break;
+    const events: EventView[] = [];
+    let ticks = 0;
+    const step = Math.max(1, Math.floor(intervalToMs(request.interval) / 4));
+    for (const bar of walk) {
+      const prints = replayPrints(side, bar);
+      for (let i = 0; i < prints.length; i++) {
+        const ts = bar.startTs + i * step;
+        feed.setPrint(prints[i]!, ts);
+        const marked = await engine.evaluate(ts);
+        events.push(...marked.events);
+        ticks += 1;
+        feed.bumpFunding(ts);
+        if (marked.filled.length > 0) break;
+      }
     }
-  }
 
-  const orders = engine.orders("all");
-  const positions = engine.positions("all");
-  const account = engine.account();
-  store.close();
-  return {
-    mode: "paper",
-    replay: true,
-    symbol,
-    interval: request.interval,
-    fromTs: request.fromTs,
-    toTs: request.toTs,
-    bars: walk.length,
-    ticks,
-    slippage: "0",
-    order: orders[0] ?? null,
-    position: positions[0] ?? null,
-    events,
-    account,
-  };
+    const orders = engine.orders("all");
+    const positions = engine.positions("all");
+    const account = engine.account();
+    return {
+      mode: "paper",
+      replay: true,
+      symbol,
+      interval: request.interval,
+      fromTs: request.fromTs,
+      toTs: request.toTs,
+      bars: walk.length,
+      ticks,
+      slippage: "0",
+      order: orders[0] ?? null,
+      position: positions[0] ?? null,
+      events,
+      account,
+    };
+  } finally {
+    store.close();
+  }
 }
 
 export async function runReplayFromFeed(request: ReplayRequest): Promise<ReplayResult> {
@@ -491,7 +514,7 @@ export async function runReplayBatch(opts: {
         universe: opts.universe,
         series: opts.seriesFor(setup),
         request: setup,
-        dbPath: opts.dbPath,
+        dbPath: replaySetupDbPath(opts.dbPath, setup.id, rows.length),
       });
       rows.push({ id: setup.id, symbol: result.symbol, side: setup.side, ...replayOutcome(result) });
     } catch (error) {
