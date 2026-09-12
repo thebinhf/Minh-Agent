@@ -236,6 +236,7 @@ CI is GitHub Actions on `main` and PRs (no daemon, no keys). See [docs/ci.md](do
 | [docs/exchanges/BB.md](docs/exchanges/BB.md) | Feed |
 | [docs/FEATURES.md](docs/FEATURES.md) | Inventory |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Lab → live-shadow phases (locks stay) |
+| [docs/live-execution.md](docs/live-execution.md) | Live desk — staged plan, not shipped |
 | [docs/ci.md](docs/ci.md) | Actions + host restart |
 
 ## Non-goals
