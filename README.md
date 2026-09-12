@@ -13,7 +13,7 @@ The host loop does not wait for a click:
 3. Last in proximal + confirmed 15m with the zone → post-only GTC + OCO.
 4. Tick fills at the limit, or invalidates through SL. Open uses SL/TP.
 
-Watch `GET /observe` (feed) or `GET /paper/observe`. Event-once notify (log / Telegram / webhook). `PAPER_OBSERVE=1` on the host unit blocks POST arm/open. Kill switch: `PAPER_OBSERVE=0` via `systemctl edit`.
+Watch `GET /observe` (feed + tape coverage + live-shadow + paper). Event-once notify (log / Telegram / webhook). `PAPER_OBSERVE=1` on the host unit blocks POST arm/open. Kill switch: `PAPER_OBSERVE=0` via `systemctl edit`.
 
 ```text
 deploy/enable-mesh.sh
@@ -92,6 +92,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `LIVE_DB_PATH` | live-shadow SQLite | Must not equal paper or feed |
 | `LIVE_FEED_URL` | `http://127.0.0.1:43180` | Public tape. Does not start a second WS |
 | `LIVE_SHADOW` | on (`0` disables) | Kill switch for the observer process |
+| `LIVE_SHADOW_URL` | unset | Host unit sets `http://127.0.0.1:43182/live/shadow` for `GET /observe`. Unset = `shadow.quality` missing |
 | `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
 | `BYBIT_OI` | on (`0` disables) | REST OI history fill |
 | `BYBIT_OI_EXTREME` | `2` | `|deltaPct|` % for `oi.trend` / `oi.reading` |

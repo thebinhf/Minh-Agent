@@ -14,6 +14,7 @@ git checkout main
 git pull --ff-only origin main
 bun install --frozen-lockfile
 sudo systemctl daemon-reload
-sudo systemctl restart "$UNIT"
-sudo systemctl try-restart live-shadow.service || true
-sudo systemctl --no-pager --full status "$UNIT"
+sudo systemctl restart bybit-tracker.service
+sudo systemctl restart live-shadow.service || true
+sudo systemctl try-restart replay-map-lab.timer || true
+sudo systemctl --no-pager --full status bybit-tracker.service live-shadow.service replay-map-lab.timer

@@ -30,8 +30,11 @@ Environment=MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close
 Environment=BYBIT_TAPE_SYMBOLS=watchlist
 # Observer lock: GET only on paper HTTP/CLI mutations. MAP/ARM/EVENT still run.
 Environment=PAPER_OBSERVE=1
+# Fail-soft shadow slice on GET /observe. Unset = shadow.quality missing (not down).
+Environment=LIVE_SHADOW_URL=http://127.0.0.1:43182/live/shadow
+# Optional observer pings: PAPER_NOTIFY=telegram|webhook plus token/URL.
 NoNewPrivileges=true
 PrivateTmp=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target minh.target

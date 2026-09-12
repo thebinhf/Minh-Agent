@@ -68,7 +68,7 @@ HTTP contract: [http.md](http.md).
 | `ws://:43180/ws` | Local relay (ticker / kline close / liq) |
 | `GET /confirm` | Optional LTF (15 / 5) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
-| `GET /observe` | Feed health + last MAP + paper desk. Read-only. Does not arm |
+| `GET /observe` | Feed + gates + last MAP + tape coverage + fail-soft shadow + paper. Read-only. Does not arm |
 | `GET /health` | WS + kline lag |
 | `GET /brief` `/chart` `/depth` `/heatmap` `/market` | Snapshots |
 
