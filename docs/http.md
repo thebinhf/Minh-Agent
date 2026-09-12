@@ -204,7 +204,7 @@ ws.onopen = () => ws.send(JSON.stringify({ op: "subscribe", args: ["ticker.BTCUS
 
 ### `GET /observe`
 
-Read-only machine snapshot: compact feed health + `gates` + last `map-latest` symbols + injected paper desk. `map.quality` is `missing` until the first 1H/4H close. `paper` is `null` if paper is down. Does not arm.
+Read-only machine snapshot: compact feed health + `gates` + last `map-latest` symbols + **tape coverage** (oi/funding/flow/liq ok vs missing — empty window is missing, not 0) + fail-soft **live-shadow** (`LIVE_SHADOW_URL`; unset = `missing`) + injected paper desk. `map.quality` is `missing` until the first 1H/4H close. `paper` is `null` if paper is down. Does not arm.
 
 ### `GET /brief`
 

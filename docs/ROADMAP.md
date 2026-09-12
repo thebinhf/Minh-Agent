@@ -1,6 +1,6 @@
 # Roadmap — Minh (明)
 
-Paper week. This is the research loop, not a live desk.
+Paper week. **MVP frozen** on this loop. You observe.
 
 ## Locks (do not regress)
 
@@ -13,6 +13,20 @@ Paper week. This is the research loop, not a live desk.
 
 Live-shadow (P4) is a **separate process**. It does not share the paper ledger and does not start in `bun run start`.
 
+## MVP (in)
+
+| Slice | What | Default |
+| --- | --- | --- |
+| Feed | Public Bybit linear WS + REST failover. Tape = full watchlist | On |
+| MAP / zones | 4H close → S/D + breakout + reversal cards → policy accept | `PAPER_SETUPS` all three |
+| ARM / EVENT | Proximal + 15m confirm → post-only OCO. Tick fill / SL/TP | On. `PAPER_ARM_MAX=2` |
+| Observer | Host `PAPER_OBSERVE=1`. `GET /observe` (feed + gates + MAP + tape + shadow + paper) | systemd |
+| Mesh | `minh.target` → tracker + live-shadow + nightly lab | `enable-mesh.sh` |
+| Quant | Cascade / crowded / OI / CVD veto. Missing ≠ veto | On |
+| Overlay | `GET /ta` 22 methods. `signal: false`. Does not arm | Overlay only |
+
+P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP.
+
 ## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups)
 
 | Slice | What | Default |
@@ -23,41 +37,41 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | **P3 A/B** | `bun run paper ab BASE.json VARIANT.json`. [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh). 180d: chop0/proximal/floor1 losers; `PAPER_ARM_MAX=2` winner; skip-HYPE not additive under ARM=2 | ARM max = 2. Skip default none |
 | **P4 live-shadow** | `bun run live` (`src/live/`). Own sqlite, bind `:43182`. Mirrors MAP/ARM without orders. Family always cold. [`deploy/live-shadow.service`](../deploy/live-shadow.service) | Operator enable. `LIVE_SHADOW=0` off |
 | **P6 overlay** | `GET /ta` 22 methods. Not a signal. Does not arm. ICT confirm only | Off the MAP path |
-| **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Setup-aware (`src/agent/strategy.ts`): fib/rev = S/D only; shock = S/D+breakout; vol = all; reversal cards skip rev. `--one-book` applies osc. ARM waits count once per card in `skipReasons` (`ta_fib`/`ta_vol`/`ta_shock`/`ta_rev`). Missing tape is not a veto. One flag / one 180d A/B | All **off** |
+| **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Setup-aware (`src/agent/strategy.ts`): fib/rev = S/D only; shock = S/D+breakout; vol = all; reversal cards skip rev. `--one-book` applies osc. ARM waits count once per card in `skipReasons` (`ta_fib`/`ta_vol`/`ta_shock`/`ta_rev`). Missing tape is not a veto. One flag / one 180d A/B | All **off** — **not MVP** |
 | **P8 setups** | Breakout retest + reversal candle emit zone-cards (same MAP/ARM/EVENT). `PAPER_SETUPS` default `sd,breakout,reversal`. `0` = S/D only. GET `/ta` still `signal: false`. ICT/discretionary do not emit | On. A/B: `sd` vs default |
+| **Observer** | `PAPER_OBSERVE=1` GET-only mutations. `GET /observe` machine snapshot | Host unit |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec). Combined ARM=2 + skip-HYPE lost −216 vs ARM=2 HYPE-on.
 
-## Next
+## After MVP (research, not product)
 
-### Observer desk (this PR)
+### P7 — 180d A/B on the host
 
-One `GET /observe`: feed health + last MAP dump + paper desk. You do not poll three ports. P7 flags stay off.
+One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / rev. Do not combine with P8 A/B on the first walk. Replay does not invent CVD. Do not turn a flag on in systemd until that walk wins.
 
-### P7 — 180d A/B on the host (after mesh is up)
+### P8 A/B
 
-One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / rev. Do not combine with P8 A/B on the first walk. Replay does not invent CVD.
+`deploy/replay-map-ab.sh sd` vs `baseline` (all three families). Same honesty: missing flow/liq stays missing.
 
 ### P5 — multi-venue
 
-Second public cache (not Bybit) behind the same zone-card + paper desk. Venue adapter owns lot/tick/funding. Policy stays venue-agnostic.
+Second public cache (not Bybit) behind the same zone-card + paper desk. After a P7 winner.
 
-After a P7 winner. Not this PR.
-
-## Host ops (when the box is up)
+## Host ops (MVP)
 
 ```text
-# 24/7 autonomous mesh — you observe
 deploy/enable-mesh.sh
-# tracker (PAPER_OBSERVE=1) + live-shadow + replay-map-lab.timer
+# minh.target → tracker (PAPER_OBSERVE=1) + live-shadow + lab.timer
 # GET http://127.0.0.1:43180/observe
 
 # after a green merge
 deploy/pull-restart.sh
 ```
 
-`klinesDays` is already 180. OI/funding REST backfill is public. Flow/liq only exist after WS collection starts. Walks are operator (`deploy/replay-map-ab.sh`), not CI. Do not invent CVD.
+`klinesDays` is already 180. OI/funding REST backfill is public (failover if api.bybit.com 403). Flow/liq only exist after WS collection starts. Walks are operator (`deploy/replay-map-ab.sh`), not CI. Do not invent CVD.
+
+REST geo-block is a venue constraint, not a product bug.
 
 ## Explicit non-goals
 
-ICT-as-signal, auto-arm `GET /zones`, keys in `src/paper`, UI as command source, LLM zone picking, inventing CVD=0, merging without a review, arming from `GET /ta`.
+ICT-as-signal, auto-arm `GET /zones`, keys in `src/paper`, UI as command source, LLM zone picking, inventing CVD=0, merging without a review, arming from `GET /ta`, Volume Profile / footprint as a fourth setup, paper→live.

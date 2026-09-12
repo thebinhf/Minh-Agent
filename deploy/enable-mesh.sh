@@ -15,8 +15,6 @@ fi
 
 cd "$ROOT"
 sudo systemctl daemon-reload
-sudo systemctl enable --now bybit-tracker.service
-sudo systemctl enable --now live-shadow.service
-sudo systemctl enable --now replay-map-lab.timer
-sudo systemctl enable minh.target
-sudo systemctl --no-pager --full status bybit-tracker.service live-shadow.service replay-map-lab.timer || true
+sudo systemctl enable bybit-tracker.service live-shadow.service replay-map-lab.timer minh.target
+sudo systemctl enable --now minh.target
+sudo systemctl --no-pager --full status bybit-tracker.service live-shadow.service replay-map-lab.timer minh.target || true

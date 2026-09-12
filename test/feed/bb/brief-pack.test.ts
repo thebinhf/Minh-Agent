@@ -422,6 +422,7 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
   });
 
   test("GET /observe is read-only; missing inject has paper null", async () => {
+    delete process.env.LIVE_SHADOW_URL;
     const { store, dbPath } = tempDb();
     const bare = startHttp(feedConfig(dbPath), store);
     try {

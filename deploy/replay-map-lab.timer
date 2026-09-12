@@ -8,4 +8,4 @@ AccuracySec=5min
 Unit=replay-map-lab.service
 
 [Install]
-WantedBy=timers.target
+WantedBy=timers.target minh.target
