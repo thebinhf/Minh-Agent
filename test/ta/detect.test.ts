@@ -60,6 +60,7 @@ describe("TA catalog", () => {
       "src/agent/policy.ts",
       "src/agent/quant.ts",
       "src/agent/ta-gate.ts",
+      "src/agent/strategy.ts",
       "src/paper/map-accept.ts",
       "src/paper/proximity.ts",
       "src/live/plan.ts",

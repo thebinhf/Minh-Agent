@@ -9,11 +9,11 @@ Paper week. **No live orders. No Bybit keys in GitHub.**
 1. Bun from [`.bun-version`](../.bun-version) (binary cache is setup-bun default)
 2. Restore `~/.bun/install/cache` keyed on `bun.lock`
 3. `bun install --frozen-lockfile --ignore-scripts`
-4. `bun run ci` → typecheck + test
+4. `bash scripts/ci.sh` → typecheck ∥ test (one install)
 
-Check name stays **test** (branch protection). Checkout does not persist credentials. No daemon, no `data/`, no private Bybit routes.
+Check name stays **test** (branch protection). Checkout does not persist credentials (`fetch-depth: 1`). No daemon, no `data/`, no private Bybit routes.
 
-Local: `bun run ci`.
+Local: `bun run ci` (typecheck then test). CI runs them in parallel after install.
 
 ## CD
 

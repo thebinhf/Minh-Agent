@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# On the Minh host: fast-forward main and restart the systemd unit.
+# On the Minh host: fast-forward main and restart the 24/7 mesh.
 # No Bybit keys. Does not start from GitHub Actions.
 set -euo pipefail
 
@@ -13,5 +13,7 @@ git fetch origin
 git checkout main
 git pull --ff-only origin main
 bun install --frozen-lockfile
+sudo systemctl daemon-reload
 sudo systemctl restart "$UNIT"
+sudo systemctl try-restart live-shadow.service || true
 sudo systemctl --no-pager --full status "$UNIT"

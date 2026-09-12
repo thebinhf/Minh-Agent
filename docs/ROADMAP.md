@@ -23,7 +23,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | **P3 A/B** | `bun run paper ab BASE.json VARIANT.json`. [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh). 180d: chop0/proximal/floor1 losers; `PAPER_ARM_MAX=2` winner; skip-HYPE not additive under ARM=2 | ARM max = 2. Skip default none |
 | **P4 live-shadow** | `bun run live` (`src/live/`). Own sqlite, bind `:43182`. Mirrors MAP/ARM without orders. Family always cold. [`deploy/live-shadow.service`](../deploy/live-shadow.service) | Operator enable. `LIVE_SHADOW=0` off |
 | **P6 overlay** | `GET /ta` 22 methods. Not a signal. Does not arm. ICT confirm only | Off the MAP path |
-| **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Missing tape is not a veto. One flag / one 180d A/B | All **off** |
+| **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Setup-aware (`src/agent/strategy.ts`): fib/rev = S/D only; shock = S/D+breakout; vol = all; reversal cards skip rev. Missing tape is not a veto. One flag / one 180d A/B | All **off** |
 | **P8 setups** | Breakout retest + reversal candle emit zone-cards (same MAP/ARM/EVENT). `PAPER_SETUPS` default `sd,breakout,reversal`. `0` = S/D only. GET `/ta` still `signal: false`. ICT/discretionary do not emit | On. A/B: `sd` vs default |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec). Combined ARM=2 + skip-HYPE lost −216 vs ARM=2 HYPE-on.
@@ -47,15 +47,15 @@ After a P7 winner. Not this PR.
 ## Host ops (when the box is up)
 
 ```text
+# 24/7 mesh
+deploy/enable-mesh.sh
+# bybit-tracker (feed+paper) + live-shadow + replay-map-lab.timer
+
 # collect CVD/liq on the watchlist going forward (does not backfill history)
-# bybit-tracker.service already sets BYBIT_TAPE_SYMBOLS=watchlist (now also the code default)
+# bybit-tracker.service already sets BYBIT_TAPE_SYMBOLS=watchlist
 
-# live-shadow observer (own sqlite, no orders)
-sudo systemctl enable --now live-shadow
-
-# nightly lab (does not touch the live paper ledger)
-deploy/replay-map-lab.sh
-sudo systemctl enable --now replay-map-lab.timer
+# after a green merge
+deploy/pull-restart.sh
 ```
 
 `klinesDays` is already 180. OI/funding REST backfill is public. Flow/liq only exist after WS collection starts. Walks are operator (`deploy/replay-map-ab.sh`), not CI. Do not invent CVD.

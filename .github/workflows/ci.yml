@@ -17,11 +17,12 @@ jobs:
   ci:
     name: test
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: ".bun-version"
@@ -32,4 +33,6 @@ jobs:
           restore-keys: |
             bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile --ignore-scripts
-      - run: bun run ci
+      # One install; typecheck ∥ test. Job name stays `test` (branch protection).
+      - name: typecheck + test
+        run: bash scripts/ci.sh
