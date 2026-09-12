@@ -79,7 +79,7 @@ export async function postMapCloseWebhook(url: string, body: unknown): Promise<v
 }
 
 function readLatestBars(store: TrackerDb): MapCloseBar[] {
-  const rows = store.latestKlines([...MAP_CLOSE_INTERVALS]) as {
+  const rows = store.latestConfirmedKlines([...MAP_CLOSE_INTERVALS]) as {
     symbol: string;
     interval: string;
     start_ts: number;
@@ -113,6 +113,7 @@ export function startMapCloser(
   const webhook = process.env.MAP_CLOSE_WEBHOOK?.trim() || "";
   const intervalMs = Math.max(1_000, config.recovery?.watchdogIntervalMs ?? 10_000);
   let prev = new Set<string>();
+  let seeded = false;
   let busy = false;
   const write = hooks.write ?? writeMapSnapshot;
   const post = hooks.webhook ?? postMapCloseWebhook;
@@ -127,6 +128,10 @@ export function startMapCloser(
     }
     const tick = tickMapClose(prev, bars);
     prev = tick.next;
+    if (!seeded) {
+      seeded = true;
+      return;
+    }
     if (!tick.interval) return;
     busy = true;
     try {
