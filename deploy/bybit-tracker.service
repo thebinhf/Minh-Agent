@@ -24,7 +24,7 @@ Environment=MAP_CLOSE=1
 # AGENT_MAP=0 disables agent policy (no-op); old MAP_ACCEPT copy still runs.
 # PAPER_PROXIMITY_ARM=0 disables auto rest of accepted ledger cards.
 # Optional MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close  (JSON map.close — not an order)
-# Code default for BYBIT_TAPE_SYMBOLS is BTC ETH SOL. This unit expands CVD/liq to the watchlist.
+# CVD/liq default is the full watchlist. BYBIT_TAPE_SYMBOLS=0 disables. Comma list intersects.
 Environment=BYBIT_TAPE_SYMBOLS=watchlist
 NoNewPrivileges=true
 PrivateTmp=true

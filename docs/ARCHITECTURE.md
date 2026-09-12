@@ -30,7 +30,7 @@ HTTP contract: [http.md](http.md).
 | `src/feed/bb/` | Public WS, SQLite, read-only HTTP |
 | `src/features/` | As-of tape + 4H kline shock + `GET /features` / `bun run features scan`. Missing ≠ 0. Does not arm |
 | `src/ta/` | Overlay pack + `GET /ta`. 22 methods. Does not arm. ICT not a signal |
-| `src/zones/` | Zone-card v1, HTF detector, ledger helpers, proximity |
+| `src/zones/` | Zone-card v1, HTF detector (S/D + breakout + reversal), ledger helpers, proximity |
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
 | `src/live/` | Live-shadow observer (own DB, own HTTP). Policy only |
@@ -46,7 +46,7 @@ HTTP contract: [http.md](http.md).
 | Feed | `src/feed/bb/` | Public WS / REST / SQLite / HTTP. Owns kline lag. Does not arm. |
 | Features | `src/features/` | As-of tape + 4H kline shock. Does not arm. Missing ≠ 0. |
 | TA | `src/ta/` | Overlay pack. Does not arm. Missing ≠ 0. Not a signal. |
-| Zones | `src/zones/` | Schema + suggest. `GET /zones` is GET-only. |
+| Zones | `src/zones/` | Schema + setups (S/D, breakout, reversal). `GET /zones` is GET-only. |
 | Agent | `src/agent/` | 4H HH/HL bias + accept policy. Does not arm. Does not change `/map`. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |
 | Live | `src/live/` | Shadow MAP/ARM. Own DB, own HTTP. Never `acceptZone` / `paperArm`. |

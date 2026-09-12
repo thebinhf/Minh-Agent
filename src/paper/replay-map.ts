@@ -12,10 +12,10 @@ import {
 } from "../agent/bias";
 import {
   ZONE_KLINE_LIMITS,
-  detectZoneCards,
   intervalMsForTf,
   type DetectBar,
 } from "../zones/detect";
+import { detectAllSetups } from "../zones/setups";
 import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./config";
 import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine, type PaperUniverse } from "./engine";
@@ -327,7 +327,7 @@ export async function runReplayMap(opts: {
     }
     const bars240 = prefixAt(all240, bar.startTs).slice(-ZONE_KLINE_LIMITS["240"]);
     const bars60 = closedBy(all60, asof, hourMs).slice(-ZONE_KLINE_LIMITS["60"]);
-    const cards = detectZoneCards(asDetect(bars240), {
+    const cards = detectAllSetups(asDetect(bars240), {
       symbol,
       tf: "240",
       intervalMs: intervalMsForTf("240"),
@@ -717,7 +717,7 @@ export async function runReplayMapBook(opts: {
       const asof = Math.min(closeTs, window.toTs);
       const bars240 = prefixAt(book.all240, bar.startTs).slice(-ZONE_KLINE_LIMITS["240"]);
       const bars60 = closedBy(book.all60, asof, hourMs).slice(-ZONE_KLINE_LIMITS["60"]);
-      const cards = detectZoneCards(asDetect(bars240), {
+      const cards = detectAllSetups(asDetect(bars240), {
         symbol,
         tf: "240",
         intervalMs: intervalMsForTf("240"),

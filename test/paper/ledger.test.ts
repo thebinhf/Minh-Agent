@@ -18,6 +18,7 @@ const CARD: ZoneCard = {
   symbol: "BTCUSDT",
   tf: "240",
   side: "supply",
+  setup: "sd",
   baseStartTs: 1_788_801_600_000,
   baseEndTs: 1_788_808_800_000,
   zoneLow: 79_250,

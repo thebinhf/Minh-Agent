@@ -17,11 +17,28 @@ export type CancelCode = (typeof CANCEL_CODES)[number];
 export const ZONE_SIDES = ["supply", "demand"] as const;
 export type ZoneSide = (typeof ZONE_SIDES)[number];
 
+/** Setup family that emitted the card. Missing JSON → `sd` (legacy S/D). */
+export const ZONE_SETUPS = ["sd", "breakout", "reversal"] as const;
+export type ZoneSetup = (typeof ZONE_SETUPS)[number];
+
+export const ZONE_SETUP_SLUG: Record<ZoneSetup, string> = {
+  sd: "sd",
+  breakout: "bo",
+  reversal: "rv",
+};
+
+export const ZONE_SETUP_FROM_SLUG: Record<string, ZoneSetup> = {
+  sd: "sd",
+  bo: "breakout",
+  rv: "reversal",
+};
+
 export const ZONE_CARD_KEYS = [
   "zoneId",
   "symbol",
   "tf",
   "side",
+  "setup",
   "baseStartTs",
   "baseEndTs",
   "zoneLow",
@@ -49,6 +66,7 @@ export type ZoneCard = {
   symbol: string;
   tf: string;
   side: ZoneSide;
+  setup: ZoneSetup;
   baseStartTs: number;
   baseEndTs: number;
   zoneLow: number;
@@ -194,6 +212,12 @@ export function parseZoneSide(raw: unknown): ZoneSide {
   throw new ZoneCardError("side", raw);
 }
 
+export function parseZoneSetup(raw: unknown): ZoneSetup {
+  if (raw == null || raw === "") return "sd";
+  if (raw === "sd" || raw === "breakout" || raw === "reversal") return raw;
+  throw new ZoneCardError("setup", raw);
+}
+
 function assertSideGeometry(card: ZoneCard): void {
   if (card.zoneLow > card.zoneHigh) {
     throw new ZoneCardError("zoneLow", card.zoneLow, "zoneLow must be <= zoneHigh");
@@ -233,6 +257,7 @@ export function parseZoneCard(raw: unknown): ZoneCard {
     symbol: parseText("symbol", row.symbol).toUpperCase(),
     tf: parseText("tf", row.tf),
     side: parseZoneSide(row.side),
+    setup: parseZoneSetup(row.setup),
     baseStartTs: parseTs("baseStartTs", row.baseStartTs),
     baseEndTs: parseTs("baseEndTs", row.baseEndTs),
     zoneLow: parseFiniteNumber("zoneLow", row.zoneLow),

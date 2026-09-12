@@ -2,7 +2,7 @@
 # One-flag paper A/B walk. Does not combine flags. Does not invent CVD/liq.
 # Paper-only. Does not touch the live ledger. Not GitHub Actions.
 #
-#   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev
+#   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal
 #   deploy/replay-map-ab.sh compare BASE.json VARIANT.json
 set -euo pipefail
 
@@ -27,7 +27,7 @@ fi
 
 # Clear A/B knobs, then set exactly one. Default = current main (ARM_MAX=2).
 unset AGENT_BIAS_CHOP PAPER_FAMILY_FLOOR_MIN_TRADES PAPER_MAP_SKIP PAPER_ARM_MAX \
-  PAPER_TA_FIB AGENT_TA_OSC PAPER_TA_VOL PAPER_TA_SHOCK PAPER_TA_REV
+  PAPER_TA_FIB AGENT_TA_OSC PAPER_TA_VOL PAPER_TA_SHOCK PAPER_TA_REV PAPER_SETUPS
 case "$NAME" in
   baseline) ;;
   chop0) export AGENT_BIAS_CHOP=0 ;;
@@ -41,8 +41,11 @@ case "$NAME" in
   vol) export PAPER_TA_VOL=arm ;;
   shock) export PAPER_TA_SHOCK=arm ;;
   rev) export PAPER_TA_REV=arm ;;
+  sd) export PAPER_SETUPS=sd ;;
+  breakout) export PAPER_SETUPS=breakout ;;
+  reversal) export PAPER_SETUPS=reversal ;;
   *)
-    echo "usage: $0 baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev" >&2
+    echo "usage: $0 baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal" >&2
     echo "       $0 compare BASE.json VARIANT.json" >&2
     exit 1
     ;;

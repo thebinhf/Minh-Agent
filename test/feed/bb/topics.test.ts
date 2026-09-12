@@ -28,7 +28,7 @@ describe("Bybit V5 public linear topic names", () => {
     expect(publicTradeTopic("BTCUSDT")).toBe("publicTrade.BTCUSDT");
   });
 
-  test("subscribes L50 for orderbook symbols; liq/flow stay BTC/ETH/SOL on the watchlist", () => {
+  test("subscribes L50 and CVD/liq for every watchlist symbol by default", () => {
     delete process.env.BYBIT_FLOW;
     delete process.env.BYBIT_TAPE_SYMBOLS;
     const topics = buildTopics(config);
@@ -41,18 +41,18 @@ describe("Bybit V5 public linear topic names", () => {
     expect(topics).toContain("orderbook.50.ENAUSDT");
     expect(topics).toContain("allLiquidation.BTCUSDT");
     expect(topics).toContain("allLiquidation.ETHUSDT");
+    expect(topics).toContain("allLiquidation.ENAUSDT");
     expect(topics).not.toContain("allLiquidation.SOLUSDT");
-    expect(topics).not.toContain("allLiquidation.ENAUSDT");
     expect(topics).toContain("publicTrade.BTCUSDT");
-    expect(topics).not.toContain("publicTrade.ENAUSDT");
+    expect(topics).toContain("publicTrade.ENAUSDT");
     expect(topics.filter((topic) => topic.startsWith("tickers.")).length).toBe(3);
     expect(topics.filter((topic) => topic.startsWith("kline.")).length).toBe(12);
     expect(topics.filter((topic) => topic.startsWith("orderbook.")).length).toBe(4);
-    expect(topics.filter((topic) => topic.startsWith("allLiquidation.")).length).toBe(2);
-    expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(2);
+    expect(topics.filter((topic) => topic.startsWith("allLiquidation.")).length).toBe(3);
+    expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(3);
   });
 
-  test("default config L50 matches the 10-symbol watchlist; tape stays 3", async () => {
+  test("default config L50 and tape both match the 10-symbol watchlist", async () => {
     delete process.env.BYBIT_FLOW;
     delete process.env.BYBIT_TAPE_SYMBOLS;
     const loaded = await loadConfig();
@@ -61,10 +61,10 @@ describe("Bybit V5 public linear topic names", () => {
     expect(topics.filter((topic) => topic.startsWith("orderbook.")).length).toBe(10);
     expect(topics).toContain("orderbook.50.HYPEUSDT");
     expect(topics).toContain("orderbook.50.ENAUSDT");
-    expect(topics.filter((topic) => topic.startsWith("allLiquidation.")).length).toBe(3);
-    expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(3);
-    expect(topics).not.toContain("allLiquidation.HYPEUSDT");
-    expect(topics).not.toContain("publicTrade.ENAUSDT");
+    expect(topics.filter((topic) => topic.startsWith("allLiquidation.")).length).toBe(10);
+    expect(topics.filter((topic) => topic.startsWith("publicTrade.")).length).toBe(10);
+    expect(topics).toContain("allLiquidation.HYPEUSDT");
+    expect(topics).toContain("publicTrade.ENAUSDT");
   });
 
   test("BYBIT_TAPE_SYMBOLS=watchlist expands CVD/liq; 0 = none; comma list intersects", () => {
