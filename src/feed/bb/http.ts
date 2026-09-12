@@ -319,6 +319,7 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
         return json(buildLiqHeatmap(store, {
           symbol,
           dbPath: config.dbPath,
+          retention: config.retention,
           hours: hours != null && Number.isFinite(hours) ? hours : undefined,
           bucket: Number.isFinite(bucket) && bucket > 0 ? bucket : null,
           lastPrice: ticker?.last_price == null ? null : String(ticker.last_price),
