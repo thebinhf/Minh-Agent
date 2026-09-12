@@ -193,7 +193,7 @@ export async function runProximityArm(
     if (confirm15Bar(card, kline15BySymbol?.get(card.symbol)) !== "ok") return "skip";
     const veto = quantVeto(card.side, quantBySymbol?.get(card.symbol), "arm");
     if (!veto.allow) return "skip";
-    if (taArmWait(card.side, taBySymbol?.get(card.symbol))) return "skip";
+    if (taArmWait(card.side, taBySymbol?.get(card.symbol), card.setup)) return "skip";
     return "candidate";
   }
 

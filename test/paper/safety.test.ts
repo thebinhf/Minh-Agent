@@ -58,6 +58,7 @@ describe("paper safety", () => {
       "src/agent/policy.ts",
       "src/agent/quant.ts",
       "src/agent/ta-gate.ts",
+      "src/agent/strategy.ts",
       "src/paper/event.ts",
       "src/paper/db.ts",
       "src/live/config.ts",

@@ -47,7 +47,7 @@ HTTP contract: [http.md](http.md).
 | Features | `src/features/` | As-of tape + 4H kline shock. Does not arm. Missing ≠ 0. |
 | TA | `src/ta/` | Overlay pack. Does not arm. Missing ≠ 0. Not a signal. |
 | Zones | `src/zones/` | Schema + setups (S/D, breakout, reversal). `GET /zones` is GET-only. |
-| Agent | `src/agent/` | 4H HH/HL bias + accept policy. Does not arm. Does not change `/map`. |
+| Agent | `src/agent/` | 4H HH/HL bias + accept policy + P7 setup-aware gates. Does not arm. Does not change `/map`. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |
 | Live | `src/live/` | Shadow MAP/ARM. Own DB, own HTTP. Never `acceptZone` / `paperArm`. |
 

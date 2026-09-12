@@ -1,8 +1,11 @@
-import type { ZoneSide } from "../zones/card";
+import type { ZoneSetup, ZoneSide } from "../zones/card";
+import { armGateApplies } from "./strategy";
 
 /**
  * P7 TA gates. Overlay pack stays off the MAP path.
  * Missing tape is never a veto. Default off.
+ * Gates are setup-aware (`src/agent/strategy.ts`): fib/rev are S/D only;
+ * shock is S/D + breakout; vol applies to every setup; reversal cards skip rev.
  *
  * PAPER_TA_FIB=arm — ARM wait unless last is nearest 0.5 / 0.618.
  * AGENT_TA_OSC=accept — MAP deny when oscillator opposes the zone.
@@ -80,9 +83,10 @@ export function taArmFlagsOn(): boolean {
 
 const FIB_ARM = new Set([0.5, 0.618]);
 
-/** Missing nearest is not a wait. */
-export function fibArmOk(nearest: number | null | undefined): boolean {
+/** Missing nearest is not a wait. Breakout / reversal skip fib (S/D confluence only). */
+export function fibArmOk(nearest: number | null | undefined, setup?: ZoneSetup | null): boolean {
   if (taFibMode() !== "arm") return true;
+  if (!armGateApplies("fib", setup)) return true;
   if (nearest == null || !Number.isFinite(nearest)) return true;
   return FIB_ARM.has(nearest);
 }
@@ -107,22 +111,25 @@ export function oscAcceptVeto(side: ZoneSide, osc: TaOscTape | null | undefined)
 }
 
 /** Climax (rel ≥ 2) waits. Null rel is not a wait. */
-export function volArmOk(rel: number | null | undefined): boolean {
+export function volArmOk(rel: number | null | undefined, setup?: ZoneSetup | null): boolean {
   if (taVolMode() !== "arm") return true;
+  if (!armGateApplies("vol", setup)) return true;
   if (rel == null || !Number.isFinite(rel)) return true;
   return rel < 2;
 }
 
-/** Impulse / vol_spike wait (chase). Missing / quiet / range_expand pass. */
-export function shockArmOk(reading: string | null | undefined): boolean {
+/** Impulse / vol_spike wait (chase). Missing / quiet / range_expand pass. Reversal cards skip. */
+export function shockArmOk(reading: string | null | undefined, setup?: ZoneSetup | null): boolean {
   if (taShockMode() !== "arm") return true;
+  if (!armGateApplies("shock", setup)) return true;
   if (reading == null || reading === "") return true;
   return reading !== "impulse" && reading !== "vol_spike";
 }
 
-/** Missing reversal is not a wait. Computed non-agree waits. */
-export function revArmOk(side: ZoneSide, reading: string | null | undefined): boolean {
+/** Missing reversal is not a wait. Computed non-agree waits. Reversal setup already is the event. */
+export function revArmOk(side: ZoneSide, reading: string | null | undefined, setup?: ZoneSetup | null): boolean {
   if (taRevMode() !== "arm") return true;
+  if (!armGateApplies("rev", setup)) return true;
   if (reading == null || reading === "") return true;
   switch (side) {
     case "demand":
@@ -136,12 +143,16 @@ export function revArmOk(side: ZoneSide, reading: string | null | undefined): bo
   }
 }
 
-export function taArmWait(side: ZoneSide, tape: TaArmTape | null | undefined): boolean {
+export function taArmWait(
+  side: ZoneSide,
+  tape: TaArmTape | null | undefined,
+  setup?: ZoneSetup | null,
+): boolean {
   if (!taArmFlagsOn()) return false;
   if (!tape) return false;
-  if (!fibArmOk(tape.fibNearest)) return true;
-  if (!volArmOk(tape.volumeRel)) return true;
-  if (!shockArmOk(tape.shock)) return true;
-  if (!revArmOk(side, tape.reversal)) return true;
+  if (!fibArmOk(tape.fibNearest, setup)) return true;
+  if (!volArmOk(tape.volumeRel, setup)) return true;
+  if (!shockArmOk(tape.shock, setup)) return true;
+  if (!revArmOk(side, tape.reversal, setup)) return true;
   return false;
 }

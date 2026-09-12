@@ -56,6 +56,8 @@ describe("P7 TA gates", () => {
     expect(fibArmOk(0.786)).toBe(false);
     expect(taArmWait("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null })).toBe(true);
     expect(taArmWait("demand", { fibNearest: 0.618, volumeRel: null, reversal: null, shock: null })).toBe(false);
+    expect(taArmWait("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null }, "breakout")).toBe(false);
+    expect(taArmWait("demand", { fibNearest: 0.236, volumeRel: null, reversal: null, shock: null }, "reversal")).toBe(false);
   });
 
   test("AGENT_TA_OSC=accept is MAP deny when oscillator opposes; missing passes", () => {
@@ -83,6 +85,8 @@ describe("P7 TA gates", () => {
     expect(shockArmOk("range_expand")).toBe(true);
     expect(shockArmOk("impulse")).toBe(false);
     expect(shockArmOk("vol_spike")).toBe(false);
+    expect(shockArmOk("impulse", "reversal")).toBe(true);
+    expect(shockArmOk("impulse", "breakout")).toBe(false);
   });
 
   test("PAPER_TA_REV=arm waits unless matching reversal; missing passes", () => {
@@ -91,5 +95,7 @@ describe("P7 TA gates", () => {
     expect(revArmOk("demand", "bull_reversal")).toBe(true);
     expect(revArmOk("demand", "bear_reversal")).toBe(false);
     expect(revArmOk("supply", "bear_reversal")).toBe(true);
+    expect(revArmOk("demand", "bear_reversal", "reversal")).toBe(true);
+    expect(revArmOk("demand", "bear_reversal", "breakout")).toBe(true);
   });
 });

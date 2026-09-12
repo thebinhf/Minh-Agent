@@ -46,6 +46,16 @@ export {
 } from "./quant";
 
 export {
+  METHOD_USE,
+  METHOD_USES,
+  armGateApplies,
+  armGatesForSetup,
+  type ArmGate,
+  type MethodId,
+  type MethodUse,
+} from "./strategy";
+
+export {
   emptyTaArmTape,
   emptyTaOscTape,
   fibArmOk,

@@ -1,0 +1,8 @@
+[Unit]
+Description=Minh 24/7 mesh — feed+paper, live-shadow, nightly lab
+Documentation=https://github.com/thebinhf/Minh-Agent/blob/main/docs/ROADMAP.md
+Wants=bybit-tracker.service live-shadow.service replay-map-lab.timer
+After=bybit-tracker.service
+
+[Install]
+WantedBy=multi-user.target
