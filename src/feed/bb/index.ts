@@ -15,6 +15,8 @@ export type BybitTrackerFeature = {
 export type BybitTrackerOpts = {
   /** Optional paper desk snapshot from the composition root (same process). */
   paperDesk?: BriefPackPaperSource;
+  /** Observer snapshot. Feed does not import paper. */
+  observe?: () => unknown | Promise<unknown>;
   /** After a 1H/4H MAP dump. Feed still does not import paper. */
   onMapClose?: (info: {
     interval: NonNullable<MapCloseTick["interval"]>;
@@ -28,7 +30,11 @@ export async function startBybitTracker(opts?: BybitTrackerOpts): Promise<BybitT
   const config = await loadConfig();
   const store = openDb(config.dbPath);
   const relay = createRelay();
-  const http = startHttp(config, store, { paperDesk: opts?.paperDesk, relay });
+  const http = startHttp(config, store, {
+    paperDesk: opts?.paperDesk,
+    observe: opts?.observe,
+    relay,
+  });
   const tracker = startTracker(config, store, { onRelay: (msg) => relay.publish(msg) });
   const pruner = startPruner(config, store);
   const klineLag = startKlineLagWatchdog(config, store);

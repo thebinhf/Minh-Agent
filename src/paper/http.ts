@@ -4,6 +4,7 @@ import type { PaperEngine } from "./engine";
 import { parseMetricsDays, paperMetrics } from "./metrics";
 import { paperArm, paperDay, paperStatus, paperWeek } from "./ops";
 import { paperEvent } from "./event";
+import { paperObserve, observerMode } from "./observe";
 import { resolveAcceptPayload } from "./zone-accept";
 import type { AlertStatus, OrderStatus, PaperConfig, PaperFeed, TakeProfitPlan } from "./types";
 
@@ -79,6 +80,19 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
       const path = url.pathname;
 
       try {
+        if (observerMode() && req.method !== "GET" && req.method !== "OPTIONS") {
+          return json({
+            mode: "paper",
+            error: "observer",
+            message: "PAPER_OBSERVE=1 — GET only; MAP/ARM/EVENT run in-process",
+          }, 403);
+        }
+
+        if (path === "/paper/observe") {
+          if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
+          return json(paperObserve(engine));
+        }
+
         if (path === "/paper/health") {
           if (req.method !== "GET") return json({ error: "method not allowed" }, 405);
           const feedHealth = await feed.health();

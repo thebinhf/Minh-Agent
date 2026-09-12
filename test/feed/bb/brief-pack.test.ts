@@ -421,6 +421,32 @@ describe("GET /brief-pack + GET /brief stay additive", () => {
     }
   });
 
+  test("GET /observe is read-only; missing inject has paper null", async () => {
+    const { store, dbPath } = tempDb();
+    const bare = startHttp(feedConfig(dbPath), store);
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/observe`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { mode: string; paper: null; observer: boolean };
+      expect(body.mode).toBe("observe");
+      expect(body.observer).toBe(true);
+      expect(body.paper).toBeNull();
+    } finally {
+      bare.stop();
+    }
+    const injected = startHttp(feedConfig(dbPath), store, {
+      observe: () => ({ mode: "observe", observer: true, standing: { accepted: 0 } }),
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${injected.port}/observe`);
+      const body = await res.json() as { standing: { accepted: number } };
+      expect(body.standing.accepted).toBe(0);
+    } finally {
+      injected.stop();
+      store.close();
+    }
+  });
+
   test("gates.tradingAllowed is false when klineLag.ok is false and WS is live", () => {
     const { store, dbPath } = tempDb();
     const now = 2_000_000;

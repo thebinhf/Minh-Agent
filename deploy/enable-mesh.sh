@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Enable the 24/7 host mesh. No Bybit keys. Does not run in GitHub Actions.
-#   feed+paper (bybit-tracker) + live-shadow + nightly replay-map lab
+# Enable the 24/7 autonomous mesh. You observe (GET /observe, notify).
+# No Bybit keys. Does not run in GitHub Actions.
+#   feed+paper (bybit-tracker, PAPER_OBSERVE=1) + live-shadow + nightly lab
 set -euo pipefail
 
 ROOT="${MINH_ROOT:-/opt/minh-agent}"

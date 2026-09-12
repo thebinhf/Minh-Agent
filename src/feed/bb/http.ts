@@ -80,6 +80,8 @@ function mapBook(row: Record<string, unknown>) {
 export type FeedHttpExtras = {
   /** Injected by the composition root. Feed does not import src/paper. */
   paperDesk?: BriefPackPaperSource;
+  /** Observer snapshot. Feed does not import src/paper. */
+  observe?: () => unknown | Promise<unknown>;
   /** Local WS hub. GET /ws upgrades when set and BYBIT_RELAY is not 0. */
   relay?: RelayHub;
 };
@@ -114,6 +116,18 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
 
       if (path === "/health") {
         return json(buildFeedHealth(store, config));
+      }
+
+      if (path === "/observe") {
+        if (!extras?.observe) {
+          return json({
+            mode: "observe",
+            observer: true,
+            paper: null,
+            note: "paper not injected",
+          });
+        }
+        return json(await extras.observe());
       }
 
       if (path === "/brief-pack") {

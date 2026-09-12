@@ -6,6 +6,7 @@ import { PaperReject } from "./errors";
 import { httpFeed } from "./feed";
 import { startPaperHttp } from "./http";
 import { bindPaperNotify, describeNotify } from "./notify";
+import { observerMode } from "./observe";
 import type { PaperConfig, PaperFeed } from "./types";
 import type { PaperUniverse } from "./engine";
 
@@ -55,6 +56,9 @@ export async function startPaper(opts?: {
   console.log(`[minh:paper] http://${config.httpHost}:${http.port} db=${config.dbPath}`);
   console.log("[minh:paper] paper simulation only — no API keys, no real orders");
   console.log(`[minh:paper] notify ${describeNotify(config.notify)}`);
+  if (observerMode()) {
+    console.log("[minh:paper] observer — POST mutations blocked; MAP/ARM/EVENT in-process");
+  }
   if (tick) {
     console.log(`[minh:paper] tick ${config.tickMs}ms — alerts/limits/SL-TP; events only, no PnL spam`);
   }

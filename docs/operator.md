@@ -1,14 +1,14 @@
 # Operator loop — Minh Agent
 
-Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week. HTTP: [http.md](http.md).
+Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week. You observe. HTTP: [http.md](http.md).
 
 ## Three states
 
-| State | When | Engine | Operator |
+| State | When | Engine | You |
 | --- | --- | --- | --- |
-| **MAP** | 1H/4H close | Dump `/map`. **4H** MAP_ACCEPT pick → agent policy → ledger (`MAP_ACCEPT=0` = no copy; `AGENT_MAP=0` = policy no-op, old copy still runs). Family paper score ranks when history exists | Override: `paper zone accept` / `reject`. Mid-range → stand aside (do not close opens). Stale `klineLag` / `gates.tradingAllowed` false → no accept / no new arm |
-| **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off) | Manual `paper arm` still works. Then **quiet** |
-| **EVENT** | Pending limit / open position | Tick: zone-bind pending (expire / deep / HTF), OCO invalidate-before-fill, cascade/crowded hold fill, then SL/TP | `paper event`. Do not poll `/confirm`. Optional scalp `/confirm?interval=15` |
+| **MAP** | 1H/4H close | Dump `/map`. **4H** MAP_ACCEPT pick → agent policy → ledger | `GET /observe`. Do not `paper zone accept` on the host (`PAPER_OBSERVE=1`) |
+| **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO | Quiet. Notify `zone.armed` |
+| **EVENT** | Pending limit / open position | Tick: OCO / SL/TP | `GET /paper/event` or notify fill/invalid/close |
 
 ## MAP
 

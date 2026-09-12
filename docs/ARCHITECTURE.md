@@ -15,9 +15,9 @@ src/live/cli.ts     live-shadow observer → SQLite → HTTP :43182
 
 Feed HTTP never imports paper. The composition root:
 
-1. Injects `paperDesk` into `GET /brief-pack`
+1. Injects `paperDesk` into `GET /brief-pack` and `paperObserve` into `GET /observe`.
 2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone`. Family paper score ranks before the per-symbol cap when history exists (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` = no copy. `AGENT_MAP=0` = policy no-op (old copy still runs).
-3. Paper tick proximity-arms accepted cards when last is in-band **and** the last confirmed 15m agrees (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off)
+3. Paper tick proximity-arms accepted cards when last is in-band **and** the last confirmed 15m agrees (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off). Host `PAPER_OBSERVE=1` blocks POST arm; in-process ARM still runs.
 
 HTTP contract: [http.md](http.md).
 
@@ -68,6 +68,7 @@ HTTP contract: [http.md](http.md).
 | `ws://:43180/ws` | Local relay (ticker / kline close / liq) |
 | `GET /confirm` | Optional LTF (15 / 5) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
+| `GET /observe` | Read-only autonomous snapshot (injected paper). Does not arm |
 | `GET /health` | WS + kline lag |
 | `GET /brief` `/chart` `/depth` `/heatmap` `/market` | Snapshots |
 
@@ -75,10 +76,11 @@ HTTP contract: [http.md](http.md).
 
 | Route | Role |
 | --- | --- |
+| `GET /paper/observe` | Read-only desk (account + EVENT + recent). Host `PAPER_OBSERVE=1` |
 | `GET /paper/event` | OCO desk |
 | `GET /paper/week` | 7-day funnel + standing ledger |
-| `POST /paper/zones` | Accept by `zoneId` or full card |
-| `POST /paper/arm` | Manual limit + alert |
+| `POST /paper/zones` | Accept by `zoneId` or full card. **403** when `PAPER_OBSERVE=1` |
+| `POST /paper/arm` | Manual limit + alert. **403** when `PAPER_OBSERVE=1` |
 | `GET /paper/status` `/metrics` `/day` | Desk |
 
 ## Live-shadow HTTP (`:43182`)
