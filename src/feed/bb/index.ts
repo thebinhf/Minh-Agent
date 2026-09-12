@@ -65,4 +65,5 @@ export { buildZones } from "./zones";
 export { loadConfig } from "./config";
 export { openDb } from "./db";
 export { buildFeedHealth, buildKlineLag } from "./health";
+export { buildObserve } from "./observe";
 export { buildChart, buildDepth, buildHeatmap, buildMarket, stitchBars } from "./view";

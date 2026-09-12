@@ -13,6 +13,7 @@ import { relayEnabled, type RelayHub } from "./relay";
 import type { TrackerDb } from "./db";
 import { buildFeedHealth } from "./health";
 import { mapClosePath } from "./map-close";
+import { buildObserve } from "./observe";
 import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 import { buildFeatures, parseFeaturesAsof } from "../../features/snapshot";
@@ -119,15 +120,8 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
       }
 
       if (path === "/observe") {
-        if (!extras?.observe) {
-          return json({
-            mode: "observe",
-            observer: true,
-            paper: null,
-            note: "paper not injected",
-          });
-        }
-        return json(await extras.observe());
+        const paper = extras?.observe ? await extras.observe() : null;
+        return json(await buildObserve(store, config, paper));
       }
 
       if (path === "/brief-pack") {
