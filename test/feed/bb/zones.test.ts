@@ -121,9 +121,10 @@ describe("parseZonesArgs / buildZones", () => {
       seedSupply(store);
       const body = buildZones(store, { symbols: ["BTCUSDT"], dbPath, now: 1 });
       expect(body.zones.length).toBeGreaterThan(0);
-      const card = body.zones[0]!;
+      const card = body.zones.find((row) => row.side === "supply" && row.setup === "sd") ?? body.zones[0]!;
       expect(Object.keys(card)).toEqual([...ZONE_CARD_KEYS]);
       expect(card.side).toBe("supply");
+      expect(card.setup).toBe("sd");
       expect(card.cancelCodes).toEqual([]);
     } finally {
       store.close();

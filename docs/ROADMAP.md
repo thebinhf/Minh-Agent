@@ -13,27 +13,30 @@ Paper week. This is the research loop, not a live desk.
 
 Live-shadow (P4) is a **separate process**. It does not share the paper ledger and does not start in `bun run start`.
 
-## Shipped this cycle (P0–P4, P6 overlay, P7 flags)
+## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups)
 
 | Slice | What | Default |
 | --- | --- | --- |
 | **P0 lab** | `bun run paper review FILE.json` compact QC (`skipReasons`, `quantCoverage`, flags). [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + optional systemd timer | Operator enable |
-| **P1 honesty** | `quantCoverage` on every as-of read. `BYBIT_TAPE_SYMBOLS` opt-in (`watchlist` / `*` / comma / `0`) | Tape stays BTC ETH SOL. Host unit sets `watchlist` |
+| **P1 honesty** | `quantCoverage` on every as-of read. `BYBIT_TAPE_SYMBOLS` opt-in (`watchlist` / `*` / comma / `0`) | Tape default = full watchlist. `0` = none |
 | **P2 flags** | `AGENT_BIAS_CHOP` (`deny` / `0` / `proximal`). `PAPER_FAMILY_FLOOR_MIN_TRADES` (RR floor sample). 1H chop does not override 4H | Chop kill = 4H mixed only. Floor min trades = 2 |
 | **P3 A/B** | `bun run paper ab BASE.json VARIANT.json`. [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh). 180d: chop0/proximal/floor1 losers; `PAPER_ARM_MAX=2` winner; skip-HYPE not additive under ARM=2 | ARM max = 2. Skip default none |
 | **P4 live-shadow** | `bun run live` (`src/live/`). Own sqlite, bind `:43182`. Mirrors MAP/ARM without orders. Family always cold. [`deploy/live-shadow.service`](../deploy/live-shadow.service) | Operator enable. `LIVE_SHADOW=0` off |
 | **P6 overlay** | `GET /ta` 22 methods. Not a signal. Does not arm. ICT confirm only | Off the MAP path |
 | **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Missing tape is not a veto. One flag / one 180d A/B | All **off** |
+| **P8 setups** | Breakout retest + reversal candle emit zone-cards (same MAP/ARM/EVENT). `PAPER_SETUPS` default `sd,breakout,reversal`. `0` = S/D only. GET `/ta` still `signal: false`. ICT/discretionary do not emit | On. A/B: `sd` vs default |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec). Combined ARM=2 + skip-HYPE lost −216 vs ARM=2 HYPE-on.
 
 ## Next
 
-### P7 — TA gates (this PR)
+### P8 — setups besides S/D (this PR)
 
-Flags only. Overlay pack still does not auto-arm. `GET /ta` is not a command source. ICT (FVG/BOS/CHOCH) stays confirm. Moon / Elliott / Gann / harmonic never enter policy.
+S/D impulse-base is **one** setup family, not the religion. `detectAllSetups` emits `sd` + breakout-retest + reversal cards onto the same ledger/ARM path. Family score keys `symbol:tf:side` for sd (compat) and `symbol:tf:side:breakout|reversal` for the new families. `GET /ta` remains overlay. ICT (FVG/BOS/CHOCH) stays confirm. Moon / Elliott / Gann / harmonic never emit.
 
-Lab: `bun run features scan --days 180` before turning `PAPER_TA_SHOCK` on. Walks: `deploy/replay-map-ab.sh fib|osc|vol|shock|rev`. Do not combine flags.
+Tape: CVD/liq default is the full watchlist. Replay still cannot invent history.
+
+Walks: `deploy/replay-map-ab.sh sd|breakout|reversal` vs `baseline`. Do not combine with P7 flags on the first walk.
 
 ### P5 — multi-venue
 
@@ -45,7 +48,7 @@ After a P7 winner. Not this PR.
 
 ```text
 # collect CVD/liq on the watchlist going forward (does not backfill history)
-# bybit-tracker.service already sets BYBIT_TAPE_SYMBOLS=watchlist
+# bybit-tracker.service already sets BYBIT_TAPE_SYMBOLS=watchlist (now also the code default)
 
 # live-shadow observer (own sqlite, no orders)
 sudo systemctl enable --now live-shadow

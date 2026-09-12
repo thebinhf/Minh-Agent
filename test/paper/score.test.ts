@@ -29,6 +29,7 @@ const SUPPLY: ZoneCard = {
   symbol: "BTCUSDT",
   tf: "240",
   side: "supply",
+  setup: "sd",
   baseStartTs: 1,
   baseEndTs: 2,
   zoneLow: 79_250,
@@ -64,11 +65,19 @@ describe("zone score from paper metrics", () => {
       symbol: "BTCUSDT",
       tf: "240",
       side: "supply",
+      setup: "sd",
     });
     expect(parseFamilyFromZoneId("eth-1h-d-20260908-02")).toEqual({
       symbol: "ETHUSDT",
       tf: "60",
       side: "demand",
+      setup: "sd",
+    });
+    expect(parseFamilyFromZoneId("btc-4h-d-bo-20260908-01")).toEqual({
+      symbol: "BTCUSDT",
+      tf: "240",
+      side: "demand",
+      setup: "breakout",
     });
     expect(parseFamilyFromZoneId("htf-demand-1")).toBeNull();
     expect(parseFamilyFromZoneId(null)).toBeNull();

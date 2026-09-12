@@ -2,6 +2,7 @@ export {
   CANCEL_CODES,
   ZONE_CARD_KEYS,
   ZONE_FRESHNESS,
+  ZONE_SETUPS,
   ZONE_SIDES,
   ZoneCardError,
   bumpCancelCode,
@@ -13,10 +14,12 @@ export {
   parseCancelCodes,
   parseZoneCard,
   parseZoneFreshness,
+  parseZoneSetup,
   parseZoneSide,
   type CancelCode,
   type ZoneCard,
   type ZoneFreshness,
+  type ZoneSetup,
   type ZoneSide,
 } from "./card";
 
@@ -46,6 +49,18 @@ export {
   type LedgerStatus,
   type ZoneLedgerRow,
 } from "./ledger";
+
+export {
+  DEFAULT_SETUPS,
+  SETUP_IDS,
+  cardSetup,
+  detectAllSetups,
+  detectAllSetupsFromKlines,
+  detectBreakoutCards,
+  detectReversalCards,
+  paperSetups,
+  type SetupId,
+} from "./setups";
 
 export {
   armSide,

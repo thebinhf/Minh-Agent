@@ -1,8 +1,8 @@
 import {
   parseZoneCard,
-  type CancelCode,
   type ZoneCard,
   type ZoneFreshness,
+  type ZoneSetup,
   type ZoneSide,
 } from "./card";
 import type { BriefKline } from "../feed/bb/brief";
@@ -198,10 +198,94 @@ function yyyymmddUtc(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-function zoneIdFor(symbol: string, tf: string, side: ZoneSide, baseStartTs: number, seq: number): string {
+export function zoneIdFor(
+  symbol: string,
+  tf: string,
+  side: ZoneSide,
+  baseStartTs: number,
+  seq: number,
+  setup: ZoneSetup = "sd",
+): string {
   const sideSlug = side === "supply" ? "s" : "d";
   const n = String(seq).padStart(2, "0");
-  return `${symbolSlug(symbol)}-${tfSlug(tf)}-${sideSlug}-${yyyymmddUtc(baseStartTs)}-${n}`;
+  const mid = setup === "sd" ? "" : `-${setup === "breakout" ? "bo" : "rv"}`;
+  return `${symbolSlug(symbol)}-${tfSlug(tf)}-${sideSlug}${mid}-${yyyymmddUtc(baseStartTs)}-${n}`;
+}
+
+export type GeometryCardOpts = {
+  symbol: string;
+  tf: string;
+  intervalMs: number;
+  side: ZoneSide;
+  setup: ZoneSetup;
+  zoneLow: number;
+  zoneHigh: number;
+  baseStartTs: number;
+  baseEndTs: number;
+  atr: number;
+  later: DetectBar[];
+  impulseBody: number;
+  departureAtr: number;
+  seq: number;
+};
+
+/** Shared proximal/entry/SL/TP geometry. Does not require an impulse leave. */
+export function buildGeometryCard(opts: GeometryCardOpts): ZoneCard | null {
+  const height = opts.zoneHigh - opts.zoneLow;
+  if (!(height > 0) || !(opts.atr > 0)) return null;
+  const distal = opts.side === "supply" ? opts.zoneHigh : opts.zoneLow;
+  const proximal = opts.side === "supply" ? opts.zoneLow : opts.zoneHigh;
+  const penetrationPct = penetrationAfter(opts.side, proximal, distal, opts.later);
+  const freshness = freshnessFromPenetration(penetrationPct);
+  if (freshness === "deep") return null;
+  const entry = opts.side === "supply"
+    ? proximal + ZONE_DETECT.entryFromProximal * height
+    : proximal - ZONE_DETECT.entryFromProximal * height;
+  const buf = Math.max(opts.atr * ZONE_DETECT.slBufferAtr, height * 0.1);
+  const sl = opts.side === "supply" ? distal + buf : distal - buf;
+  const risk = Math.abs(sl - entry);
+  if (!(risk > 0)) return null;
+  const tpRr2 = opts.side === "supply" ? entry - ZONE_DETECT.minRr * risk : entry + ZONE_DETECT.minRr * risk;
+  const measured = opts.side === "supply" ? proximal - opts.impulseBody : proximal + opts.impulseBody;
+  const measuredReward = Math.abs(entry - measured);
+  const measuredRr = measuredReward / risk;
+  const useMeasured = measuredRr >= ZONE_DETECT.minRr
+    && (opts.side === "supply" ? measured < entry : measured > entry);
+  const tp = useMeasured ? measured : tpRr2;
+  const rr = Math.abs(tp - entry) / risk;
+  if (rr < ZONE_DETECT.minRr) return null;
+  const raw: ZoneCard = {
+    zoneId: zoneIdFor(opts.symbol, opts.tf, opts.side, opts.baseStartTs, opts.seq, opts.setup),
+    symbol: opts.symbol.trim().toUpperCase(),
+    tf: opts.tf,
+    side: opts.side,
+    setup: opts.setup,
+    baseStartTs: opts.baseStartTs,
+    baseEndTs: opts.baseEndTs,
+    zoneLow: roundPrice(opts.zoneLow),
+    zoneHigh: roundPrice(opts.zoneHigh),
+    distal: roundPrice(distal),
+    proximal: roundPrice(proximal),
+    impulseBody: roundPrice(opts.impulseBody),
+    atr14: roundPrice(opts.atr),
+    impulseAtr: roundRatio(opts.impulseBody / opts.atr),
+    departureAtr: roundRatio(opts.departureAtr),
+    freshness,
+    penetrationPct,
+    entry: roundPrice(entry),
+    sl: roundPrice(sl),
+    tp: roundPrice(tp),
+    rr: roundRatio(rr),
+    hardInvalid: roundPrice(sl),
+    softInvalid: roundPrice(distal),
+    expiryBars: ZONE_DETECT.expiryBars,
+    cancelCodes: [],
+  };
+  try {
+    return parseZoneCard(raw);
+  } catch {
+    return null;
+  }
 }
 
 function buildCard(opts: {
@@ -217,10 +301,7 @@ function buildCard(opts: {
 }): ZoneCard | null {
   const zoneLow = Math.min(...opts.base.map((bar) => bar.low));
   const zoneHigh = Math.max(...opts.base.map((bar) => bar.high));
-  const height = zoneHigh - zoneLow;
-  if (!(height > 0)) return null;
-  const distal = opts.side === "supply" ? zoneHigh : zoneLow;
-  const proximal = opts.side === "supply" ? zoneLow : zoneHigh;
+  if (!(zoneHigh > zoneLow)) return null;
   switch (opts.side) {
     case "supply":
       if (!(opts.impulse.close < zoneLow)) return null;
@@ -239,59 +320,24 @@ function buildCard(opts: {
     : opts.impulse.close - zoneHigh;
   const departureAtr = departure / opts.atr;
   if (departureAtr < ZONE_DETECT.departureMinAtr) return null;
-  const penetrationPct = penetrationAfter(opts.side, proximal, distal, opts.later);
-  const freshness = freshnessFromPenetration(penetrationPct);
-  const cancelCodes: CancelCode[] = [];
-  if (freshness === "deep") return null;
-  const entry = opts.side === "supply"
-    ? proximal + ZONE_DETECT.entryFromProximal * height
-    : proximal - ZONE_DETECT.entryFromProximal * height;
-  const buf = Math.max(opts.atr * ZONE_DETECT.slBufferAtr, height * 0.1);
-  const sl = opts.side === "supply" ? distal + buf : distal - buf;
-  const risk = Math.abs(sl - entry);
-  if (!(risk > 0)) return null;
-  const tpRr2 = opts.side === "supply" ? entry - ZONE_DETECT.minRr * risk : entry + ZONE_DETECT.minRr * risk;
-  const measured = opts.side === "supply" ? proximal - impulseBody : proximal + impulseBody;
-  const measuredReward = Math.abs(entry - measured);
-  const measuredRr = measuredReward / risk;
-  const useMeasured = measuredRr >= ZONE_DETECT.minRr
-    && (opts.side === "supply" ? measured < entry : measured > entry);
-  const tp = useMeasured ? measured : tpRr2;
-  const rr = Math.abs(tp - entry) / risk;
-  if (rr < ZONE_DETECT.minRr) return null;
   const baseStartTs = opts.base[0]!.startTs;
   const baseEndTs = opts.base[opts.base.length - 1]!.startTs + opts.intervalMs;
-  const raw: ZoneCard = {
-    zoneId: zoneIdFor(opts.symbol, opts.tf, opts.side, baseStartTs, opts.seq),
-    symbol: opts.symbol.trim().toUpperCase(),
+  return buildGeometryCard({
+    symbol: opts.symbol,
     tf: opts.tf,
+    intervalMs: opts.intervalMs,
     side: opts.side,
+    setup: "sd",
+    zoneLow,
+    zoneHigh,
     baseStartTs,
     baseEndTs,
-    zoneLow: roundPrice(zoneLow),
-    zoneHigh: roundPrice(zoneHigh),
-    distal: roundPrice(distal),
-    proximal: roundPrice(proximal),
-    impulseBody: roundPrice(impulseBody),
-    atr14: roundPrice(opts.atr),
-    impulseAtr: roundRatio(impulseBody / opts.atr),
-    departureAtr: roundRatio(departureAtr),
-    freshness,
-    penetrationPct,
-    entry: roundPrice(entry),
-    sl: roundPrice(sl),
-    tp: roundPrice(tp),
-    rr: roundRatio(rr),
-    hardInvalid: roundPrice(sl),
-    softInvalid: roundPrice(distal),
-    expiryBars: ZONE_DETECT.expiryBars,
-    cancelCodes,
-  };
-  try {
-    return parseZoneCard(raw);
-  } catch {
-    return null;
-  }
+    atr: opts.atr,
+    later: opts.later,
+    impulseBody,
+    departureAtr,
+    seq: opts.seq,
+  });
 }
 
 /**

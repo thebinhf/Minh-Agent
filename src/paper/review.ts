@@ -123,11 +123,15 @@ function pickCoverage(raw: unknown): QuantCoverage | null {
 }
 
 function familyKeyOf(id: string): string {
-  const match = /^([a-z0-9]+)-(4h|1h|15m|5m|d)-(s|d)-/i.exec(id);
+  const match = /^([a-z0-9]+)-(4h|1h|15m|5m|d)-(s|d)(?:-(bo|rv|sd))?-(\d{8})-/i.exec(id);
   if (!match) return id;
   const side = match[3]!.toLowerCase() === "s" ? "supply" : "demand";
   const tf = match[2]!.toLowerCase() === "4h" ? "240" : match[2]!;
-  return `${match[1]!.toUpperCase()}USDT:${tf}:${side}`;
+  const base = `${match[1]!.toUpperCase()}USDT:${tf}:${side}`;
+  const setup = match[4]?.toLowerCase();
+  if (setup === "bo") return `${base}:breakout`;
+  if (setup === "rv") return `${base}:reversal`;
+  return base;
 }
 
 function pickSkipped(raw: unknown): Array<{ symbol: string; error: string }> {

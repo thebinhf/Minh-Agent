@@ -1,5 +1,6 @@
 import { Dec } from "./decimal";
-import type { ZoneCard, ZoneSide } from "../zones/card";
+import type { ZoneCard, ZoneSetup, ZoneSide } from "../zones/card";
+import { parseZoneSetup } from "../zones/card";
 
 /**
  * PAPER_ZONE_SCORE=0: keep detector order at MAP accept (metrics still compute scores).
@@ -27,12 +28,13 @@ const TF_FROM_SLUG: Record<string, string> = {
   d: "D",
 };
 
-const FAMILY_ID = /^([a-z0-9]+)-(4h|1h|15m|5m|d)-(s|d)-(\d{8})-(\d{2})$/i;
+const FAMILY_ID = /^([a-z0-9]+)-(4h|1h|15m|5m|d)-(s|d)(?:-(bo|rv|sd))?-(\d{8})-(\d{2})$/i;
 
 export type ZoneFamily = {
   symbol: string;
   tf: string;
   side: ZoneSide;
+  setup: ZoneSetup;
 };
 
 export type ZoneScoreInput = {
@@ -44,11 +46,28 @@ export type ZoneScoreInput = {
 };
 
 export function familyKey(family: ZoneFamily): string {
-  return `${family.symbol}:${family.tf}:${family.side}`;
+  const base = `${family.symbol}:${family.tf}:${family.side}`;
+  if (family.setup === "sd") return base;
+  return `${base}:${family.setup}`;
 }
 
-export function familyFromCard(card: Pick<ZoneCard, "symbol" | "tf" | "side">): ZoneFamily {
-  return { symbol: card.symbol, tf: card.tf, side: card.side };
+export function familyFromCard(card: Pick<ZoneCard, "symbol" | "tf" | "side"> & { setup?: ZoneSetup; zoneId?: string }): ZoneFamily {
+  return {
+    symbol: card.symbol,
+    tf: card.tf,
+    side: card.side,
+    setup: parseZoneSetup(card.setup ?? setupFromZoneId(card.zoneId)),
+  };
+}
+
+function setupFromZoneId(zoneId: string | null | undefined): ZoneSetup {
+  if (!zoneId) return "sd";
+  const match = FAMILY_ID.exec(zoneId.trim());
+  if (!match?.[4]) return "sd";
+  const token = match[4].toLowerCase();
+  if (token === "bo") return "breakout";
+  if (token === "rv") return "reversal";
+  return "sd";
 }
 
 function sideFromSlug(slug: string): ZoneSide | null {
@@ -74,10 +93,13 @@ export function parseFamilyFromZoneId(zoneId: string | null | undefined): ZoneFa
   const tf = TF_FROM_SLUG[match[2]!.toLowerCase()];
   const side = sideFromSlug(match[3]!.toLowerCase());
   if (!tf || !side) return null;
+  const setupToken = match[4]?.toLowerCase();
+  const setup: ZoneSetup = setupToken === "bo" ? "breakout" : setupToken === "rv" ? "reversal" : "sd";
   return {
     symbol: `${slug.toUpperCase()}USDT`,
     tf,
     side,
+    setup,
   };
 }
 

@@ -16,6 +16,7 @@ const EXAMPLE: ZoneCard = {
   symbol: "BTCUSDT",
   tf: "240",
   side: "supply",
+  setup: "sd",
   baseStartTs: 1_788_801_600_000,
   baseEndTs: 1_788_808_800_000,
   zoneLow: 79_250,
@@ -57,6 +58,7 @@ describe("zone-card v1 schema", () => {
     const card = parseZoneCard(EXAMPLE);
     expect(card.zoneId).toBe("btc-4h-s-20260908-01");
     expect(card.side).toBe("supply");
+    expect(card.setup).toBe("sd");
     expect(card.freshness).toBe("virgin");
     expect(Object.keys(card)).toEqual([...ZONE_CARD_KEYS]);
   });

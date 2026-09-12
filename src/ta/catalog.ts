@@ -1,4 +1,4 @@
-/** Overlay catalog. None of these arm, accept, or rest OCO. */
+/** Overlay catalog. HTTP pack never arms. Setup methods emit cards via `src/zones/setups`. */
 
 export const TA_NOTE = "overlay pack — not a signal, does not arm";
 
@@ -17,7 +17,7 @@ export const TA_FAMILIES = [
 ] as const;
 export type TaFamily = (typeof TA_FAMILIES)[number];
 
-export const TA_ROLES = ["overlay", "context", "existing", "discretionary", "ict_confirm"] as const;
+export const TA_ROLES = ["overlay", "context", "existing", "discretionary", "ict_confirm", "setup"] as const;
 export type TaRole = (typeof TA_ROLES)[number];
 
 export const TA_METHOD_IDS = [
@@ -55,8 +55,8 @@ export type TaMethodMeta = {
 
 export const TA_METHODS: readonly TaMethodMeta[] = [
   { id: "fibonacci", name: "Fibonacci Retracements", family: "structure", role: "overlay" },
-  { id: "breakouts", name: "Breakouts", family: "structure", role: "overlay" },
-  { id: "reversal", name: "Reversal", family: "structure", role: "overlay" },
+  { id: "breakouts", name: "Breakouts", family: "structure", role: "setup" },
+  { id: "reversal", name: "Reversal", family: "structure", role: "setup" },
   { id: "elliott", name: "Elliott Wave", family: "discretionary", role: "discretionary" },
   { id: "fvg", name: "Fair Value Gap", family: "ict_confirm", role: "ict_confirm" },
   { id: "candlesticks", name: "Candlesticks", family: "candle", role: "overlay" },
@@ -72,7 +72,7 @@ export const TA_METHODS: readonly TaMethodMeta[] = [
   { id: "oscillators", name: "Oscillators", family: "oscillator", role: "context" },
   { id: "divergence", name: "Divergence", family: "oscillator", role: "context" },
   { id: "volume", name: "Volume", family: "existing", role: "context" },
-  { id: "supply_demand", name: "Supply & Demand", family: "existing", role: "existing" },
+  { id: "supply_demand", name: "Supply & Demand", family: "existing", role: "setup" },
   { id: "market_structure", name: "Market Structure", family: "existing", role: "existing" },
   { id: "bos", name: "BOS", family: "ict_confirm", role: "ict_confirm" },
   { id: "choch", name: "CHOCH", family: "ict_confirm", role: "ict_confirm" },

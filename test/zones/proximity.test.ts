@@ -7,6 +7,7 @@ const SUPPLY: ZoneCard = {
   symbol: "BTCUSDT",
   tf: "240",
   side: "supply",
+  setup: "sd",
   baseStartTs: 1,
   baseEndTs: 2,
   zoneLow: 79_250,

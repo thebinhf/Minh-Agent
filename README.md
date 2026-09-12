@@ -93,7 +93,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `BYBIT_FLOW` | on (`0` disables) | WS `publicTrade` CVD → `/map.flow` |
 | `BYBIT_FLOW_EXTREME` | `0.15` | `|imbalance|` floor for `flow.reading` |
 | `BYBIT_LIQ` | on (`0` disables) | WS `allLiquidation` prints |
-| `BYBIT_TAPE_SYMBOLS` | BTC,ETH,SOL | CVD + liq subscribe set. `watchlist` or `*` = every config symbol. Comma list intersects. `0` = none. Replay does **not** invent history; missing stays null |
+| `BYBIT_TAPE_SYMBOLS` | watchlist | CVD + liq subscribe set. Default = every config symbol. Comma list intersects. `0` = none. Replay does **not** invent history; missing stays null |
 | `BYBIT_LIQ_MODEL` | on (`0` disables) | Estimated `/liq-model` |
 | `BYBIT_RELAY` | on (`0` disables) | Local `ws://…/ws` push |
 | `BYBIT_RELAY_LIQ_MS` | 1000 | Liq relay coalesce; `0` = every batch |
@@ -105,6 +105,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_TA_VOL` | off | `arm` = ARM wait on kline volume climax (rel ≥ 2). Volume 0 stays missing |
 | `PAPER_TA_SHOCK` | off | `arm` = ARM wait on 4H `impulse` / `vol_spike`. Quiet/missing pass |
 | `PAPER_TA_REV` | off | `arm` = ARM wait unless 15m reversal agrees. Missing reversal is not a wait |
+| `PAPER_SETUPS` | `sd,breakout,reversal` | Zone-card families MAP may emit. `0` / `sd` = old S/D-only detector. Does not arm from `GET /ta` |
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
@@ -198,7 +199,7 @@ Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](do
 
 ## Operations
 
-Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, `BYBIT_TAPE_SYMBOLS=watchlist`). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). After a green merge:
+Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, CVD/liq watchlist). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). After a green merge:
 
 ```bash
 deploy/pull-restart.sh

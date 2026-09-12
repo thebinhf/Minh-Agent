@@ -6,20 +6,18 @@ export const TAPE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"] as const;
 
 /**
  * CVD + liq subscribe set. L50 follows `orderbook.symbols`.
- * Default: the 3 liquid majors. BYBIT_TAPE_SYMBOLS=watchlist|* → every config symbol.
- * Comma list intersects the watchlist. 0 = none.
+ * Default: every config symbol (the watchlist). Comma list intersects.
+ * `watchlist` / `*` = same as default. `0` = none.
  * Replay cannot invent historical publicTrade/liq — missing stays null.
  */
 export function tapeSymbols(config: Pick<TrackerConfig, "symbols">): string[] {
   const watch = new Set(config.symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean));
   const raw = process.env.BYBIT_TAPE_SYMBOLS?.trim();
   let wanted: string[];
-  if (raw == null || raw === "") {
-    wanted = [...TAPE_SYMBOLS];
+  if (raw == null || raw === "" || raw === "*" || raw.toLowerCase() === "watchlist") {
+    wanted = [...watch];
   } else if (raw === "0") {
     wanted = [];
-  } else if (raw === "*" || raw.toLowerCase() === "watchlist") {
-    wanted = [...watch];
   } else {
     wanted = raw.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean);
   }

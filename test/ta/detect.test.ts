@@ -38,7 +38,7 @@ function uptrend(n = 60): TaBar[] {
 const OPTS = { symbol: "BTCUSDT", tf: "240", intervalMs: STEP, asof: START + 80 * STEP };
 
 describe("TA catalog", () => {
-  test("22 methods, none are signals", () => {
+  test("22 methods, none are signals; setups emit cards elsewhere", () => {
     expect(TA_METHOD_IDS).toHaveLength(22);
     expect(TA_METHODS).toHaveLength(22);
     const packed = packMethods(uptrend(), OPTS);
@@ -49,6 +49,9 @@ describe("TA catalog", () => {
     expect(packed.fvg.role).toBe("ict_confirm");
     expect(packed.bos.role).toBe("ict_confirm");
     expect(packed.choch.role).toBe("ict_confirm");
+    expect(packed.breakouts.role).toBe("setup");
+    expect(packed.reversal.role).toBe("setup");
+    expect(packed.supply_demand.role).toBe("setup");
     expect(packed.supply_demand.data).toMatchObject({ suggestOnly: true, autoArm: false });
   });
 
@@ -60,6 +63,7 @@ describe("TA catalog", () => {
       "src/paper/map-accept.ts",
       "src/paper/proximity.ts",
       "src/live/plan.ts",
+      "src/zones/setups.ts",
     ];
     for (const file of files) {
       const src = await Bun.file(file).text();

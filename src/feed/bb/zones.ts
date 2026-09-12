@@ -11,11 +11,11 @@ import {
 } from "./map";
 import {
   ZONE_KLINE_LIMITS,
-  detectZoneCardsFromKlines,
   intervalMsForTf,
   parseZoneInterval,
   type ZoneInterval,
 } from "../../zones/detect";
+import { detectAllSetupsFromKlines } from "../../zones/setups";
 import type { ZoneCard } from "../../zones/card";
 
 export const ZONE_SUGGEST_NOTE = "suggest-only zone-cards from local klines — no auto-arm, no auto S/D";
@@ -86,7 +86,7 @@ export function buildZones(
   const zones: ZoneCard[] = [];
   for (const symbol of symbols) {
     const klines = readBriefKlines(store, symbol, interval, limit);
-    zones.push(...detectZoneCardsFromKlines(klines, { symbol, tf: interval, intervalMs }));
+    zones.push(...detectAllSetupsFromKlines(klines, { symbol, tf: interval, intervalMs }));
   }
   zones.sort((a, b) => b.baseStartTs - a.baseStartTs || a.zoneId.localeCompare(b.zoneId));
   body.zones = zones;

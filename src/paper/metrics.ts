@@ -166,6 +166,7 @@ export function paperMetrics(engine: PaperMetricsSource, days = DEFAULT_METRICS_
         symbol: row.symbol,
         tf: row.tf,
         side: row.side,
+        zoneId: row.zoneId,
       }));
     }
   }

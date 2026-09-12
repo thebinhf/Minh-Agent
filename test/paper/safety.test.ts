@@ -79,6 +79,7 @@ describe("paper safety", () => {
       "src/ta/arm-tape.ts",
       "src/zones/card.ts",
       "src/zones/detect.ts",
+      "src/zones/setups.ts",
       "src/feed/bb/zones.ts",
     ];
     for (const file of files) {
