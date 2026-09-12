@@ -181,4 +181,46 @@ describe("sqlite storage", () => {
       store.close();
     }
   });
+
+  test("latestConfirmedKlines sees the bar latestKlines hides behind a forming one", () => {
+    const { store } = tempDb();
+    const kline = (start: number, confirm: boolean) => ({
+      start,
+      end: start + 1_000,
+      interval: "60",
+      open: "1",
+      high: "1",
+      low: "1",
+      close: "1",
+      volume: "1",
+      turnover: "1",
+      confirm,
+      timestamp: start,
+    });
+    try {
+      // BTC closes 1_000 and Bybit opens the next candle in the same push.
+      store.saveKline("BTCUSDT", kline(1_000, true), 10);
+      store.saveKline("BTCUSDT", kline(2_000, false), 20);
+      store.saveKline("ETHUSDT", kline(1_000, true), 30);
+      // SOL has only ever been fed a forming bar — nothing to confirm yet.
+      store.saveKline("SOLUSDT", kline(2_000, false), 40);
+
+      const newest = store.latestKlines(["60"]);
+      expect(newest).toEqual([
+        expect.objectContaining({ symbol: "BTCUSDT", start_ts: 2_000, confirm: 0 }),
+        expect.objectContaining({ symbol: "ETHUSDT", start_ts: 1_000, confirm: 1 }),
+        expect.objectContaining({ symbol: "SOLUSDT", start_ts: 2_000, confirm: 0 }),
+      ]);
+
+      const confirmed = store.latestConfirmedKlines(["60"]);
+      expect(confirmed).toEqual([
+        expect.objectContaining({ symbol: "BTCUSDT", interval: "60", start_ts: 1_000, confirm: 1, recv_ts: 10 }),
+        expect.objectContaining({ symbol: "ETHUSDT", interval: "60", start_ts: 1_000, confirm: 1, recv_ts: 30 }),
+      ]);
+      expect(store.latestConfirmedKlines(["60"], "BTCUSDT")).toHaveLength(1);
+      expect(store.latestConfirmedKlines([])).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
 });

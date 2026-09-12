@@ -598,6 +598,45 @@ function wrap(db: Database) {
         confirm: number;
       }>;
     },
+    /**
+     * Newest *confirmed* bar per symbol/interval. Unlike latestKlines the MAX is
+     * taken over confirm = 1 rows only: Bybit opens the next forming candle in the
+     * same push that confirms the closing one, so a just-confirmed bar is never the
+     * overall MAX(start_ts) and latestKlines can never surface it.
+     */
+    latestConfirmedKlines(intervals: string[], symbol?: string) {
+      if (intervals.length === 0) return [];
+      const where: string[] = [
+        `interval IN (${intervals.map(() => "?").join(",")})`,
+        "confirm = 1",
+      ];
+      const args: Array<string | number> = [...intervals];
+      if (symbol) {
+        where.push("symbol = ?");
+        args.push(symbol);
+      }
+      const sql = `SELECT k.symbol, k.interval, k.start_ts, k.end_ts, k.recv_ts, k.confirm
+        FROM klines k
+        INNER JOIN (
+          SELECT symbol, interval, MAX(start_ts) AS start_ts
+          FROM klines
+          WHERE ${where.join(" AND ")}
+          GROUP BY symbol, interval
+        ) latest
+          ON k.symbol = latest.symbol
+         AND k.interval = latest.interval
+         AND k.start_ts = latest.start_ts
+        WHERE k.confirm = 1
+        ORDER BY k.symbol, CAST(k.interval AS INTEGER)`;
+      return db.prepare(sql).all(...args) as Array<{
+        symbol: string;
+        interval: string;
+        start_ts: number;
+        end_ts: number | null;
+        recv_ts: number;
+        confirm: number;
+      }>;
+    },
     klineStats(symbol?: string, interval?: string) {
       const where: string[] = [];
       const args: string[] = [];
