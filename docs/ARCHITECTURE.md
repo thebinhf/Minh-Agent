@@ -28,7 +28,7 @@ HTTP contract: [http.md](http.md).
 | `src/index.ts` | Composition root |
 | `src/brief-pack.ts` | CLI for `GET /brief-pack` |
 | `src/feed/bb/` | Public WS, SQLite, read-only HTTP |
-| `src/features/` | As-of tape + `GET /features`. Missing ≠ 0. Does not arm |
+| `src/features/` | As-of tape + 4H kline shock + `GET /features` / `bun run features scan`. Missing ≠ 0. Does not arm |
 | `src/ta/` | Overlay pack + `GET /ta`. 22 methods. Does not arm. ICT not a signal |
 | `src/zones/` | Zone-card v1, HTF detector, ledger helpers, proximity |
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
@@ -44,7 +44,7 @@ HTTP contract: [http.md](http.md).
 | --- | --- | --- |
 | App | `src/index.ts` | Boot + wire. No exchange I/O. |
 | Feed | `src/feed/bb/` | Public WS / REST / SQLite / HTTP. Owns kline lag. Does not arm. |
-| Features | `src/features/` | As-of tape. Does not arm. Missing ≠ 0. |
+| Features | `src/features/` | As-of tape + 4H kline shock. Does not arm. Missing ≠ 0. |
 | TA | `src/ta/` | Overlay pack. Does not arm. Missing ≠ 0. Not a signal. |
 | Zones | `src/zones/` | Schema + suggest. `GET /zones` is GET-only. |
 | Agent | `src/agent/` | 4H HH/HL bias + accept policy. Does not arm. Does not change `/map`. |
@@ -61,7 +61,7 @@ HTTP contract: [http.md](http.md).
 | `GET /oi` | OI history (quant veto) |
 | `GET /funding` | Funding history (quant veto) |
 | `GET /flow` | Taker CVD 4H/15m (quant veto) |
-| `GET /features` | As-of quant tape (debug). Not a signal |
+| `GET /features` | As-of quant tape + 4H kline shock (debug). Not a signal |
 | `GET /ta` | Overlay pack (22 methods). Not a signal. Does not arm |
 | `GET /liq-heatmap` | Actual liq prints heatmap |
 | `GET /liq-model` | Estimated forward map (inventory-capped) |

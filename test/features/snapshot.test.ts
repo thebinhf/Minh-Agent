@@ -1,28 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { openDb } from "../../src/feed/bb/db";
 import { startHttp } from "../../src/feed/bb/http";
 import { intervalToMs } from "../../src/feed/bb/recovery";
 import type { TrackerConfig } from "../../src/feed/bb/types";
 import { FEATURES_NOTE, buildFeatures, parseFeaturesAsof } from "../../src/features/snapshot";
+import { cleanupMarketDbs, tempMarketDb } from "./helpers";
 
-const dirs: string[] = [];
 const H4 = intervalToMs("240");
 const ASOF = 1_700_000_000_000;
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  cleanupMarketDbs();
 });
 
 function tempDb() {
-  const dir = mkdtempSync(join(tmpdir(), "minh-features-"));
-  dirs.push(dir);
-  const dbPath = join(dir, "market.sqlite");
-  return { dbPath, store: openDb(dbPath) };
+  return tempMarketDb("minh-features-");
 }
 
 describe("parseFeaturesAsof", () => {
@@ -47,6 +38,9 @@ describe("GET /features", () => {
       cascade: null,
       flowReading: null,
     });
+    expect(snap.shock.quality).toBe("missing");
+    expect(snap.shock.reading).toBeNull();
+    expect(snap.shock.atr14).toBeNull();
     expect(snap.meta.note).toBe(FEATURES_NOTE);
     store.close();
   });
