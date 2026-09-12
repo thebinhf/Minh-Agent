@@ -24,7 +24,7 @@ Bias (from `/map` klines, not a `/map` field): 4H HH/HL = bull, LH/LL = bear, mi
 
 `MAP_ACCEPT=0` turns off the **old accept path** (no auto-copy). `AGENT_MAP=0` is a **policy no-op** — ungated P5 `runMapAccept` still copies if `MAP_ACCEPT` is on. Manual: `bun run paper zone accept <zoneId>` or `POST /paper/zones` (bypasses agent policy). `/zones` itself does **not** arm.
 
-Quant is a **single in-process veto** (`quantVeto`). Cascade and crowded at MAP **accept**, proximity **ARM**, and **pending fill**. Opposing OI add (`short_add` vs demand / `long_add` vs supply) and opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply on `/map.flow`) are **MAP accept only** — at ARM / while the OCO rests that add/flow is the zone fill. Same-side add is never a veto. `cover`/`flush` confirm cascade; they are not a second veto. Cascade `active` with `side: null` is not a veto. Demand + `liq.cascade.active && side=long` → wait reclaim (do not reject the zone; skip the fill this tick, keep the pending). Crowded long blocks demand, not a short signal. `AGENT_QUANT=0` skips. Missing tape / missing `flow.reading` is not a veto. `GET /liq-model` is a labeled estimate — do not arm from it. `/heatmap` is the book grid, not CVD.
+Quant is a **single in-process veto** (`quantVeto`). Cascade and crowded at MAP **accept**, proximity **ARM**, and **pending fill**. Opposing OI add (`short_add` vs demand / `long_add` vs supply) and opposing CVD (`sell_dom` vs demand / `buy_dom` vs supply on `/map.flow`) are **MAP accept only** — at ARM / while the OCO rests that add/flow is the zone fill. Same-side add is never a veto. `cover`/`flush` confirm cascade; they are not a second veto. Cascade `active` with `side: null` is not a veto. Demand + `liq.cascade.active && side=long` → wait reclaim (do not reject the zone; skip the fill this tick, keep the pending). Crowded long blocks demand, not a short signal. `AGENT_QUANT=0` skips. Missing tape / missing `flow.reading` is not a veto. `GET /liq-model` is a labeled estimate — do not arm from it. `/heatmap` is the book grid, not CVD. `GET /ta` is an overlay pack (fib, S/R, oscillators, FVG/BOS/CHOCH labels, moon calendar). **Do not arm from it.** ICT stays confirm after the zone + HTF already passed.
 
 5M scalp only after HTF bias is set — `GET /confirm?symbol=&interval=5`. Not in `/brief` / `/brief-pack` / `/map`.
 
@@ -106,7 +106,8 @@ POST /live/map-close   # optional MAP_CLOSE_WEBHOOK from the feed
 - Scan on a timer while waiting
 - Enter mid-range
 - Fade HTF structure
-- ICT/SMC unless the zone + HTF already passed
+- ICT/SMC unless the zone + HTF already passed (`GET /ta` labels, never a detector)
+- Arm from `GET /ta` / fib / oscillator / moon / harmonic
 - Live keys, `/v5/order`, paper→live
 - Mid-watch PnL
 

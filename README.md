@@ -37,6 +37,7 @@ Quiet between two 4H candles. `/confirm` is optional scalp, not required to hold
 src/index.ts
 ├── src/feed/bb     :43180   public WS → SQLite → HTTP
 ├── src/zones                zone-card schema + HTF suggest
+├── src/ta                   overlay pack (GET /ta). Does not arm
 └── src/paper       :43181   ledger, OCO, tick, metrics
 
 src/live            :43182   MAP/ARM shadow (own sqlite, no orders)
@@ -49,6 +50,7 @@ Feed HTTP never imports paper. The composition root injects the paper desk into 
 | [`src/index.ts`](src/index.ts) | Composition root |
 | [`src/feed/bb/`](src/feed/bb/) | Bybit public WS, SQLite, HTTP |
 | [`src/zones/`](src/zones/) | Zone-card v1, detector, proximity |
+| [`src/ta/`](src/ta/) | Overlay pack. Does not arm |
 | [`src/paper/`](src/paper/) | Paper broker |
 | [`src/live/`](src/live/) | Live-shadow observer |
 | [`deploy/`](deploy/) | systemd unit + `pull-restart.sh` |
@@ -119,6 +121,7 @@ bun run start                 # feed :43180 + paper :43181
 bun run live                  # shadow :43182 (own sqlite, no orders)
 bun run map                   # HTF watchlist + klineLag
 bun run zones                 # suggest-only cards (does not arm)
+bun run ta                    # overlay pack (22 methods, does not arm)
 bun run paper event           # pending OCO + alerts + accepted zones
 bun run paper week            # 7-day funnel
 ```
@@ -136,6 +139,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /funding` | Funding history (quant veto, `crowded`) |
 | `GET /flow` | Taker CVD 4H/15m (quant veto, `buy_dom`/`sell_dom`) |
 | `GET /features` | As-of quant tape (debug). Not a signal |
+| `GET /ta` | Overlay pack (22 methods). Not a signal. Does not arm |
 | `GET /liq-heatmap` | Actual liq prints (not orderbook `/heatmap`) |
 | `GET /liq-model` | Estimated forward map (not prints; not a target) |
 | `ws://127.0.0.1:43180/ws` | Local push: ticker / confirmed kline / liq |

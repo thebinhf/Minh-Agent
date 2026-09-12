@@ -134,6 +134,23 @@ curl -sS 'http://127.0.0.1:43180/features?symbol=BTCUSDT'
 curl -sS 'http://127.0.0.1:43180/features?symbol=BTCUSDT&asof=2026-08-01T00:00:00.000Z'
 ```
 
+### `GET /ta`
+
+Read-only overlay pack from local klines (`src/ta/`). 22 methods. **Not a signal. Does not arm.** ICT (FVG/BOS/CHOCH) is labeled `ict_confirm` / `ictAsSignal: false`. Missing stays null — not 0. `/map` unchanged.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT` | |
+| `interval` | `240` | `15` / `60` / `240`. Junk → `400` `{ "error": "ta_interval" }` |
+| `asof` | now | Epoch ms or ISO. Junk → `400` `{ "error": "ta_asof" }` |
+
+`quality` is `ok` when a priced method has a row, else `missing`. Moon phase is calendar-only (ok even on empty klines). Every method has `signal: false`. CLI: `bun run ta`.
+
+```bash
+curl -sS 'http://127.0.0.1:43180/ta?symbol=BTCUSDT'
+curl -sS 'http://127.0.0.1:43180/ta?symbol=BTCUSDT&interval=240&asof=2026-08-01T00:00:00.000Z'
+```
+
 ### `GET /liq-heatmap`
 
 Actual Bybit liquidation **prints**, not Coinglass estimates. Public WS `allLiquidation.{symbol}` (BTC/ETH/SOL). `Buy` = long liquidated.

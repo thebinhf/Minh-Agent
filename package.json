@@ -17,6 +17,7 @@
     "map": "bun run src/feed/bb/map.ts",
     "confirm": "bun run src/feed/bb/confirm.ts",
     "zones": "bun run src/feed/bb/zones.ts",
+    "ta": "bun run src/ta/cli.ts",
     "paper": "bun run src/paper/cli.ts",
     "live": "bun run src/live/cli.ts",
     "test": "bun test",

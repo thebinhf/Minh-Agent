@@ -16,6 +16,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Funding rate history | Live | Public `GET /v5/market/funding/history` → SQLite `funding`. `GET /funding`, `/map.funding` (`crowded` long/short if `|rate| ≥ 0.0003`). Quant veto only. `BYBIT_FUNDING=0` off. |
 | Taker CVD / money flow | Live | Public WS `publicTrade` (default BTC/ETH/SOL; `BYBIT_TAPE_SYMBOLS`) → SQLite `flow_bars` (1m). `GET /flow`, `/map.flow` (`delta`, `reading` = buy_dom/sell_dom). Quant veto, accept-only (`sell_dom` vs demand / `buy_dom` vs supply). ARM skips like OI add. `BYBIT_FLOW=0` off. `BYBIT_FLOW_EXTREME` default `0.15`. Not `/heatmap`. Missing window stays null — not 0. |
 | As-of features | Live | `GET /features?symbol=&asof=` — same tape as `replay-map` (`crowded` / `oiReading` / `flowReading` / `cascade`). Missing ≠ 0. Debug. Not a signal. `/map` unchanged. |
+| TA overlay pack | Live | `GET /ta` / `bun run ta` — 22 read-only methods from local klines (fib, S/R, HA, oscillators, FVG/BOS/CHOCH labels, moon calendar, existing S/D + structure). `signal: false`. Does not arm. ICT is confirm, not a detector. Missing ≠ 0. `/map` unchanged. |
 | Liquidation heatmap | Live | Public WS `allLiquidation` (same tape set as CVD) → SQLite `liquidations`. `GET /liq-heatmap`, `/map.liq`. `cascade` is side+intensity+walk+fuel (OI `flush`/`cover` can confirm). Prints only. `BYBIT_LIQ=0` off. |
 | Liquidation model | Live | `GET /liq-model`: isolated MMR + 10/20/50 mix + 15m VW entries, inventory-capped at OI/2. Labeled `model — not exchange data`. Not mixed into `/liq-heatmap`. `BYBIT_LIQ_MODEL=0` off. |
 | Feed WS relay | Live | `ws://127.0.0.1:43180/ws` — ticker (1s), confirmed kline, liq bins (1s; quiet +1 window; same-side burst now). `BYBIT_RELAY=0` off. |
@@ -55,7 +56,7 @@ Verify against `src/` before treating older PRs as product scope.
 | Trading / private Bybit topics | Public linear market data only. No API keys. |
 | Live orders / paper→live bridge | Forbidden. Paper and live-shadow refuse to start if Bybit key env vars are set. |
 | Browser dashboard | No operator UI. |
-| Timer scans / ICT-as-signal | MAP is 4H close. ICT is optional confirm, not a detector. |
+| Timer scans / ICT-as-signal | MAP is 4H close. ICT is optional confirm (`GET /ta` FVG/BOS/CHOCH labels), not a detector. `/ta` never arms. |
 
 ## Docs
 
