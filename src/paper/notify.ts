@@ -6,6 +6,8 @@ export const NOTIFY_KINDS = [
   "order.filled",
   "order.invalidated",
   "position.closed",
+  "zone.accepted",
+  "zone.armed",
 ] as const;
 
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
@@ -67,6 +69,12 @@ export function formatNotifyText(event: EventView): string {
   }
   if (event.kind === "position.closed") {
     return `[minh:paper] position.closed ${symbol} ${payload.closeReason ?? ""} @ ${payload.closePrice ?? ""} pnl=${payload.realizedPnl ?? ""}`.trim();
+  }
+  if (event.kind === "zone.accepted") {
+    return `[minh:paper] zone.accepted ${symbol} ${payload.zoneId ?? ""} ${payload.side ?? ""} ${payload.setup ?? ""}`.trim();
+  }
+  if (event.kind === "zone.armed") {
+    return `[minh:paper] zone.armed ${symbol} ${payload.zoneId ?? ""} @ ${payload.limitPrice ?? ""}`.trim();
   }
   return `[minh:paper] ${event.kind} ${symbol}`.trim();
 }

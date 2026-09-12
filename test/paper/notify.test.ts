@@ -42,7 +42,8 @@ describe("paper notify", () => {
   test("parses channel and locks kinds to event-once set", () => {
     expect(parseNotifyChannel("TELEGRAM")).toBe("telegram");
     expect(parseNotifyChannel("nope")).toBe("log");
-    expect(normalizeNotifyKinds(["alert.fired", "pnl.tick", "order.cancelled"])).toEqual(["alert.fired"]);
+    expect(normalizeNotifyKinds(["alert.fired", "pnl.tick", "order.cancelled", "zone.accepted"]))
+      .toEqual(["alert.fired", "zone.accepted"]);
     expect(shouldNotify(telegramCfg, "alert.fired")).toBe(true);
     expect(shouldNotify(telegramCfg, "order.cancelled")).toBe(false);
     expect(shouldNotify({ ...telegramCfg, channel: "log" }, "alert.fired")).toBe(false);
@@ -57,6 +58,10 @@ describe("paper notify", () => {
       .toContain("order.invalidated");
     expect(formatNotifyText(event("position.closed", { closeReason: "sl", closePrice: "116200", realizedPnl: "-30" })))
       .toContain("pnl=-30");
+    expect(formatNotifyText(event("zone.accepted", { zoneId: "btc-4h-s-01", side: "supply", setup: "sd" })))
+      .toContain("zone.accepted");
+    expect(formatNotifyText(event("zone.armed", { zoneId: "btc-4h-s-01", limitPrice: "79200" })))
+      .toContain("zone.armed");
   });
 
   test("telegram POSTs sendMessage; cancelled/rejected are skipped", async () => {

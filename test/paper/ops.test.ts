@@ -99,7 +99,8 @@ describe("paper operator surface", () => {
     expect(ctx.engine.alerts("armed")[0]?.zoneId).toBe("btc-4h-d-20260908-01");
   });
 
-  test("CLI parses status / day / arm", () => {
+  test("CLI parses status / day / arm / observe", () => {
+    expect(parsePaperArgs(["observe"])).toEqual({ name: "observe" });
     expect(parsePaperArgs(["status"])).toEqual({ name: "status" });
     expect(parsePaperArgs(["day", "--day", "2026-09-08"])).toEqual({ name: "day", day: "2026-09-08" });
     expect(parsePaperArgs([

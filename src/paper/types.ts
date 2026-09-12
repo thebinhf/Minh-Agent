@@ -37,7 +37,14 @@ export type NotifyChannel = "log" | "telegram" | "webhook" | "off";
 
 export type NotifyConfig = {
   channel: NotifyChannel;
-  kinds: Array<"alert.fired" | "order.filled" | "order.invalidated" | "position.closed">;
+  kinds: Array<
+    | "alert.fired"
+    | "order.filled"
+    | "order.invalidated"
+    | "position.closed"
+    | "zone.accepted"
+    | "zone.armed"
+  >;
   telegramBotToken?: string;
   telegramChatId?: string;
   webhookUrl?: string;

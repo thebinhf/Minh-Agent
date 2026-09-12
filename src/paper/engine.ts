@@ -1516,6 +1516,13 @@ export function createPaperEngine(opts: {
         rejectedTs: null,
         rejectCode: null,
       });
+      emit("zone.accepted", card.symbol, {
+        zoneId: card.zoneId,
+        side: card.side,
+        setup: card.setup,
+        tf: card.tf,
+        rr: card.rr,
+      }, now, card.zoneId);
       return viewLedger(store.getZoneLedger(card.zoneId)!);
     },
 
@@ -1703,6 +1710,14 @@ export function createPaperEngine(opts: {
           zoneId: plan.zoneId,
         });
         let order = store.getOrder(id)!;
+        if (postOnly && oco && plan.zoneId) {
+          emit("zone.armed", symbol, {
+            zoneId: plan.zoneId,
+            orderId: id,
+            limitPrice: plan.entry.toText(),
+            side: plan.side,
+          }, now, plan.zoneId);
+        }
         let position: PositionView | undefined;
         let event: EventView | undefined;
         if (!postOnly && limitFillHit(side, last, plan.entry)) {

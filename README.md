@@ -2,18 +2,24 @@
 
 [![CI](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml)
 
-Public Bybit linear market cache and a **paper** PA + Supply/Demand engine. Feed + paper share one Bun process. Live-shadow is a second process. No API keys, no live orders, no paper→live.
+Public Bybit linear market cache and a **paper** PA engine that runs **autonomous 24/7**. You observe. Feed + paper share one Bun process. Live-shadow is a second process. No API keys, no live orders, no paper→live.
 
-## Overview
+## You observe
 
-Minh runs 24/7 on a host:
+The host loop does not wait for a click:
 
-1. Cache public Bybit linear data in SQLite (`:43180`).
-2. On each confirmed 4H close, suggest HTF supply/demand cards and copy them into a paper ledger.
-3. When last price enters the proximal band of an accepted card, rest a post-only GTC limit with OCO.
-4. Tick fills at the limit, or invalidates if last prints through SL first. Open positions use SL/TP.
+1. Public Bybit linear WS → SQLite (`:43180`).
+2. Confirmed 4H close → HTF cards (S/D, breakout, reversal) → MAP policy → paper ledger.
+3. Last in proximal + confirmed 15m with the zone → post-only GTC + OCO.
+4. Tick fills at the limit, or invalidates through SL. Open uses SL/TP.
 
-Quiet between two 4H candles. `/confirm` is optional scalp, not required to hold a zone.
+Watch `GET /observe` (feed) or `GET /paper/observe`. Event-once notify (log / Telegram / webhook). `PAPER_OBSERVE=1` on the host unit blocks POST arm/open. Kill switch: `PAPER_OBSERVE=0` via `systemctl edit`.
+
+```text
+deploy/enable-mesh.sh
+# tracker + live-shadow + nightly lab
+# then GET http://127.0.0.1:43180/observe
+```
 
 ## Features
 
@@ -114,7 +120,8 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_MAP_SKIP` | (none) | Comma symbols MAP will not auto-accept. Unset / `0` / blank = none. Feed watchlist unchanged |
 | `PAPER_ARM_MAX` | `2` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId`. Occupied slots stay. `0` = unlimited (still one per symbol). 180d: 2 beat 3/5/0 |
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
-| `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings |
+| `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings (`zone.accepted` / `zone.armed` / fill / OCO / close) |
+| `PAPER_OBSERVE` | off (host unit `1`) | `1` = GET-only paper HTTP/CLI. MAP/ARM/EVENT still run. systemd sets this. |
 
 `BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper and live-shadow refuse to start if they are set.
 

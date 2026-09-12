@@ -202,6 +202,10 @@ const ws = new WebSocket("ws://127.0.0.1:43180/ws");
 ws.onopen = () => ws.send(JSON.stringify({ op: "subscribe", args: ["ticker.BTCUSDT", "liq.*", "kline.240.BTCUSDT"] }));
 ```
 
+### `GET /observe`
+
+Read-only autonomous desk. Injected by the composition root (`paperObserve`). `paper: null` if paper is down. Does not arm.
+
 ### `GET /brief`
 
 One-symbol snapshot for Minh: ticker + 15/60/240. Unchanged. Default symbol `BTCUSDT`. Not the MAP candle source.
@@ -271,6 +275,7 @@ New open / limit / arm reject when feed WS is down (`feed_unhealthy`) or `klineL
 | Route | Notes |
 | --- | --- |
 | `GET /paper/health` | `{ ok, mode, feed, account, gates }` |
+| `GET /paper/observe` | Autonomous snapshot (account + EVENT + recent). Host `PAPER_OBSERVE=1` |
 | `GET /paper/account` | Equity, cash, risk band, leverage |
 | `GET /paper/status` | Account + pending + open + alerts + recent events |
 | `GET /paper/event` | EVENT desk: pending OCO + armed alerts + open + accepted zones. Do not poll `/confirm` |
@@ -286,7 +291,7 @@ New open / limit / arm reject when feed WS is down (`feed_unhealthy`) or `klineL
 | Route | Body / query |
 | --- | --- |
 | `GET /paper/zones` | `status=accepted\|rejected\|expired\|all` (default `accepted`) |
-| `POST /paper/zones` | `{ "zoneId": "btc-4h-s-…" }` (looks up feed `/zones`) **or** a full zone-card. `201` |
+| `POST /paper/zones` | `{ "zoneId": "btc-4h-s-…" }` (looks up feed `/zones`) **or** a full zone-card. `201`. **403** when `PAPER_OBSERVE=1` |
 | `POST /paper/zones/:zoneId/reject` | optional `{ "code" }` default `ops_cancel` |
 
 Cap 2 accepted / symbol. Duplicate → `duplicate_zone`. Does **not** arm.

@@ -47,12 +47,10 @@ After a P7 winner. Not this PR.
 ## Host ops (when the box is up)
 
 ```text
-# 24/7 mesh
+# 24/7 autonomous mesh — you observe
 deploy/enable-mesh.sh
-# bybit-tracker (feed+paper) + live-shadow + replay-map-lab.timer
-
-# collect CVD/liq on the watchlist going forward (does not backfill history)
-# bybit-tracker.service already sets BYBIT_TAPE_SYMBOLS=watchlist
+# tracker (PAPER_OBSERVE=1) + live-shadow + replay-map-lab.timer
+# GET http://127.0.0.1:43180/observe
 
 # after a green merge
 deploy/pull-restart.sh

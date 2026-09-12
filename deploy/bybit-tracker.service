@@ -28,6 +28,8 @@ Environment=MAP_CLOSE=1
 Environment=MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close
 # CVD/liq default is the full watchlist. BYBIT_TAPE_SYMBOLS=0 disables. Comma list intersects.
 Environment=BYBIT_TAPE_SYMBOLS=watchlist
+# Observer lock: GET only on paper HTTP/CLI mutations. MAP/ARM/EVENT still run.
+Environment=PAPER_OBSERVE=1
 NoNewPrivileges=true
 PrivateTmp=true
 

@@ -60,6 +60,7 @@ describe("paper safety", () => {
       "src/agent/ta-gate.ts",
       "src/agent/strategy.ts",
       "src/paper/event.ts",
+      "src/paper/observe.ts",
       "src/paper/db.ts",
       "src/live/config.ts",
       "src/live/db.ts",

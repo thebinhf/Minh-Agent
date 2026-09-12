@@ -8,6 +8,7 @@ import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
 import { paperArm, paperDay, paperStatus, paperWeek } from "./ops";
 import { paperEvent } from "./event";
+import { observerMode, paperObserve } from "./observe";
 import { DEFAULT_METRICS_DAYS, parseMetricsDays, paperMetrics } from "./metrics";
 import { parseZoneId } from "./gates";
 import { acceptTokenKind, lookupSuggestedZone } from "./zone-accept";
@@ -27,6 +28,7 @@ export const PAPER_USAGE = `Usage:
   bun run paper zone list [--status accepted|rejected|expired|all]
   bun run paper zone reject ZONEID [--code ops_cancel]
   bun run paper status
+  bun run paper observe
   bun run paper event
   bun run paper day [--day YYYY-MM-DD]
   bun run paper week
@@ -59,7 +61,7 @@ Optional notify: PAPER_NOTIFY=telegram|webhook plus token/URL. Event-once only.
 replay walks local klines (backfill first). Same OCO/fee/funding engine; slippage 0. Does not touch the live paper ledger.
 replay-batch FILE.json runs many operator-picked zones; one error does not stop the rest.
 replay-map walks 4H detect → policy → 15m ARM/OCO on local klines. Omit SYMBOL = watchlist. --days N (max 180) or --from/--to. --one-book = one equity for the watchlist. --train-days M freezes family floor after M days (holdout is the rest). Quant as-of from OI/funding/flow/liq (missing stays null). Slippage 0. Separate *-replay-map.sqlite (per symbol when watchlist; one file with --one-book).
-arm = limit + alert (long → below limit, short → above). status is one JSON. event is OCO desk (no /confirm). day is UTC session fills/OCO/closes.
+arm = limit + alert (long → below limit, short → above). observe is the read-only desk snapshot. status is one JSON. event is OCO desk (no /confirm). day is UTC session fills/OCO/closes.
 zone accept ZONEID copies a GET /zones card into the ledger (or FILE.json for a hand-drawn card). Does not arm.
 metrics is method stats over --days N (default 7): win rate, avg RR, no_fill%, funnel (detected→accepted→armed→touched→filled/cancelled→exited). Missing rates are null.
 week is metrics --days 7 plus standing ledger cards.
@@ -69,6 +71,7 @@ ab BASE.json VARIANT.json is variant minus base (accepted, skipReasons, equity).
 
 export type PaperCliCommand =
   | { name: "account" }
+  | { name: "observe" }
   | { name: "positions"; status: PaperStatus | "all" }
   | {
       name: "open";
@@ -229,6 +232,7 @@ export function parsePaperArgs(argv: string[]): PaperCliCommand {
   }
   const [command, ...rest] = argv;
   if (command === "account") return { name: "account" };
+  if (command === "observe") return { name: "observe" };
   if (command === "positions") {
     const status = flag(rest, "--status") ?? "open";
     if (status !== "open" && status !== "closed" && status !== "all") {
@@ -462,6 +466,18 @@ export async function runPaperCommand(
   feedUrl = "http://127.0.0.1:43180",
 ): Promise<unknown> {
   if (command.name === "account") return engine.account();
+  if (command.name === "observe") return paperObserve(engine);
+  if (observerMode() && (
+    command.name === "open" || command.name === "limit" || command.name === "arm"
+    || command.name === "close" || command.name === "cancel"
+    || command.name === "zone-accept" || command.name === "zone-reject"
+    || command.name === "alert-set" || command.name === "alert-cancel"
+    || command.name === "mark"
+  )) {
+    throw new PaperReject("observer", "observe", {
+      message: "PAPER_OBSERVE=1 — status/observe only; MAP/ARM/EVENT run in-process",
+    });
+  }
   if (command.name === "positions") {
     return { mode: "paper", positions: engine.positions(command.status) };
   }
