@@ -48,6 +48,29 @@ export function biasChopMode(): BiasChopMode {
   return "deny";
 }
 
+/**
+ * Signal-quality filters at MAP accept. Both default off and stay off until a
+ * one-flag 180d replay walk wins (same discipline as the P7 TA gates). They
+ * only remove cards the detector already produced — they never invent data.
+ */
+
+/** AGENT_ZONE_FRESH=1: deny zones price already touched or penetrated (`zone_fresh`). */
+export function zoneFreshFilter(): boolean {
+  return process.env.AGENT_ZONE_FRESH?.trim() === "1";
+}
+
+/**
+ * AGENT_ZONE_IMPULSE_MIN=<float>: deny cards whose departure impulse is
+ * shallower than the floor in ATR units (`zone_impulse`). Unset / 0 / invalid
+ * = off. A shallow impulse is a weak zone — the signal-cleaning candidate.
+ */
+export function zoneImpulseMin(): number | null {
+  const raw = process.env.AGENT_ZONE_IMPULSE_MIN?.trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const DROP_CODES = ["deep_mitigate", "htf_break", "expired"] as const;
 
 export const POLICY_REASONS = [
@@ -60,6 +83,8 @@ export const POLICY_REASONS = [
   "htf_break",
   "expired",
   "rr_fail",
+  "zone_fresh",
+  "zone_impulse",
   "ledger_cap",
   "quant_crowded",
   "quant_oi",
@@ -177,6 +202,13 @@ export function decideMapAccept(input: MapPolicyInput): PolicyDecision {
   const now = input.now ?? Date.now();
   if (now >= zoneExpiresTs(card, card.baseEndTs)) return { allow: false, reason: "expired" };
   if (belowMinRr(card.rr, input.minRr)) return { allow: false, reason: "rr_fail" };
+  if (zoneFreshFilter() && (card.freshness !== "virgin" || card.penetrationPct > 0)) {
+    return { allow: false, reason: "zone_fresh" };
+  }
+  const impulseMin = zoneImpulseMin();
+  if (impulseMin != null && card.impulseAtr < impulseMin) {
+    return { allow: false, reason: "zone_impulse" };
+  }
   if (familyFloorVeto(input.family)) return { allow: false, reason: "family_floor" };
   if ((input.acceptedForSymbol ?? 0) >= LEDGER_CAP_PER_SYMBOL) {
     return { allow: false, reason: "ledger_cap" };
