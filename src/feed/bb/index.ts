@@ -1,5 +1,5 @@
 import type { BriefPackPaperSource } from "./brief-pack";
-import { loadConfig } from "./config";
+import { loadFeedBoot } from "./config";
 import { openDb } from "./db";
 import { startKlineLagWatchdog } from "./health";
 import { startHttp } from "./http";
@@ -27,13 +27,15 @@ export type BybitTrackerOpts = {
 
 /** Bybit public linear WS → SQLite cache. No API keys, no trading. */
 export async function startBybitTracker(opts?: BybitTrackerOpts): Promise<BybitTrackerFeature> {
-  const config = await loadConfig();
+  const boot = await loadFeedBoot();
+  const config = boot.config;
   const store = openDb(config.dbPath);
   const relay = createRelay();
   const http = startHttp(config, store, {
     paperDesk: opts?.paperDesk,
     observe: opts?.observe,
     relay,
+    configBoot: boot,
   });
   const tracker = startTracker(config, store, { onRelay: (msg) => relay.publish(msg) });
   const pruner = startPruner(config, store);

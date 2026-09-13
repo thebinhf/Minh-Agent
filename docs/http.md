@@ -26,6 +26,18 @@ WS + ticker ages + kline lag (15/60/240).
 
 `ok` is ticker/WS freshness, **not** kline lag. Use `klineLag.ok` (and paper `gates.tradingAllowed`) before drawing HTF.
 
+### `GET /config`
+
+The knob registry as this process resolved it at boot, plus a pending diff. Layers, lowest → highest precedence: registry `default` < `file` (config.json) < `dotenv` (.env) < `env` (real env vars — Bun merges .env into process.env at boot, real env winning). An explicitly empty override means "unset", except `BYBIT_REST_FALLBACKS` where it disables the fallbacks.
+
+Each knob: `key`, `env`, `type` (`int|num|bool|str|enum|csv`), `unit`, `min`/`max`/`choices`, `scope`, `effect` (`hot|restart|next-run`), `desc`, the boot `value` with its `source`, and `pending` — what a fresh resolution (config.json and .env as they sit on disk now, plus real env vars) would produce when it differs from the boot value, or `{ error }` when a pending edit is invalid. `pending` is grouped by `effect` at the top level; a pending `restart` knob applies on the next process restart, which today means every knob (all feed boot knobs are read once at boot).
+
+`404` `{ "error": "config boot unavailable" }` when the server was started without a boot report.
+
+```bash
+curl -sS http://127.0.0.1:43180/config
+```
+
 ### `GET /map`
 
 HTF MAP. No 15m.
