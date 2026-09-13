@@ -19,6 +19,7 @@ import {
   type SnapshotMapBatch,
 } from "../../../src/feed/bb/map";
 import type { BybitKline, TrackerConfig } from "../../../src/feed/bb/types";
+import { ZONE_KLINE_LIMITS } from "../../../src/zones/detect";
 
 const dirs: string[] = [];
 
@@ -101,32 +102,51 @@ describe("parseMapArgs / buildMap", () => {
     }
   });
 
-  test("keeps 4H/1H windows and includes D when backfilled", () => {
+  test("carries the replay HTF window as confirmed bars and pins the OI span", () => {
     const { store, dbPath } = tempDb();
     try {
-      store.saveTicker({
-        symbol: "BTCUSDT",
-        type: "snapshot",
-        fields: { lastPrice: "100", fundingRate: "0.0001", openInterest: "9" },
-      }, 50, false);
-      for (let i = 0; i < 25; i++) {
-        store.saveKline("BTCUSDT", candle({ start: i * 240 * 60_000, interval: "240" }), 50);
+      const step4h = 240 * 60_000;
+      const step1h = 60 * 60_000;
+      for (let i = 0; i < MAP_KLINE_LIMITS["240"] + 5; i++) {
+        store.saveKline("BTCUSDT", candle({
+          start: i * step4h,
+          interval: "240",
+          close: i < 65 ? "100" : String(100 + (i - 64)),
+        }), 50);
       }
-      for (let i = 0; i < 30; i++) {
-        store.saveKline("BTCUSDT", candle({ start: i * 60 * 60_000, interval: "60" }), 50);
+      store.saveKline("BTCUSDT", candle({
+        start: (MAP_KLINE_LIMITS["240"] + 5) * step4h,
+        interval: "240",
+        close: "300",
+        confirm: false,
+      }), 50);
+      for (let i = 0; i < MAP_KLINE_LIMITS["60"] + 5; i++) {
+        store.saveKline("BTCUSDT", candle({ start: i * step1h, interval: "60" }), 50);
       }
-      store.saveKline("BTCUSDT", candle({ start: 1_000, interval: "15" }), 50);
+      store.saveKline("BTCUSDT", candle({
+        start: (MAP_KLINE_LIMITS["60"] + 5) * step1h,
+        interval: "60",
+        confirm: false,
+      }), 50);
       store.saveKline("BTCUSDT", candle({ start: 86_400_000, interval: "D", close: "101" }), 50);
 
       const map = buildMap(store, { dbPath, now: 3 });
       expectMapShape(map);
-      expect(map.ticker.lastPrice).toBe("100");
-      expect(map.ticker.fundingRate).toBe("0.0001");
-      expect(map.klines["240"]).toHaveLength(20);
-      expect(map.klines["60"]).toHaveLength(24);
+      expect(MAP_KLINE_LIMITS["240"]).toBe(ZONE_KLINE_LIMITS["240"]);
+      expect(MAP_KLINE_LIMITS["60"]).toBe(ZONE_KLINE_LIMITS["60"]);
+      expect(map.klines["240"]).toHaveLength(MAP_KLINE_LIMITS["240"]);
+      expect(map.klines["240"].every((bar) => bar.confirm !== false)).toBe(true);
+      expect(map.klines["240"][0]?.start_ts).toBe(5 * step4h);
+      expect(map.klines["240"].at(-1)?.start_ts).toBe((MAP_KLINE_LIMITS["240"] + 4) * step4h);
+      expect(map.klines["240"].some((bar) => bar.confirm === false)).toBe(false);
+      expect(map.klines["60"]).toHaveLength(MAP_KLINE_LIMITS["60"]);
+      expect(map.klines["60"].every((bar) => bar.confirm !== false)).toBe(true);
       expect(map.klines.D).toEqual([
         expect.objectContaining({ start_ts: 86_400_000, close: "101" }),
       ]);
+      // OI priceDeltaPct spans its own 20 confirmed closes (101..120), not the
+      // map window — and not the forming bar's 300.
+      expect(map.oi.priceDeltaPct).toBe("18.8119");
     } finally {
       store.close();
     }
