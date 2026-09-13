@@ -106,6 +106,7 @@ section("klines vs venue REST", async () => {
   let missingInDb = 0;
   let extraInDb = 0;
   const missingBySeries = new Map<string, number[]>();
+  const tailBySeries = new Map<string, number[]>();
   const now = Date.now();
   for (const symbol of symbols) {
     for (const interval of ["240", "60", "15"]) {
@@ -127,13 +128,15 @@ section("klines vs venue REST", async () => {
         )
         .all(symbol, interval, from) as { start_ts: number; open: string; high: string; low: string; close: string; volume: string; turnover: string; confirm: number }[];
       const byStart = new Map(rows.map((r) => [r.start_ts, r]));
+      const dbMax = Math.max(...rows.map((r) => r.start_ts), Number.NEGATIVE_INFINITY);
       for (const [startTs, row] of venue) {
         const local = byStart.get(startTs);
         checked += 1;
         if (!local) {
           missingInDb += 1;
           const key = `${symbol}:${interval}`;
-          missingBySeries.set(key, [...(missingBySeries.get(key) ?? []), startTs]);
+          const bucket = startTs > dbMax ? tailBySeries : missingBySeries;
+          bucket.set(key, [...(bucket.get(key) ?? []), startTs]);
           continue;
         }
         const same =
@@ -179,8 +182,10 @@ section("klines vs venue REST", async () => {
       }
     }
   }
-  report("no scattered missing bars (single-bar holes)", singles === 0, `${singles} single-bar holes; downtime blocks are counted separately`);
-  if (missingInDb > 0) warn("downtime holes", `${missingInDb} bars across ${blocks} contiguous blocks — tracker-off windows; mid-history hole healing is a follow-up`);
+  const tailCount = [...tailBySeries.values()].reduce((sum, list) => sum + list.length, 0);
+  report("no interior holes (single-bar collection gaps)", singles === 0, `${singles} single-bar holes; downtime blocks counted separately`);
+  if (missingInDb > 0) warn("downtime holes", `${missingInDb} bars across ${blocks} contiguous blocks — tracker-off windows; healed by BYBIT_GAP_HEAL at next boot`);
+  if (tailCount > 0) warn("tail beyond the newest stored bar", `${tailCount} bars newer than the series max — the feed is stopped; the next boot's forward gap-fill covers them`);
   if (extraInDb > 0) warn("extra local closed bars", `${extraInDb} (venue window edge)`);
 });
 

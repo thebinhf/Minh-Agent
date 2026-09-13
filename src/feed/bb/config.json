@@ -62,6 +62,7 @@
     "restRetryDelayMs": 400,
     "restTimeoutMs": 10000,
     "gapFill": true,
+    "gapHeal": true,
     "klineLagMs": 180000
   }
 }

@@ -33,6 +33,7 @@ export const DEFAULT_RECOVERY: RecoveryConfig = {
   restRetryDelayMs: 400,
   restTimeoutMs: 10_000,
   gapFill: true,
+  gapHeal: true,
   klineLagMs: 180_000,
 };
 
@@ -139,6 +140,7 @@ function assembleTracker(base: TrackerConfig, resolved: KnobResolution["byKey"])
       pongStaleMs: v("recovery.pongStaleMs") as number,
       klineLagMs: v("recovery.klineLagMs") as number,
       gapFill: v("recovery.gapFill") as boolean,
+      gapHeal: v("recovery.gapHeal") as boolean,
     },
   };
 }
@@ -163,6 +165,7 @@ function configValues(config: TrackerConfig): Record<string, KnobValue> {
     "recovery.pongStaleMs": config.recovery.pongStaleMs,
     "recovery.klineLagMs": config.recovery.klineLagMs,
     "recovery.gapFill": config.recovery.gapFill,
+    "recovery.gapHeal": config.recovery.gapHeal,
   };
 }
 

@@ -288,6 +288,103 @@ export async function fillKlineGaps(
   return { series, candles, errors };
 }
 
+export type KlineHole = { start: number; end: number };
+
+const KLINE_STEP_MS: Record<string, number> = {
+  "5": 300_000,
+  "15": 900_000,
+  "60": 3_600_000,
+  "240": 14_400_000,
+};
+
+/**
+ * Pure: contiguous runs of missing cadence steps strictly inside the stored
+ * range. The tail beyond the newest bar belongs to the forward gap-fill, not
+ * to healing — healing only repairs history the venue already closed.
+ */
+export function scanKlineHoles(starts: number[], stepMs: number): KlineHole[] {
+  const sorted = [...new Set(starts)].sort((a, b) => a - b);
+  if (sorted.length < 2) return [];
+  const have = new Set(sorted);
+  const last = sorted[sorted.length - 1]!;
+  const holes: KlineHole[] = [];
+  let runStart: number | null = null;
+  for (let t = sorted[0]! + stepMs; t < last; t += stepMs) {
+    if (!have.has(t)) {
+      if (runStart === null) runStart = t;
+    } else if (runStart !== null) {
+      holes.push({ start: runStart, end: t });
+      runStart = null;
+    }
+  }
+  if (runStart !== null) holes.push({ start: runStart, end: last });
+  return holes;
+}
+
+/**
+ * Boot-time repair for history the forward gap-fill can never reach: interior
+ * cadence holes (tracker-off windows, single lost bars) and stale confirm=0
+ * rows from a process that died mid-bar. Every repaired candle comes from the
+ * venue with restCandleConfirm — nothing is invented.
+ */
+export async function healKlineGaps(
+  config: TrackerConfig,
+  store: Pick<TrackerDb, "getKlineStarts" | "getStaleFormingStarts" | "saveKline">,
+  opts: {
+    now?: number;
+    fetchImpl?: RestFetch;
+    signal?: AbortSignal;
+  } = {},
+): Promise<{ series: number; holes: number; candles: number; stale: number; errors: number }> {
+  if (!config.recovery.gapHeal) {
+    return { series: 0, holes: 0, candles: 0, stale: 0, errors: 0 };
+  }
+  const now = opts.now ?? Date.now();
+  let series = 0;
+  let holes = 0;
+  let candles = 0;
+  let stale = 0;
+  let errors = 0;
+
+  for (const symbol of config.symbols) {
+    for (const interval of config.klineIntervals) {
+      if (opts.signal?.aborted) {
+        return { series, holes, candles, stale, errors };
+      }
+      const stepMs = KLINE_STEP_MS[interval];
+      if (stepMs == null) continue;
+      series += 1;
+      try {
+        const starts = store.getKlineStarts(symbol, interval);
+        const staleRows = store.getStaleFormingStarts(symbol, interval, stepMs, now);
+        stale += staleRows.length;
+        const runs: KlineHole[] = [
+          ...scanKlineHoles(starts, stepMs),
+          ...staleRows.map((start) => ({ start, end: start + stepMs })),
+        ];
+        holes += runs.length;
+        for (const run of runs) {
+          candles += await fillWindow(config, store, {
+            symbol,
+            interval,
+            start: run.start,
+            end: run.end,
+            now,
+            fetchImpl: opts.fetchImpl,
+            signal: opts.signal,
+          });
+        }
+      } catch (error) {
+        errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[minh:bb] gap-heal ${symbol} ${interval}: ${message}`);
+      }
+    }
+  }
+
+  return { series, holes, candles, stale, errors };
+}
+
 export async function fillKlineHistory(
   config: TrackerConfig,
   store: Pick<TrackerDb, "saveKline">,

@@ -17,6 +17,8 @@ export type RecoveryConfig = {
   restRetryDelayMs: number;
   restTimeoutMs: number;
   gapFill: boolean;
+  /** Re-derive interior cadence holes and stale confirm=0 rows at boot. */
+  gapHeal: boolean;
   /** Forming/confirmed PA klines (15/60/240) are stale after this many ms while ticker is live. */
   klineLagMs: number;
 };

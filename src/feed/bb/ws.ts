@@ -4,7 +4,7 @@ import { chunkTopics, isPongStale, withRetries } from "./recovery";
 import { createLiqRelayBatch, relayLiqMs, relayTickerMs, thinTicker, type RelayPush } from "./relay";
 import { defaultLiqBucket, parseLiqPrints } from "./liq";
 import { parsePublicTrades } from "./flow";
-import { fillKlineGaps, fillOiGaps, fillFundingGaps, fillRiskLimits } from "./rest";
+import { fillKlineGaps, fillOiGaps, fillFundingGaps, fillRiskLimits, healKlineGaps } from "./rest";
 import { buildTopics, parseTopic } from "./topics";
 import type {
   BybitKline,
@@ -137,7 +137,17 @@ export function startTracker(config: TrackerConfig, store: TrackerDb, opts?: Tra
     fillAbort?.abort();
     fillAbort = new AbortController();
     const signal = fillAbort.signal;
-    void fillKlineGaps(config, store, { signal })
+    void healKlineGaps(config, store, { signal })
+      .then((healed) => {
+        if (signal.aborted) return;
+        store.setMeta("last_gap_heal", JSON.stringify({ ...healed, ts: Date.now() }));
+        if (healed.holes || healed.errors) {
+          console.log(
+            `[minh:bb] gap-heal holes=${healed.holes} candles=${healed.candles} stale=${healed.stale} errors=${healed.errors}`,
+          );
+        }
+      })
+      .then(() => fillKlineGaps(config, store, { signal }))
       .then(async (result) => {
         if (signal.aborted) return;
         store.setMeta("last_gap_fill", JSON.stringify({ ...result, ts: Date.now() }));
