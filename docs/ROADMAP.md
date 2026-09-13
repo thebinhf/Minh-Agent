@@ -4,7 +4,7 @@ Paper week. **MVP frozen** on this loop. You observe.
 
 ## Locks (do not regress)
 
-- Paper only. No Bybit keys, no `/v5/order`, no paper→live, no keys in `src/paper`.
+- Keys and order placement exist only in `src/exec/` ([live-execution.md](live-execution.md)). `src/feed`, `src/agent`, `src/paper`, `src/zones`, `src/ta`, `src/features`, `src/live` never mention `/v5/order`, signing, or key env names. Paper stays the default.
 - Missing tape ≠ 0. Do not invent historical `publicTrade` / liq. `summarizeFlow(0,0)` is an empty window.
 - Event-once. No Auto S/D. No ICT-as-signal. No auto-arm of `GET /zones`.
 - No Terminal/UI as a command source. LLM does not pick zones.
@@ -74,4 +74,4 @@ REST geo-block is a venue constraint, not a product bug.
 
 ## Explicit non-goals
 
-ICT-as-signal, auto-arm `GET /zones`, keys in `src/paper`, UI as command source, LLM zone picking, inventing CVD=0, merging without a review, arming from `GET /ta`, Volume Profile / footprint as a fourth setup, paper→live.
+ICT-as-signal, auto-arm `GET /zones`, keys in `src/paper`, UI as command source, LLM zone picking, inventing CVD=0, merging without a review, arming from `GET /ta`, Volume Profile / footprint as a fourth setup, order placement outside `src/exec/`.
