@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/thebinhf/Minh-Agent/actions/workflows/ci.yml)
 
-Public Bybit linear market cache and a **paper** PA engine that runs **autonomous 24/7**. You observe. Feed + paper share one Bun process. Live-shadow is a second process. No API keys, no live orders, no paper→live.
+Public Bybit linear market cache and a **paper** PA engine that runs **autonomous 24/7**. You observe. Feed + paper share one Bun process. Live-shadow is a second process. Exec is a fourth: a read-only testnet skeleton. No live orders, no paper→live.
 
 ## You observe
 
@@ -35,6 +35,7 @@ deploy/enable-mesh.sh
 - Proximity ARM on accepted cards
 - Replay on local klines (separate DB, slippage 0)
 - Event-once notify (log / Telegram / webhook)
+- Exec skeleton — testnet read-only (`/exec/health`, wallet, positions, open orders, fees, instrument spec; no order placement)
 - systemd host + GitHub Actions typecheck/test
 
 ## Architecture
@@ -47,6 +48,7 @@ src/index.ts
 └── src/paper       :43181   ledger, OCO, tick, metrics
 
 src/live            :43182   MAP/ARM shadow (own sqlite, no orders)
+src/exec            :43183   testnet read-only skeleton (own sqlite, keys via credential files)
 ```
 
 Feed HTTP never imports paper. The composition root injects the paper desk into `/brief-pack` and accepts `/zones` cards on 4H close.
@@ -59,6 +61,7 @@ Feed HTTP never imports paper. The composition root injects the paper desk into 
 | [`src/ta/`](src/ta/) | Overlay pack. Does not arm |
 | [`src/paper/`](src/paper/) | Paper broker |
 | [`src/live/`](src/live/) | Live-shadow observer |
+| [`src/exec/`](src/exec/) | Exec skeleton — testnet, read-only, no order placement |
 | [`deploy/`](deploy/) | systemd unit + `pull-restart.sh` |
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -91,6 +94,13 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `LIVE_HTTP_HOST` / `LIVE_HTTP_PORT` | `127.0.0.1` / `43182` | Live-shadow bind (`bun run live`) |
 | `LIVE_DB_PATH` | live-shadow SQLite | Must not equal paper or feed |
 | `LIVE_FEED_URL` | `http://127.0.0.1:43180` | Public tape. Does not start a second WS |
+| `EXEC_MODE` | (none) | `testnet` or `mainnet`. Exec refuses to start without it; `mainnet` also needs `EXEC_MAINNET_CONFIRM=1` |
+| `EXEC_HTTP_HOST` / `EXEC_HTTP_PORT` | `127.0.0.1` / `43183` | Exec bind (`bun run exec`) |
+| `EXEC_DB_PATH` | exec SQLite | Must not equal feed, paper or live |
+| `EXEC_KEY_FILE` / `EXEC_KEY_SECRET_FILE` | unset | Credential-file key pair. Alternatively systemd `LoadCredential=` → `$CREDENTIALS_DIRECTORY` with `bybit_api_key` / `bybit_api_secret`. Plaintext key env vars refuse start |
+| `EXEC_ACCOUNT_TYPE` | `UNIFIED` | Wallet-balance account type (`UNIFIED` / `CONTRACT` / `SPOT` / `FUND`) |
+| `EXEC_BASE_URL` | unset | Testnet-only host override. Refused under `EXEC_MODE=mainnet` |
+| `EXEC_SPEC_MAX_AGE_HOURS` | `168` | Refresh the linear instrument spec when older; stale is flagged, never silently used |
 | `LIVE_SHADOW` | on (`0` disables) | Kill switch for the observer process |
 | `LIVE_SHADOW_URL` | unset | Host unit sets `http://127.0.0.1:43182/live/shadow` for `GET /observe`. Unset = `shadow.quality` missing |
 | `MAP_CLOSE` | on (`0` disables) | Dump `/map` on 1H/4H close |
@@ -124,7 +134,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings (`zone.accepted` / `zone.armed` / fill / OCO / close) |
 | `PAPER_OBSERVE` | off (host unit `1`) | `1` = GET-only paper HTTP/CLI. MAP/ARM/EVENT still run. systemd sets this. |
 
-`BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper and live-shadow refuse to start if they are set.
+`BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper and live-shadow refuse to start if they are set. Exec refuses them too: its keys come from credential files only.
 
 Tight BTC stops at `defaultLeverage=1` may need more IM than cash. Seed is **10x**; if that IM still does not fit, paper raises leverage to the minimum that fits, capped at `min(account.leverageMax, spec.maxLeverage)` (watchlist max **150**). Existing paper DBs keep their stored `leverage_max` until PATCH.
 
@@ -133,6 +143,7 @@ Tight BTC stops at `defaultLeverage=1` may need more IM than cash. Seed is **10x
 ```bash
 bun run start                 # feed :43180 + paper :43181
 bun run live                  # shadow :43182 (own sqlite, no orders)
+bun run exec                  # exec :43183 (testnet, read-only, keys via credential files)
 bun run map                   # HTF watchlist + klineLag
 bun run zones                 # suggest-only cards (does not arm)
 bun run ta                    # overlay pack (22 methods, does not arm)
@@ -207,7 +218,7 @@ Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](do
 
 ## Operations
 
-Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, CVD/liq watchlist). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). After a green merge:
+Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, CVD/liq watchlist). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). Exec: [`deploy/minh-exec.service`](deploy/minh-exec.service) — opt-in, **not** part of `minh.target`, keys via `LoadCredential=`. After a green merge:
 
 ```bash
 deploy/pull-restart.sh
@@ -241,4 +252,4 @@ CI is GitHub Actions on `main` and PRs (no daemon, no keys). See [docs/ci.md](do
 
 ## Non-goals
 
-Live keys, `/v5/order`, paper→live, mid-range entries, timer scans, ICT as a signal, mid-watch PnL, browser UI.
+Mainnet keys and live orders (exec is a testnet-only read-only skeleton — [live-execution.md](docs/live-execution.md) gates each stage), paper→live, mid-range entries, timer scans, ICT as a signal, mid-watch PnL, browser UI.

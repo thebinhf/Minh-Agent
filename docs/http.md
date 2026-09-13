@@ -1,12 +1,13 @@
 # HTTP API
 
-Three localhost binds. JSON, `cache-control: no-store`, CORS `*`. No auth. No live orders.
+Four localhost binds. JSON, `cache-control: no-store`, CORS `*`. No auth. No live orders.
 
 | Bind | Process | Methods |
 | --- | --- | --- |
 | `http://127.0.0.1:43180` | Feed — public market cache | `GET`, `OPTIONS` |
 | `http://127.0.0.1:43181` | Paper — simulated broker | `GET`, `POST`, `OPTIONS` |
 | `http://127.0.0.1:43182` | Live-shadow — policy observer | `GET`, `POST`, `OPTIONS` |
+| `http://127.0.0.1:43183` | Exec — testnet skeleton, read-only | `GET` only |
 
 Unknown path → `404` `{ "error": "not found" }`. Wrong method → `405` `{ "error": "method not allowed" }`.
 
@@ -362,6 +363,27 @@ Polls `GET /map-latest` for 4H fingerprint changes. Optional feed `MAP_CLOSE_WEB
 ```bash
 curl -sS http://127.0.0.1:43182/live/health
 curl -sS http://127.0.0.1:43182/live/shadow
+```
+
+## Exec (`:43183`)
+
+Fourth process (`bun run exec`). Read-only testnet skeleton ([live-execution.md](live-execution.md) Stage 2). Own sqlite. Keys come from credential files (`EXEC_KEY_FILE`/`EXEC_KEY_SECRET_FILE` or systemd `LoadCredential=` → `$CREDENTIALS_DIRECTORY`); plaintext key env vars refuse start. `EXEC_MODE` must be `testnet` or `mainnet` (mainnet also needs `EXEC_MAINNET_CONFIRM=1`). Auth-class rejections (401/403/`retCode 10003`) are a hard stop: the client latches, refuses further signed calls, and never retries or rotates host. There is no `POST` route — order placement is Stage 3.
+
+| Route | Notes |
+| --- | --- |
+| `GET /exec/health` | `{ ok, mode: "exec", execMode, authenticated, auth, baseUrl, spec: { asOf, ageHours, stale, symbols }, orders: false }` |
+| `GET /exec/wallet` | Wallet balance (`?coin=USDT`). Signed read |
+| `GET /exec/positions` | Linear USDT positions. Signed read |
+| `GET /exec/orders` | Open linear orders. Signed read |
+| `GET /exec/fees` | Fee rates (`?symbol=BTCUSDT`). Signed read |
+| `GET /exec/instruments` | Persisted linear instrument spec + staleness. `404` before the first refresh |
+| `GET /exec/events` | Recent exec events (auth, spec refreshes) |
+
+`EXEC_DB_PATH` must not equal feed, paper or live sqlite. The instrument spec refreshes when older than `EXEC_SPEC_MAX_AGE_HOURS` (default 168); a stale spec is flagged, never silently used.
+
+```bash
+curl -sS http://127.0.0.1:43183/exec/health
+curl -sS http://127.0.0.1:43183/exec/wallet
 ```
 
 ---
