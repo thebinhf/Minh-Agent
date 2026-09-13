@@ -33,6 +33,7 @@ Linear tickers are snapshot-then-delta (missing field = unchanged). Orderbook.50
 | Historical backfill | One-shot `bun run backfill` walks a full window (default 15/60/240) via REST failover or a JSON/CSV dump. Interval list is Bybit v5 ids (minutes or `D`/`W`/`M`). Does not start WS. |
 | Orderbook | `books.clear()` on every connect. Deltas are ignored until a snapshot or `u=1`. |
 | Retry | Subscribe in chunks of 10 with ack timeout + 3 retries. REST kline uses the same retry helper. |
+| Busy writes | Message-path sqlite writes are busy-tolerant: a busy-class error retries with backoff, then the batch is dropped and logged (throttled per writer). A deferred-transaction upgrade returns BUSY immediately — `busy_timeout` never runs. Dropped is the honest outcome: gap-fill heals klines; flow/liq windows stay missing. |
 
 REST is **best-effort**. Official `api.bybit.com` / `api.bytick.com` return CloudFront HTTP 403 from many US cloud IPs. The tracker still runs on public linear WS. On 401/403/404, kline fetch tries `restFallbacks` (default `https://api.manepa.jp`, Bybit's documented Japan public host). That host served `/v5/market/kline` from a US AWS VM on 2026-09-06; treat it as opportunistic. If every REST host fails, import a dump (below) — live WS is unchanged.
 

@@ -25,7 +25,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | Quant | Cascade / crowded / OI / CVD veto. Missing ≠ veto | On |
 | Overlay | `GET /ta` 22 methods. `signal: false`. Does not arm | Overlay only |
 
-P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP.
+P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP. Signal-quality filters `AGENT_ZONE_FRESH` (deny touched/penetrated zones) and `AGENT_ZONE_IMPULSE_MIN` (deny shallow impulses) join the same queue: off by default, one flag per walk, counted in `skipReasons` (`zone_fresh` / `zone_impulse`).
 
 ## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups)
 

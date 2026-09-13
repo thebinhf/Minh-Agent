@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { agentMapEnabled, biasChopEnabled, biasChopMode, decideMapAccept, emptySkipReasons, onMapCloseAccept } from "../../src/agent/policy";
+import { agentMapEnabled, biasChopEnabled, biasChopMode, decideMapAccept, emptySkipReasons, onMapCloseAccept, zoneFreshFilter, zoneImpulseMin } from "../../src/agent/policy";
 import { readMapBias } from "../../src/agent/bias";
 import { mockFeed, OPEN_LONG, paperEngine } from "../paper/helpers";
 import type { ZoneCard } from "../../src/zones/card";
@@ -14,6 +14,8 @@ const savedScore = process.env.PAPER_ZONE_SCORE;
 const savedSkip = process.env.PAPER_MAP_SKIP;
 const savedChop = process.env.AGENT_BIAS_CHOP;
 const savedOsc = process.env.AGENT_TA_OSC;
+const savedFresh = process.env.AGENT_ZONE_FRESH;
+const savedImpulse = process.env.AGENT_ZONE_IMPULSE_MIN;
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -33,6 +35,10 @@ afterEach(() => {
   else process.env.AGENT_BIAS_CHOP = savedChop;
   if (savedOsc === undefined) delete process.env.AGENT_TA_OSC;
   else process.env.AGENT_TA_OSC = savedOsc;
+  if (savedFresh === undefined) delete process.env.AGENT_ZONE_FRESH;
+  else process.env.AGENT_ZONE_FRESH = savedFresh;
+  if (savedImpulse === undefined) delete process.env.AGENT_ZONE_IMPULSE_MIN;
+  else process.env.AGENT_ZONE_IMPULSE_MIN = savedImpulse;
 });
 const SUPPLY: ZoneCard = {
   zoneId: "btc-4h-s-20260908-01",
@@ -411,6 +417,57 @@ describe("onMapCloseAccept wiring", () => {
     expect(result?.skipReasons?.deep_mitigate).toBeGreaterThan(0);
     expect(result?.skipReasons?.map_skip ?? 0).toBe(0);
     expect(ctx.engine.zones("accepted")).toEqual([]);
+  });
+
+  test("signal-quality filters default off; AGENT_ZONE_FRESH denies touched or penetrated zones", () => {
+    delete process.env.AGENT_ZONE_FRESH;
+    delete process.env.AGENT_ZONE_IMPULSE_MIN;
+    expect(zoneFreshFilter()).toBe(false);
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: { ...DEMAND, freshness: "touched", penetrationPct: 12 }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    })).toEqual({ allow: true, reason: "ok" });
+
+    process.env.AGENT_ZONE_FRESH = "1";
+    expect(zoneFreshFilter()).toBe(true);
+    expect(decideMapAccept({
+      card: { ...DEMAND, freshness: "touched" }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("zone_fresh");
+    expect(decideMapAccept({
+      card: { ...DEMAND, freshness: "virgin", penetrationPct: 4 }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("zone_fresh");
+    expect(decideMapAccept({
+      card: DEMAND, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    })).toEqual({ allow: true, reason: "ok" });
+  });
+
+  test("AGENT_ZONE_IMPULSE_MIN denies shallow impulses; unset, 0 or invalid is off", () => {
+    delete process.env.AGENT_ZONE_IMPULSE_MIN;
+    expect(zoneImpulseMin()).toBeNull();
+    const bull = readMapBias(mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) })).get("BTCUSDT");
+    expect(decideMapAccept({
+      card: { ...DEMAND, impulseAtr: 0.4 }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    })).toEqual({ allow: true, reason: "ok" });
+
+    process.env.AGENT_ZONE_IMPULSE_MIN = "1.0";
+    expect(zoneImpulseMin()).toBe(1);
+    expect(decideMapAccept({
+      card: { ...DEMAND, impulseAtr: 0.4 }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    }).reason).toBe("zone_impulse");
+    expect(decideMapAccept({
+      card: { ...DEMAND, impulseAtr: 1.36 }, bias: bull, last: ARM_DEMAND_LAST, tradingAllowed: true,
+    })).toEqual({ allow: true, reason: "ok" });
+
+    process.env.AGENT_ZONE_IMPULSE_MIN = "0";
+    expect(zoneImpulseMin()).toBeNull();
+    process.env.AGENT_ZONE_IMPULSE_MIN = "abc";
+    expect(zoneImpulseMin()).toBeNull();
+  });
+
+  test("skipReasons counts zone_fresh / zone_impulse alongside the other vetoes", () => {
+    const reasons = emptySkipReasons();
+    expect(reasons.zone_fresh).toBe(0);
+    expect(reasons.zone_impulse).toBe(0);
   });
 
   test("source is paper-only: no arm, no private Bybit, no ICT/FVG, no OAuth", async () => {

@@ -117,6 +117,8 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `MAP_ACCEPT` | on (`0` disables) | Old 4H auto-copy of `/zones` into the ledger |
 | `AGENT_MAP` | on (`0` disables) | MAP policy gate before `acceptZone`. Off = policy no-op; old `MAP_ACCEPT` path still runs |
 | `AGENT_BIAS_CHOP` | `deny` | 4H mixed chop is a MAP deny (`bias_chop`). `0` = off (A/B). `proximal` = allow only when last is in proximal→entry. 1H chop does not override 4H |
+| `AGENT_ZONE_FRESH` | off | `1` = MAP deny when the zone is `touched` or already penetrated (`zone_fresh`). Signal-cleaning filter. Off until a one-flag 180d A/B |
+| `AGENT_ZONE_IMPULSE_MIN` | off | Float floor on the departure impulse in ATR. MAP deny below the floor (`zone_impulse`). Unset / `0` / invalid = off. A/B before on |
 | `PAPER_TA_FIB` | off | `arm` = ARM wait unless last is nearest fib 0.5/0.618. Missing fib is not a wait |
 | `AGENT_TA_OSC` | off | `accept` = MAP deny when RSI/div opposes the zone. Missing osc is not a veto |
 | `PAPER_TA_VOL` | off | `arm` = ARM wait on kline volume climax (rel ≥ 2). Volume 0 stays missing |
