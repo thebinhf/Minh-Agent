@@ -1,6 +1,6 @@
 # Live execution — Minh (明)
 
-**Plan. Nothing here is shipped.** `src/exec/` does not exist yet. No key is read, no order is placed, no dependency has been added. This document is the staged path from the paper-only MVP to a live desk, with a falsifiable exit criterion per stage. Paper stays the default forever; live is opt-in per process.
+**Staged path from the paper-only MVP to a live desk, with a falsifiable exit criterion per stage.** Shipped so far: Stage 1 (boundary encoded in tests — `test/exec/boundary.test.ts`, `src/exec-mode.ts`) and Stage 2 (read-only testnet skeleton — `src/exec/` with the official SDK behind `ExecClient`, `bun run exec` on `:43183`, keys from credential files only, GET-only HTTP). Stage 0 is operator work (host retention vars, testnet account). **No order placement exists** — Stage 3 and beyond are plan. Paper stays the default forever; live is opt-in per process.
 
 Read with [ROADMAP](ROADMAP.md) (locks), [paper-trading.md](paper-trading.md) (paper spec, unchanged by this plan), [ARCHITECTURE](ARCHITECTURE.md) (process boundaries).
 
@@ -65,6 +65,8 @@ No live capability is added. This stage only writes down the new invariant and p
 | Abort if | Making this stage pass requires editing [`test/paper/safety.test.ts`](../test/paper/safety.test.ts). That means the boundary is in the wrong place. |
 
 ### Stage 2 — `src/exec/` skeleton, read-only, testnet
+
+**Shipped.** `src/exec/` wraps the SDK behind `ExecClient` (`client.ts`), loads config through `assertExecMode` + credential-file keys with a plaintext-env refusal (`config.ts`), persists the refreshed linear instrument spec with an age guard (`instruments.ts`, default 168h) in its own sqlite (`db.ts`), and serves a GET-only HTTP surface on `:43183` (`http.ts`). Auth-class rejections (401/403/`retCode 10003`) latch the client into a failed state that refuses further signed calls — no retry, no host rotation (proven against a local fake venue in `test/exec/skeleton.test.ts`). Remaining operator-side exit evidence: run it against real testnet keys and check `/exec/health` reports `authenticated: true` with balance matching the testnet UI.
 
 | | |
 | --- | --- |

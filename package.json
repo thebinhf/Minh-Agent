@@ -21,6 +21,7 @@
     "paper": "bun run src/paper/cli.ts",
     "features": "bun run src/features/cli.ts",
     "live": "bun run src/live/cli.ts",
+    "exec": "bun run src/exec/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "ci": "bun run typecheck && bun test"
@@ -28,5 +29,8 @@
   "devDependencies": {
     "@types/bun": "^1.4.1",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "bybit-official-ts-sdk": "^0.1.0"
   }
 }
