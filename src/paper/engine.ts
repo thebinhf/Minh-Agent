@@ -1353,8 +1353,9 @@ export function createPaperEngine(opts: {
     return pendingQuantSkipFill(viewLedger(ledger).card.side, tapes.get(row.symbol));
   }
 
-  async function evaluate(now = Date.now()) {
-    tickBind = { invalidated: [], events: [] };
+  async function runEvaluate(now: number) {
+    const bind: { invalidated: OrderView[]; events: EventView[] } = { invalidated: [], events: [] };
+    tickBind = bind;
     try {
       expireDue(now);
       await requireHealthyFeed();
@@ -1390,12 +1391,24 @@ export function createPaperEngine(opts: {
         alerts: alerts.fired,
         filled: orders.filled,
         rejected: orders.rejected,
-        invalidated: [...tickBind.invalidated, ...orders.invalidated],
-        events: [...tickBind.events, ...alerts.events, ...orders.events, ...marked.events],
+        invalidated: [...bind.invalidated, ...orders.invalidated],
+        events: [...bind.events, ...alerts.events, ...orders.events, ...marked.events],
       };
     } finally {
-      tickBind = null;
+      if (tickBind === bind) tickBind = null;
     }
+  }
+
+  // Evaluations share engine-level tick state and callers overlap in the wild
+  // (400ms tick, HTTP mark, operator arm/open). Serialize them: a finishing
+  // evaluation must never null the bind another evaluation is still reading,
+  // and replay callers keep their own as-of timestamp end to end.
+  let evaluateChain: Promise<unknown> = Promise.resolve();
+
+  function evaluate(now = Date.now()) {
+    const run = evaluateChain.then(() => runEvaluate(now));
+    evaluateChain = run.catch(() => undefined);
+    return run;
   }
 
   const host: { engine: PaperEngine | null } = { engine: null };
