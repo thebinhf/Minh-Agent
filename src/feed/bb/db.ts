@@ -16,7 +16,38 @@ import {
 } from "../../sqlite";
 
 export const SCHEMA_VERSION = "6";
-export { SQLITE_CACHE_KIB, SQLITE_JOURNAL_SIZE_LIMIT, SQLITE_WAL_AUTOCHECKPOINT, applySqliteMemoryPragmas };
+export { SQLITE_CACHE_KIB, SQLITE_JOURNAL_SIZE_LIMIT, SQLITE_WAL_AUTOCHECKPOINT, applySqliteMemoryPragmas, reclaimWal };
+
+const BUSY_ERROR_RE = /database is locked|database table is locked|SQLITE_BUSY/;
+const BUSY_LOG_THROTTLE_MS = 30_000;
+const busyDropLogTs = new Map<string, number>();
+
+/**
+ * SQLITE_BUSY on a deferred transaction upgrade (read then write inside one
+ * transaction) returns immediately — busy_timeout never runs. A market
+ * recorder must not die on it: retry with a small backoff, then drop the
+ * batch and log. Dropping is the honest outcome — gap-fill heals klines and
+ * flow/liq windows stay missing rather than half-written.
+ */
+export function busyTolerant<T>(label: string, fn: () => T, attempts = 4): T | undefined {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return fn();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!BUSY_ERROR_RE.test(message)) throw error;
+      if (attempt >= attempts - 1) {
+        const now = Date.now();
+        if (now - (busyDropLogTs.get(label) ?? 0) > BUSY_LOG_THROTTLE_MS) {
+          busyDropLogTs.set(label, now);
+          console.error(`[minh:bb] ${label} write dropped after ${attempts} busy retries: ${message}`);
+        }
+        return undefined;
+      }
+      Bun.sleepSync(10 * 2 ** attempt);
+    }
+  }
+}
 
 export type TrackerDb = ReturnType<typeof openDb>;
 
@@ -386,90 +417,96 @@ function wrap(db: Database) {
       db.close();
     },
     saveTicker(state: TickerState, recvTs: number, snapshot: boolean) {
-      const f = state.fields;
-      const payload = JSON.stringify({ symbol: state.symbol, ...f, cs: state.cs, ts: state.ts, type: state.type });
-      upsertTicker.run({
-        $symbol: state.symbol,
-        $last_price: f.lastPrice ?? null,
-        $mark_price: f.markPrice ?? null,
-        $index_price: f.indexPrice ?? null,
-        $bid1_price: f.bid1Price ?? null,
-        $bid1_size: f.bid1Size ?? null,
-        $ask1_price: f.ask1Price ?? null,
-        $ask1_size: f.ask1Size ?? null,
-        $volume_24h: f.volume24h ?? null,
-        $turnover_24h: f.turnover24h ?? null,
-        $price_24h_pcnt: f.price24hPcnt ?? null,
-        $high_price_24h: f.highPrice24h ?? null,
-        $low_price_24h: f.lowPrice24h ?? null,
-        $funding_rate: f.fundingRate ?? null,
-        $next_funding_time: f.nextFundingTime ?? null,
-        $open_interest: f.openInterest ?? null,
-        $open_interest_value: f.openInterestValue ?? null,
-        $payload_json: payload,
-        $recv_ts: recvTs,
-        $exch_ts: state.ts ?? null,
-        $cs: state.cs ?? null,
-        $type: state.type,
+      busyTolerant("ticker", () => {
+        const f = state.fields;
+        const payload = JSON.stringify({ symbol: state.symbol, ...f, cs: state.cs, ts: state.ts, type: state.type });
+        upsertTicker.run({
+          $symbol: state.symbol,
+          $last_price: f.lastPrice ?? null,
+          $mark_price: f.markPrice ?? null,
+          $index_price: f.indexPrice ?? null,
+          $bid1_price: f.bid1Price ?? null,
+          $bid1_size: f.bid1Size ?? null,
+          $ask1_price: f.ask1Price ?? null,
+          $ask1_size: f.ask1Size ?? null,
+          $volume_24h: f.volume24h ?? null,
+          $turnover_24h: f.turnover24h ?? null,
+          $price_24h_pcnt: f.price24hPcnt ?? null,
+          $high_price_24h: f.highPrice24h ?? null,
+          $low_price_24h: f.lowPrice24h ?? null,
+          $funding_rate: f.fundingRate ?? null,
+          $next_funding_time: f.nextFundingTime ?? null,
+          $open_interest: f.openInterest ?? null,
+          $open_interest_value: f.openInterestValue ?? null,
+          $payload_json: payload,
+          $recv_ts: recvTs,
+          $exch_ts: state.ts ?? null,
+          $cs: state.cs ?? null,
+          $type: state.type,
+        });
+        if (snapshot) {
+          insertTickerSnap.run(state.symbol, state.type, payload, recvTs, state.ts ?? null);
+        }
       });
-      if (snapshot) {
-        insertTickerSnap.run(state.symbol, state.type, payload, recvTs, state.ts ?? null);
-      }
     },
     saveOrderbook(state: OrderBookState, depth: number, type: string, recvTs: number, exchTs: number | undefined, snapshot: boolean) {
-      const { bids, asks } = serializeBook(state);
-      const bidsJson = JSON.stringify(bids);
-      const asksJson = JSON.stringify(asks);
-      upsertBook.run(
-        state.symbol,
-        depth,
-        bidsJson,
-        asksJson,
-        state.updateId,
-        state.seq,
-        recvTs,
-        exchTs ?? null,
-        type,
-      );
-      if (snapshot) {
-        insertBookSnap.run(
+      busyTolerant("book", () => {
+        const { bids, asks } = serializeBook(state);
+        const bidsJson = JSON.stringify(bids);
+        const asksJson = JSON.stringify(asks);
+        upsertBook.run(
           state.symbol,
           depth,
-          type,
           bidsJson,
           asksJson,
           state.updateId,
           state.seq,
           recvTs,
           exchTs ?? null,
+          type,
         );
-      }
+        if (snapshot) {
+          insertBookSnap.run(
+            state.symbol,
+            depth,
+            type,
+            bidsJson,
+            asksJson,
+            state.updateId,
+            state.seq,
+            recvTs,
+            exchTs ?? null,
+          );
+        }
+      });
     },
     saveKline(symbol: string, candle: BybitKline, recvTs: number) {
-      upsertKline.run(
-        symbol,
-        candle.interval,
-        candle.start,
-        candle.end,
-        candle.open,
-        candle.high,
-        candle.low,
-        candle.close,
-        candle.volume,
-        candle.turnover,
-        candle.confirm ? 1 : 0,
-        candle.timestamp,
-        recvTs,
+      busyTolerant("kline", () =>
+        upsertKline.run(
+          symbol,
+          candle.interval,
+          candle.start,
+          candle.end,
+          candle.open,
+          candle.high,
+          candle.low,
+          candle.close,
+          candle.volume,
+          candle.turnover,
+          candle.confirm ? 1 : 0,
+          candle.timestamp,
+          recvTs,
+        ),
       );
     },
     saveOi(symbol: string, interval: string, bar: OiBar, recvTs: number) {
-      upsertOi.run(symbol, interval, bar.startTs, bar.openInterest, recvTs);
+      busyTolerant("oi", () => upsertOi.run(symbol, interval, bar.startTs, bar.openInterest, recvTs));
     },
     saveFunding(symbol: string, bar: FundingBar, recvTs: number) {
-      upsertFunding.run(symbol, bar.fundingTs, bar.fundingRate, recvTs);
+      busyTolerant("funding", () => upsertFunding.run(symbol, bar.fundingTs, bar.fundingRate, recvTs));
     },
     saveLiquidation(print: LiqPrint, recvTs: number) {
-      insertLiq.run(print.symbol, print.side, print.price, print.size, print.exchTs, recvTs);
+      busyTolerant("liq", () => insertLiq.run(print.symbol, print.side, print.price, print.size, print.exchTs, recvTs));
     },
     saveFlowTrades(trades: FlowTrade[], recvTs: number) {
       if (trades.length === 0) return;
@@ -495,7 +532,7 @@ function wrap(db: Database) {
           );
         }
       });
-      apply(bars);
+      busyTolerant("flow", () => apply(bars));
     },
     sumFlowWindow(symbol: string, fromTs: number, toTs: number): { buyNotional: string; sellNotional: string } {
       const row = sumFlow.get(symbol, fromTs, toTs) as {
