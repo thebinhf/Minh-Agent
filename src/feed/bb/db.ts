@@ -594,6 +594,23 @@ function wrap(db: Database) {
         .get(symbol, interval) as { start_ts: number | null } | null;
       return row?.start_ts ?? null;
     },
+    getKlineStarts(symbol: string, interval: string): number[] {
+      return (
+        db
+          .prepare("SELECT start_ts FROM klines WHERE symbol = ? AND interval = ? ORDER BY start_ts")
+          .all(symbol, interval) as { start_ts: number }[]
+      ).map((row) => row.start_ts);
+    },
+    getStaleFormingStarts(symbol: string, interval: string, stepMs: number, now: number): number[] {
+      return (
+        db
+          .prepare(
+            `SELECT start_ts FROM klines
+             WHERE symbol = ? AND interval = ? AND confirm = 0 AND start_ts + ? <= ?`,
+          )
+          .all(symbol, interval, stepMs, now) as { start_ts: number }[]
+      ).map((row) => row.start_ts);
+    },
     getLastOiStart(symbol: string, interval: string): number | null {
       const row = db
         .prepare("SELECT MAX(start_ts) AS start_ts FROM open_interest WHERE symbol = ? AND interval = ?")

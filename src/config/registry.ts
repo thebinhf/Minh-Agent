@@ -79,4 +79,6 @@ export const FEED_KNOBS: readonly KnobDef[] = [
     desc: "PA klines stale after this much lag while ticker is live", unit: "ms", min: 1, default: 180000 },
   { key: "recovery.gapFill", env: "BYBIT_GAP_FILL", type: "bool", scope: "feed", effect: "restart",
     desc: "REST gap-fill klines/OI/funding after reconnect", default: true },
+  { key: "recovery.gapHeal", env: "BYBIT_GAP_HEAL", type: "bool", scope: "feed", effect: "restart",
+    desc: "Heal interior kline cadence holes and stale confirm=0 rows before the tail fill", default: true },
 ];

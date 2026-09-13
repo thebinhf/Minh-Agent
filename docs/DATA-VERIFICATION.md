@@ -50,10 +50,14 @@ method — off by default, A/B before on — not new signals.
 1. **Gap-fill does not heal mid-history holes.** Boot gap-fill starts from
    `MAX(start_ts)`, so bars missing during tracker-off windows stay missing
    forever, and a forming row left `confirm=0` by an abrupt shutdown is never
-   re-fetched because the row exists. Honest (missing ≠ 0) and mostly harmless
-   to signals, but a **hole-healing pass** (scan for cadence gaps + re-fetch
-   the last N bars and stale forming rows) would make replays and future
-   Terminal views denser. Follow-up PR.
+   re-fetched because the row exists. **Addressed** by `BYBIT_GAP_HEAL`
+   (default on, `recovery.gapHeal`): before the tail fill, every boot scans
+   interior cadence holes and stale `confirm=0` rows per series and repairs
+   them from venue REST (`healKlineGaps` in `src/feed/bb/rest.ts`, wired in
+   `ws.ts`). First run on the dev DB: 108 stale rows finalized, all interior
+   holes closed, second pass idempotent — the verifier now reports
+   **VERIFIED (0 fail)** with only honest warnings (forward-only tape,
+   tail bars while the feed is stopped).
 2. **Run the verifier on the host.** The dev-machine downtime above is
    environmental; the host tracker runs 24/7 under systemd and should show
    zero downtime blocks. Weekly verifier runs on the host + before releases
