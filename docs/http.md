@@ -36,7 +36,7 @@ HTF MAP. No 15m.
 
 One symbol → a single map object. Several / watchlist → `{ ts, maps, klineLag, meta }`.
 
-Each map: `ticker` + `klines.240` (20) + `klines.60` (24) + `klines.D` (30 if backfilled) + `klineLag` (60/240) + `oi` (4H/1H + `deltaPct` + `trend` + `reading`) + `funding` (last 21 rates + `crowded`) + `liq` (4H prints: `below`/`above` + `cascade`) + `flow` (CVD 4H/15m: `delta` + `reading` buy_dom/sell_dom). `cascade` is `{ active, side, intensity, walk, fuel }` — not a boolean burst. `oi.note` / `funding.note` / `liq.note` / `flow.note` is always `quant veto — not a signal`. `/map.flow` 15m is a quant window, not 15m klines.
+Each map: `ticker` + `klines.240` (80) + `klines.60` (120) + `klines.D` (30 if backfilled) — confirmed bars only, the same window `replay-map` computes bias/TA/cards from + `klineLag` (60/240) + `oi` (4H/1H + `deltaPct` + `trend` + `reading`) + `funding` (last 21 rates + `crowded`) + `liq` (4H prints: `below`/`above` + `cascade`) + `flow` (CVD 4H/15m: `delta` + `reading` buy_dom/sell_dom). `cascade` is `{ active, side, intensity, walk, fuel }` — not a boolean burst. `oi.note` / `funding.note` / `liq.note` / `flow.note` is always `quant veto — not a signal`. `/map.flow` 15m is a quant window, not 15m klines.
 
 ```bash
 curl -sS http://127.0.0.1:43180/map

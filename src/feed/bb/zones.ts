@@ -85,7 +85,9 @@ export function buildZones(
   const intervalMs = intervalMsForTf(interval);
   const zones: ZoneCard[] = [];
   for (const symbol of symbols) {
-    const klines = readBriefKlines(store, symbol, interval, limit);
+    // Confirmed bars only: replay never sees the forming row, so it must not
+    // serve as a swing or ATR neighbor on the live detection path either.
+    const klines = readBriefKlines(store, symbol, interval, limit, { confirm: true });
     zones.push(...detectAllSetupsFromKlines(klines, { symbol, tf: interval, intervalMs }));
   }
   zones.sort((a, b) => b.baseStartTs - a.baseStartTs || a.zoneId.localeCompare(b.zoneId));

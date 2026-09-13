@@ -12,7 +12,7 @@ import {
   type SnapshotZones,
 } from "../../../src/feed/bb/zones";
 import { ZONE_CARD_KEYS } from "../../../src/zones/card";
-import { intervalMsForTf } from "../../../src/zones/detect";
+import { ZONE_KLINE_LIMITS, intervalMsForTf } from "../../../src/zones/detect";
 import type { BybitKline, TrackerConfig } from "../../../src/feed/bb/types";
 
 const dirs: string[] = [];
@@ -126,6 +126,29 @@ describe("parseZonesArgs / buildZones", () => {
       expect(card.side).toBe("supply");
       expect(card.setup).toBe("sd");
       expect(card.cancelCodes).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a forming bar cannot change the detected cards", () => {
+    const { store, dbPath } = tempDb();
+    try {
+      seedSupply(store);
+      const before = buildZones(store, { symbols: ["BTCUSDT"], dbPath, now: 1 });
+      store.saveKline("BTCUSDT", candle({
+        start: 19 * intervalMsForTf("240"),
+        interval: "240",
+        open: "500",
+        high: "1000",
+        low: "1",
+        close: "700",
+        confirm: false,
+      }), 50);
+      const after = buildZones(store, { symbols: ["BTCUSDT"], dbPath, now: 1 });
+      expect(after.meta.limits).toEqual({ ...ZONE_KLINE_LIMITS });
+      expect(after.zones.map((row) => row.zoneId)).toEqual(before.zones.map((row) => row.zoneId));
+      expect(JSON.stringify(after.zones)).toBe(JSON.stringify(before.zones));
     } finally {
       store.close();
     }

@@ -15,15 +15,22 @@ import {
   type KlineLagStore,
   type KlineLagSummary,
 } from "./health";
-import { buildMapOi, emptyMapOi, type MapOi, type OiStore } from "./oi";
+import { MAP_OI_LIMITS, buildMapOi, emptyMapOi, type MapOi, type OiStore } from "./oi";
 import { buildMapFunding, emptyMapFunding, type FundingStore, type MapFunding } from "./funding";
 import { buildMapLiq, emptyMapLiq, type LiqStore, type MapLiq } from "./liq";
 import { buildMapFlow, emptyMapFlow, type FlowStore, type MapFlow } from "./flow";
+import { ZONE_KLINE_LIMITS } from "../../zones/detect";
 
-/** HTF-only windows for MAP. No 15m — that stays on /brief and /chart. */
+/**
+ * HTF-only windows for MAP. No 15m — that stays on /brief and /chart.
+ * replay-map computes bias, TA osc and zone cards from exactly
+ * ZONE_KLINE_LIMITS confirmed bars, so the map carries that same window;
+ * anything else forks live from replay. Confirmed bars only — replay never
+ * sees a forming row.
+ */
 export const MAP_KLINE_LIMITS = {
-  "240": 20,
-  "60": 24,
+  "240": ZONE_KLINE_LIMITS["240"],
+  "60": ZONE_KLINE_LIMITS["60"],
   D: 30,
 } as const;
 
@@ -130,15 +137,17 @@ export function buildMap(
   const now = opts.now ?? Date.now();
   const map = emptyMap(symbol, opts.dbPath, now, limits);
   map.ticker = readBriefTicker(store, symbol);
-  map.klines["240"] = readBriefKlines(store, symbol, "240", limits["240"]);
-  map.klines["60"] = readBriefKlines(store, symbol, "60", limits["60"]);
+  map.klines["240"] = readBriefKlines(store, symbol, "240", limits["240"], { confirm: true });
+  map.klines["60"] = readBriefKlines(store, symbol, "60", limits["60"], { confirm: true });
   map.klines.D = readBriefKlines(store, symbol, "D", limits.D);
   map.klineLag = klineLagForSymbols(store, [symbol], { now });
   map.oi = buildMapOi(
     store,
     symbol,
     map.ticker.openInterest,
-    map.klines["240"].map((bar) => bar.close),
+    // priceDeltaPct is first-vs-last over the closes it is handed — keep the
+    // OI window pinned so the map window cannot stretch the OI reading span.
+    map.klines["240"].slice(-MAP_OI_LIMITS["240"]).map((bar) => bar.close),
   );
   map.funding = buildMapFunding(store, symbol, {
     fundingRate: map.ticker.fundingRate,
