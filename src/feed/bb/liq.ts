@@ -10,6 +10,13 @@ export const DEFAULT_LIQ_BAND = "0.01";
 export const DEFAULT_LIQ_HOURS = 24;
 export const LIQ_HEATMAP_MAX_PRINTS = 5_000;
 export const LIQ_HEATMAP_MAX_BINS = 300;
+/**
+ * Ceiling for `?hours` when no retention is supplied. Otherwise the heatmap
+ * window is capped by `retention.liquidationsHours`, because that prune window
+ * is the entire print tape this host will ever hold — `liquidations` is WS-only
+ * with no REST backfill.
+ */
+export const LIQ_HEATMAP_FALLBACK_MAX_HOURS = 48;
 export const LIQ_SIDE_RATIO = 0.7;
 export const LIQ_INTENSITY_MIN = 3;
 export const LIQ_WALK_MIN_PRINTS = 4;
@@ -46,6 +53,10 @@ export type SnapshotLiqHeatmap = {
   symbol: string;
   ts: number;
   windowMs: number;
+  /** Span the returned prints actually cover. Null when there are no prints. */
+  coveredMs: number | null;
+  /** True when the print budget or a tape gap left part of `windowMs` uncovered. */
+  truncated: boolean;
   bucket: string;
   lastPrice: string | null;
   bins: LiqBin[];
@@ -319,11 +330,16 @@ export function buildLiqHeatmap(
     bucket?: number | null;
     lastPrice?: string | null;
     oiReading?: OiReading;
+    retention?: { liquidationsHours?: number };
   },
 ): SnapshotLiqHeatmap {
   const symbol = normalizeBriefSymbol(opts.symbol);
   const now = opts.now ?? Date.now();
-  const hours = Math.min(Math.max(opts.hours ?? DEFAULT_LIQ_HOURS, 1), 48);
+  const maxHours = Math.max(
+    1,
+    Math.round(opts.retention?.liquidationsHours ?? LIQ_HEATMAP_FALLBACK_MAX_HOURS),
+  );
+  const hours = Math.min(Math.max(opts.hours ?? DEFAULT_LIQ_HOURS, 1), maxHours);
   const windowMs = hours * 3_600_000;
   const last = Number(opts.lastPrice);
   const bucket = opts.bucket != null && opts.bucket > 0
@@ -336,6 +352,16 @@ export function buildLiqHeatmap(
     maxLimit: LIQ_HEATMAP_MAX_PRINTS,
   });
   const prints = rowsToPrints(rows);
+  let oldestTs: number | null = null;
+  let newestTs: number | null = null;
+  for (const print of prints) {
+    if (oldestTs === null || print.exchTs < oldestTs) oldestTs = print.exchTs;
+    if (newestTs === null || print.exchTs > newestTs) newestTs = print.exchTs;
+  }
+  const coveredMs = oldestTs === null || newestTs === null ? null : newestTs - oldestTs;
+  const truncated = rows.length >= LIQ_HEATMAP_MAX_PRINTS
+    || oldestTs === null
+    || oldestTs > now - windowMs;
   const bins = new Map<string, { long: number; short: number; count: number }>();
   let longSize = 0;
   let shortSize = 0;
@@ -360,6 +386,8 @@ export function buildLiqHeatmap(
     symbol,
     ts: now,
     windowMs,
+    coveredMs,
+    truncated,
     bucket: String(bucket),
     lastPrice: opts.lastPrice ?? null,
     bins: trimmed.map(([price, cell]) => ({

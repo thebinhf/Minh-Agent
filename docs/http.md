@@ -160,8 +160,10 @@ Actual Bybit liquidation **prints**, not Coinglass estimates. Public WS `allLiqu
 | Query | Default | Notes |
 | --- | --- | --- |
 | `symbol` | `BTCUSDT` | |
-| `hours` | 24 | Cap 48 (retention) |
+| `hours` | 24 | Clamped to `retention.liquidationsHours` (fallback cap 48) |
 | `bucket` | from last | BTC ~50, ETH ~5 |
+
+`coveredMs` is the span the returned prints actually occupy (`null` when there are none); `truncated` is `true` when the 5k-print budget or a tape gap leaves part of `windowMs` uncovered. Liquidation prints are WS-only with no REST backfill, so a wide window on a young host reads `truncated: true` — that is coverage accrual, not a bug.
 
 Bins: `longSize` / `shortSize` / `count`. `cascade` is `{ active, side: long|short|null, intensity, walk, fuel }`:
 

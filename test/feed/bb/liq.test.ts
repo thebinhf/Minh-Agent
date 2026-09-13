@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { openDb } from "../../../src/feed/bb/db";
 import { startHttp } from "../../../src/feed/bb/http";
 import {
+  LIQ_HEATMAP_FALLBACK_MAX_HOURS,
   LIQ_NOTE,
   buildLiqHeatmap,
   buildMapLiq,
@@ -207,4 +208,96 @@ describe("liq heatmap + MAP", () => {
       store.close();
     }
   });
+});
+
+describe("liq heatmap window", () => {
+  const HOUR = 3_600_000;
+
+  function withDb<T>(body: (store: ReturnType<typeof openDb>, dbPath: string) => T): T {
+    const { store, dbPath } = tempDb();
+    try {
+      return body(store, dbPath);
+    } finally {
+      store.close();
+    }
+  }
+
+  function span(store: ReturnType<typeof openDb>, oldestTs: number, newestTs: number) {
+    store.saveLiquidation({
+      symbol: "BTCUSDT", side: "Buy", price: "99000", size: "10", exchTs: oldestTs,
+    }, oldestTs);
+    store.saveLiquidation({
+      symbol: "BTCUSDT", side: "Sell", price: "101000", size: "4", exchTs: newestTs,
+    }, newestTs);
+  }
+
+  function heatmap(
+    store: ReturnType<typeof openDb>,
+    dbPath: string,
+    opts: { hours?: number; retention?: { liquidationsHours?: number } },
+  ) {
+    return buildLiqHeatmap(store, {
+      symbol: "BTCUSDT",
+      dbPath,
+      now,
+      bucket: 1000,
+      lastPrice: "100000",
+      ...opts,
+    });
+  }
+
+  test("falls back to the 48h ceiling when no retention is supplied", () => withDb((store, dbPath) => {
+    span(store, now - HOUR, now);
+    const heat = heatmap(store, dbPath, { hours: 100 });
+    expect(heat.windowMs).toBe(LIQ_HEATMAP_FALLBACK_MAX_HOURS * HOUR);
+  }));
+
+  test("honors a window beyond 48h when retention holds the print tape", () => withDb((store, dbPath) => {
+    span(store, now - 90 * HOUR, now);
+    const heat = heatmap(store, dbPath, {
+      hours: 100,
+      retention: { liquidationsHours: 4_320 },
+    });
+    expect(heat.windowMs).toBe(100 * HOUR);
+    expect(heat.count).toBe(2);
+  }));
+
+  test("floors a non-positive hours request to one hour", () => withDb((store, dbPath) => {
+    span(store, now - HOUR, now);
+    const heat = heatmap(store, dbPath, {
+      hours: -5,
+      retention: { liquidationsHours: 4_320 },
+    });
+    expect(heat.windowMs).toBe(HOUR);
+  }));
+
+  test("reports the covered span and flags a window the tape does not reach", () => withDb((store, dbPath) => {
+    span(store, now - HOUR, now);
+    const heat = heatmap(store, dbPath, {
+      hours: 4_320,
+      retention: { liquidationsHours: 4_320 },
+    });
+    expect(heat.coveredMs).toBe(HOUR);
+    expect(heat.truncated).toBe(true);
+  }));
+
+  test("a print on the opening edge means the window is not truncated", () => withDb((store, dbPath) => {
+    span(store, now - 2 * HOUR, now - HOUR);
+    const heat = heatmap(store, dbPath, {
+      hours: 2,
+      retention: { liquidationsHours: 4_320 },
+    });
+    expect(heat.coveredMs).toBe(HOUR);
+    expect(heat.truncated).toBe(false);
+  }));
+
+  test("an empty window covers nothing and reads as truncated", () => withDb((store, dbPath) => {
+    const heat = heatmap(store, dbPath, {
+      hours: 24,
+      retention: { liquidationsHours: 4_320 },
+    });
+    expect(heat.count).toBe(0);
+    expect(heat.coveredMs).toBeNull();
+    expect(heat.truncated).toBe(true);
+  }));
 });
