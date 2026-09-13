@@ -50,11 +50,14 @@ export function assertNoApiKeys(env: NodeJS.ProcessEnv = process.env): void {
   );
 }
 
-export function assertSeparateDb(paperDbPath: string, feedDbPath: string): void {
-  if (resolve(paperDbPath) === resolve(feedDbPath)) {
-    throw new PaperSafetyError(
-      `PAPER_DB_PATH must not equal BYBIT_DB_PATH (${resolve(paperDbPath)})`,
-    );
+export function assertSeparateDb(...dbPaths: string[]): void {
+  const seen = new Set<string>();
+  for (const dbPath of dbPaths) {
+    const resolved = resolve(dbPath);
+    if (seen.has(resolved)) {
+      throw new PaperSafetyError(`db paths must be distinct across processes: ${resolved} repeats`);
+    }
+    seen.add(resolved);
   }
 }
 
