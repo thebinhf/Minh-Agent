@@ -68,6 +68,15 @@ No live capability is added. This stage only writes down the new invariant and p
 
 **Shipped.** `src/exec/` wraps the SDK behind `ExecClient` (`client.ts`), loads config through `assertExecMode` + credential-file keys with a plaintext-env refusal (`config.ts`), persists the refreshed linear instrument spec with an age guard (`instruments.ts`, default 168h) in its own sqlite (`db.ts`), and serves a GET-only HTTP surface on `:43183` (`http.ts`). Auth-class rejections (401/403/`retCode 10003`) latch the client into a failed state that refuses further signed calls — no retry, no host rotation (proven against a local fake venue in `test/exec/skeleton.test.ts`). Remaining operator-side exit evidence: run it against real testnet keys and check `/exec/health` reports `authenticated: true` with balance matching the testnet UI.
 
+Operator runbook for the remaining Stage 2 evidence (host, testnet):
+
+1. Create the testnet account/key at `testnet.bybit.com` — trade-scoped, isolated from anything mainnet.
+2. Key files (unit reads them via `LoadCredential=`): write the key and secret, one value per file, into `/etc/minh/exec/bybit_api_key` and `/etc/minh/exec/bybit_api_secret`, mode `600`.
+3. Install [`deploy/minh-exec.service`](../deploy/minh-exec.service) to `/etc/systemd/system/`, then `daemon-reload` and `start minh-exec`. It is **not** part of `minh.target` by design; `EXEC_MAINNET_CONFIRM` must stay unset.
+4. Evidence: `curl http://127.0.0.1:43183/exec/health` → `authenticated: true`, `auth: "ok"`, `spec.stale: false`; wallet matches the testnet UI; `/exec/instruments` `asOf` is today.
+5. Wrong-key drill: stop the unit, swap in a bogus key file, start again — the unit must exit non-stop-loop (journal shows `bybit rejected credentials … hard stop, no retry, no host failover`) and exactly one host was contacted. Restore the real key.
+6. Never set `BYBIT_API_KEY`-style env on the shell: exec refuses those outright, and [`enable-mesh.sh`](../deploy/enable-mesh.sh) refuses too.
+
 | | |
 | --- | --- |
 | Do | Add `bybit-official-ts-sdk` (first runtime dependency in repo history) behind `ExecClient`. New process `bun run exec`, `:43183`, `EXEC_DB_PATH`. Read-only: wallet balance, positions, open orders, fee rate, `instruments-info`. Refresh and persist the instrument spec with a staleness guard — [`src/paper/instruments/bybit-linear.json`](../src/paper/instruments/bybit-linear.json) is a static snapshot (`asOf: 2026-09-11`) and a stale spec means wrong lot rounding or venue rejects; paper keeps using the static file. Keys via systemd `LoadCredential=` / `CredentialEncrypted=`, never plaintext `Environment=`. |
