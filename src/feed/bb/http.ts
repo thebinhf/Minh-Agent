@@ -1,5 +1,6 @@
 import { buildBrief } from "./brief";
 import { buildBriefPack, resolvePaperDesk, type BriefPackPaperSource } from "./brief-pack";
+import { buildConfigSnapshot, type FeedConfigBoot } from "./config";
 import { buildConfirm, parseConfirmInterval } from "./confirm";
 import { buildMap, buildMapBatch, MAP_SYMBOL_CAP, parseMapSymbols, resolveMapSymbols } from "./map";
 import { buildZones } from "./zones";
@@ -85,6 +86,8 @@ export type FeedHttpExtras = {
   observe?: () => unknown | Promise<unknown>;
   /** Local WS hub. GET /ws upgrades when set and BYBIT_RELAY is not 0. */
   relay?: RelayHub;
+  /** Boot resolution report for GET /config. */
+  configBoot?: FeedConfigBoot;
 };
 
 export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: FeedHttpExtras) {
@@ -117,6 +120,10 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
 
       if (path === "/health") {
         return json(buildFeedHealth(store, config));
+      }
+      if (path === "/config") {
+        if (!extras?.configBoot) return json({ error: "config boot unavailable" }, 404);
+        return json(await buildConfigSnapshot(extras.configBoot));
       }
 
       if (path === "/observe") {
