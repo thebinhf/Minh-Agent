@@ -48,14 +48,16 @@ field renders `—` / `N miss`, so an outage can never read as "nothing to do".
 Commands stay raw JSON on purpose (`paper status` / `event` / `day` / `week`),
 which is what `--once` and a pipe consume.
 
-**If the shadow column is empty after a restart:** the shadow latches one plan
-per 4H bar (a fingerprint of the latest confirmed 240 candle). A shadow that
-boots *before* its feed gets one gated-denied cycle, latches the fingerprint
-anyway, and then stays silent until the next 4H close — up to 4 hours. Every
-`map_plan` event carries the wall-clock `ts` of the cycle that wrote it and the
-panel prints it as `plan=... (Nm ago)`: a plan older than the newest 4H close
-means the shadow did not evaluate that close. Start the feed first, or wait for
-the next close.
+**If the shadow column looks empty:** every `map_plan` event carries the
+wall-clock `ts` of the cycle that wrote it and the panel prints it as
+`plan=... (Nm ago)`, so read that first — a plan older than the newest 4H close
+means the shadow did not evaluate that bar. Until PR #97 lands, the usual cause
+is a boot race: a shadow started *before* its feed consumes the bar on one
+gate-denied cycle and then stays quiet until the next close, so start the feed
+first. Once that lands a bar is consumed only by a cycle that actually evaluated
+its cards, and the retry is automatic. When there is no plan age at all, the
+cause is upstream: `shadow off` / `shadow down` means no shadow is wired or
+reachable, and `MAP_ACCEPT=0` plans nothing.
 
 ## MAP
 
