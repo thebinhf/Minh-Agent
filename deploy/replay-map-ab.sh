@@ -6,9 +6,12 @@
 #   deploy/replay-map-ab.sh compare BASE.json VARIANT.json
 set -euo pipefail
 
-ROOT="${MINH_ROOT:-/opt/minh-agent}"
+ROOT="${MINH_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
 OUT_DIR="${MINH_LAB_DIR:-$ROOT/lab}"
 DAYS="${PAPER_LAB_DAYS:-180}"
+# House method: freeze the family floor on the first 90d so the holdout is honest.
+# `0` = score the floor on the walk window itself (numbers are then in-sample).
+TRAIN="${PAPER_LAB_TRAIN_DAYS-90}"
 NAME="${1:-}"
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 export PATH="$BUN_INSTALL/bin:$PATH"
@@ -28,7 +31,7 @@ fi
 # Clear A/B knobs, then set exactly one. Default = current main (ARM_MAX=2).
 unset AGENT_BIAS_CHOP PAPER_FAMILY_FLOOR_MIN_TRADES PAPER_MAP_SKIP PAPER_ARM_MAX \
   PAPER_TA_FIB AGENT_TA_OSC PAPER_TA_VOL PAPER_TA_SHOCK PAPER_TA_REV PAPER_SETUPS \
-  AGENT_ZONE_FRESH AGENT_ZONE_IMPULSE_MIN PAPER_BE_R PAPER_ZONE_SCORE_RR
+  AGENT_ZONE_FRESH AGENT_ZONE_IMPULSE_MIN PAPER_BE_R PAPER_ZONE_SCORE_RR MINH_DECISION_LOG
 case "$NAME" in
   baseline) ;;
   chop0) export AGENT_BIAS_CHOP=0 ;;
@@ -58,11 +61,15 @@ esac
 
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-JSON="$OUT_DIR/ab-${NAME}-${DAYS}-${STAMP}.json"
-REVIEW="$OUT_DIR/ab-${NAME}-${DAYS}-${STAMP}.review.json"
+args=(replay-map --days "$DAYS" --one-book)
+if [[ -n "$TRAIN" && "$TRAIN" != "0" ]]; then
+  args+=(--train-days "$TRAIN")
+fi
+JSON="$OUT_DIR/ab-${NAME}-${DAYS}d-t${TRAIN:-none}-${STAMP}.json"
+REVIEW="$OUT_DIR/ab-${NAME}-${DAYS}d-t${TRAIN:-none}-${STAMP}.review.json"
 
-echo "[minh:ab] $NAME days=$DAYS one-book" >&2
-bun run paper replay-map --days "$DAYS" --one-book > "$JSON"
+echo "[minh:ab] $NAME days=$DAYS one-book train=${TRAIN:-none}" >&2
+bun run paper "${args[@]}" > "$JSON"
 bun run paper review "$JSON" | tee "$REVIEW"
 
 if [[ -n "${PAPER_AB_BASE:-}" ]]; then
