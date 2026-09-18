@@ -46,11 +46,16 @@ export {
 } from "./quant";
 
 export {
+  EVENT_MANAGES,
   METHOD_USE,
   METHOD_USES,
   armGateApplies,
   armGatesForSetup,
+  eventBeR,
+  eventManageApplies,
+  eventManagesForSetup,
   type ArmGate,
+  type EventManage,
   type MethodId,
   type MethodUse,
 } from "./strategy";

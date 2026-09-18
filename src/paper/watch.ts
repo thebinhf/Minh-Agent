@@ -12,6 +12,7 @@ export const EVENT_KINDS = [
   "order.cancelled",
   "order.invalidated",
   "position.closed",
+  "position.managed",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];
