@@ -73,7 +73,7 @@ Account seed: risk 2%, `minRr` **2** (config, not an engine constant). Engine st
 
 ## EVENT
 
-EVENT is **OCO + tick**. Do not poll `/confirm` / `/brief` / 30-minute scan. Pending limit invalidates itself; fill/SL/TP fire as events. Optional `PAPER_BE_R=0.5` (default **off**, one 180d A/B): after last runs ≥ N× original risk in the trade's favor, tick moves SL to entry once (`position.managed` / `be`). Return through entry is a 0-R SL, not a −1R. Same-bar adverse-first prints still let original SL beat the excursion (replay honesty). Not a Telegram kind unless you add it.
+EVENT is **OCO + tick**. Do not poll `/confirm` / `/brief` / 30-minute scan. Pending limit invalidates itself; fill/SL/TP fire as events. `PAPER_BE_R` (move SL to entry after last runs ≥ N× original risk, `position.managed` / `be`) is **off and measured off**: on a 180d one-book frozen-floor walk, 0.5R turned 68 trades into 0-R scratches but took TP exits from 36 to 19 — net −4 770.6 equity. The scratches are real; the forfeited right tail is bigger. Do not enable it, and do not re-argue it from the −1R side of the ledger alone. See [ROADMAP.md](ROADMAP.md).
 
 Bound pending (`zoneId` on an accepted ledger card) dies with the zone: expiry, `deep_mitigate` (≥50% into the zone after rest), `htf_break` (through SL), or operator `paper zone reject` cancel the resting limit **and** the matching armed alert (`order.invalidated` carries that `cancelCode`). Cascade/crowded still **wait** — skip fill this tick, keep the pending, do not reject the card. Unzoned `paper limit` / `--no-oco` unchanged. Do not auto-close opens.
 

@@ -55,7 +55,13 @@ One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / 
 
 ### P9 — EVENT manage + realized-RR rank
 
-One flag / one walk: `be` first (`PAPER_BE_R=0.5` — after MFE ≥ 0.5R, SL → entry). The 11/28 SLs-ran-then-died figure came from a walk whose JSON records `days: 180`, `oneBook: true` and **no** `trainDays` — its accept set was picked with an in-sample family floor, so treat the figure as a hint, not a verdict. `paper review` now carries `trainDays` and `paper ab` prints `NOT COMPARABLE` when base and variant differ on `days` / `one-book` / `train-days` / slippage. `deploy/replay-map-ab.sh` defaults to a frozen 90d floor; decide on that walk. Then `scorerr` (`PAPER_ZONE_SCORE_RR=1`). Do not combine with P7/P8 on the first walk. Do not turn a flag on in systemd until that walk wins.
+One flag / one walk, one **pinned** window (`PAPER_AB_FROM` / `PAPER_AB_TO`), frozen 90d floor. Both P9 arms are decided — `paper ab` on the pair reported `methodMismatch: []`.
+
+**`be` (`PAPER_BE_R=0.5`) — rejected, keep off.** 180d one-book 2026-03-17 → 2026-09-14: baseline equity 13 706.34 / realizedPnl +4 610.88 (87 closes: 51 SL −11 456.04, 36 TP +16 066.92) vs BE 8 935.75 / −78.87 (124 closes). The move fired on 87 positions; 68 exited at exactly 0, which did avoid ≈ +4 571 of loser loss — but TP exits fell **36 → 19**. The old note read "20/20 TPs had already cleared 0.5R" as proof BE spares winners; it is the opposite: a 2R target that pokes 0.5R and retraces now leaves at entry, so up to 17 of the baseline's winners cashed 0 instead of +2R (an upper bound — the accept sets are not identical). Net −4 770.6 equity, −4 689.8 realizedPnl (the DB ledger sum and `paper ab` agree to the cent). At any fixed fraction of R *below* the target the exchange is structurally negative on this method.
+
+**`scorerr` (`PAPER_ZONE_SCORE_RR=1`) — no gain, keep off.** Same window: −20 accepted, equity −84.70, realizedPnl −160.17. Reordering sampled families by realised RR costs a little and wins nothing; it does not earn a second look before the queue ahead of it.
+
+P8 setups (`sd` / `breakout` / `reversal`) stay the live default. Next in the queue: P5 multi-venue, and the order-flow / volume-profile work.
 
 ### T3 — Trading Terminal (viewer)
 
