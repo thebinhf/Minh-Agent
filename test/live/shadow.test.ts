@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,10 +6,13 @@ import { PaperSafetyError } from "../../src/paper/errors";
 import { loadLiveConfig, startLive } from "../../src/live/index";
 import { openLiveDb } from "../../src/live/db";
 import { map240Fingerprint, planArm, planMapClose } from "../../src/live/plan";
-import { mapPayload } from "../agent/htf";
+import { MAP_CARD_ASOF, MAP_CARD_BASE_END_TS, MAP_CARD_BASE_START_TS, mapPayload } from "../agent/htf";
 import type { ZoneCard } from "../../src/zones/card";
 import { openPaperDb } from "../../src/paper/db";
 import { loadPaperConfig } from "../../src/paper/config";
+
+beforeAll(() => setSystemTime(MAP_CARD_ASOF));
+afterAll(() => setSystemTime());
 
 const dirs: string[] = [];
 const saved: Record<string, string | undefined> = {};
@@ -55,8 +58,8 @@ const SUPPLY: ZoneCard = {
   tf: "240",
   side: "supply",
   setup: "sd",
-  baseStartTs: 1_788_801_600_000,
-  baseEndTs: 1_788_808_800_000,
+  baseStartTs: MAP_CARD_BASE_START_TS,
+  baseEndTs: MAP_CARD_BASE_END_TS,
   zoneLow: 79_250,
   zoneHigh: 79_472,
   distal: 79_472,
