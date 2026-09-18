@@ -4,6 +4,14 @@
 #
 #   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal|fresh|impulse|be|scorerr
 #   deploy/replay-map-ab.sh compare BASE.json VARIANT.json
+#
+# Session knobs (export once, then walk every arm):
+#   PAPER_AB_FROM / PAPER_AB_TO  ISO dates — pin the window so all arms walk the
+#                              same bars. Without them `--days N` is relative to
+#                              each arm's start clock.
+#   PAPER_LAB_TRAIN_DAYS       family-floor window, default 90 (`0` = in-sample)
+#   PAPER_AB_BASE              review JSON to subtract after this arm's walk
+#   PAPER_AB_BE_R / PAPER_AB_IMPULSE_MIN  the float a given arm applies
 set -euo pipefail
 
 ROOT="${MINH_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
@@ -61,14 +69,27 @@ esac
 
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-args=(replay-map --days "$DAYS" --one-book)
+# `--days N` is relative to the clock at start, so arms walked 20 minutes apart
+# do not share a window. Set PAPER_AB_FROM + PAPER_AB_TO once per session and
+# every arm walks the same bars.
+WINDOW=(--days "$DAYS")
+WINDOW_LABEL="${DAYS}d"
+if [[ -n "${PAPER_AB_FROM:-}" || -n "${PAPER_AB_TO:-}" ]]; then
+  if [[ -z "${PAPER_AB_FROM:-}" || -z "${PAPER_AB_TO:-}" ]]; then
+    echo "[minh:ab] PAPER_AB_FROM and PAPER_AB_TO must both be set (or neither)" >&2
+    exit 1
+  fi
+  WINDOW=(--from "$PAPER_AB_FROM" --to "$PAPER_AB_TO")
+  WINDOW_LABEL="${PAPER_AB_FROM}_$PAPER_AB_TO"
+fi
+args=(replay-map --one-book "${WINDOW[@]}")
 if [[ -n "$TRAIN" && "$TRAIN" != "0" ]]; then
   args+=(--train-days "$TRAIN")
 fi
-JSON="$OUT_DIR/ab-${NAME}-${DAYS}d-t${TRAIN:-none}-${STAMP}.json"
-REVIEW="$OUT_DIR/ab-${NAME}-${DAYS}d-t${TRAIN:-none}-${STAMP}.review.json"
+JSON="$OUT_DIR/ab-${NAME}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.json"
+REVIEW="$OUT_DIR/ab-${NAME}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.review.json"
 
-echo "[minh:ab] $NAME days=$DAYS one-book train=${TRAIN:-none}" >&2
+echo "[minh:ab] $NAME window=$WINDOW_LABEL one-book train=${TRAIN:-none}" >&2
 bun run paper "${args[@]}" > "$JSON"
 bun run paper review "$JSON" | tee "$REVIEW"
 
