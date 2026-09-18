@@ -10,6 +10,30 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 | **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO | Quiet. Notify `zone.armed` |
 | **EVENT** | Pending limit / open position | Tick: OCO / SL/TP | `GET /paper/event` or notify fill/invalid/close |
 
+## Watch
+
+```bash
+bun run term                 # redraws every 5s
+bun run term --interval 15
+bun run term --once          # one snapshot; exit 1 if the feed is down (scriptable)
+```
+
+One text screen answers the whole loop: is the feed connected and are klines
+advancing, do the gates allow trading and why not, when did MAP last dump, how
+much of the quant tape is actually there (`ok` vs `missing` per field), equity
+and Δ% against starting cash, how many cards are accepted / resting / open /
+armed, each open with unrealised PnL as a multiple of **original** risk (so
+`-0.5R` means half your risk, comparable across symbols), each resting OCO and
+accepted band with its expiry, whether the mutation lock is on, what shadow
+would have armed, and the last events.
+
+It is a **viewer, never a command source** (locked in [ROADMAP.md](ROADMAP.md)):
+no engine, no store, `GET` only — you still accept, reject and arm through the
+CLI below. A daemon that is not answering renders `down` and a missing tape
+field renders `—` / `N miss`, so an outage can never read as "nothing to do".
+Commands stay raw JSON on purpose (`paper status` / `event` / `day` / `week`),
+which is what `--once` and a pipe consume.
+
 ## MAP
 
 Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.

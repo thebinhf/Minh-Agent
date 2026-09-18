@@ -95,8 +95,10 @@ export function eventManageApplies(manage: EventManage, setup: ZoneSetup | null 
 /**
  * PAPER_BE_R=<float>: after favorable excursion ≥ N× original risk, move SL
  * to entry (`position.managed` / `be`). Unset / 0 / invalid = off.
- * Lab (skip-HYPE 180d): 39% of SLs ran ≥0.5R then died; every TP had already
- * cleared 0.5R, so BE does not clip winners. A/B before on.
+ * Hint, not verdict: the 180d skip-HYPE lab behind it (39% of SLs ran ≥0.5R
+ * then died, every TP had already cleared 0.5R) recorded no `trainDays`, so its
+ * accept set was chosen with an in-sample family floor. Decide on
+ * `deploy/replay-map-ab.sh be`, which freezes the floor at 90d.
  */
 export function eventBeR(): number | null {
   const raw = process.env.PAPER_BE_R?.trim();

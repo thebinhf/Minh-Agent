@@ -226,6 +226,14 @@ Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](do
 
 ## Operations
 
+Watch the mesh (read-only, viewer only — it never sends a command):
+
+```bash
+bun run term              # one live text screen: feed/gates/MAP/tape/desk/ledger/events
+bun run term --once       # single snapshot, exit 1 when the feed is down
+scripts/ops-check.sh      # health + lag + disk + lab freshness for a 5m cron
+```
+
 Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, CVD/liq watchlist). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). Exec: [`deploy/minh-exec.service`](deploy/minh-exec.service) — opt-in, **not** part of `minh.target`, keys via `LoadCredential=`. After a green merge:
 
 ```bash

@@ -34,8 +34,9 @@ HTTP contract: [http.md](http.md).
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
 | `src/live/` | Live-shadow observer (own DB, own HTTP). Policy only |
-| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` `test/live/` `test/ta/` | Tests |
-| `deploy/` | systemd + `pull-restart.sh` |
+| `src/terminal/` | `bun run term` — read-only Trading Terminal (T3). GETs `/observe`, renders text. No engine, no store, no command source |
+| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` `test/live/` `test/ta/` `test/terminal/` | Tests |
+| `deploy/` | systemd + `pull-restart.sh` + `backup-db.sh` + `scripts/ops-check.sh` |
 | `.github/workflows/` | typecheck + test (no daemon, no keys) |
 
 ## Layers

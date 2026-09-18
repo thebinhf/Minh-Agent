@@ -27,7 +27,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 
 P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP. Signal-quality filters `AGENT_ZONE_FRESH` (deny touched/penetrated zones) and `AGENT_ZONE_IMPULSE_MIN` (deny shallow impulses) join the same queue: off by default, one flag per walk, counted in `skipReasons` (`zone_fresh` / `zone_impulse`). P9 EVENT manage (`PAPER_BE_R`) and realized-RR rank (`PAPER_ZONE_SCORE_RR`) are the same discipline: off, one flag per walk. BE is not a skipReason — it is a stop move on an open (`position.managed`).
 
-## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups)
+## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups, P9 flags, T3 terminal)
 
 | Slice | What | Default |
 | --- | --- | --- |
@@ -55,7 +55,11 @@ One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / 
 
 ### P9 — EVENT manage + realized-RR rank
 
-One flag / one walk: `be` first (`PAPER_BE_R=0.5` — after MFE ≥ 0.5R, SL → entry). Lab (skip-HYPE 180d): 11/28 SLs ran then died; 20/20 TPs had already cleared 0.5R. Then `scorerr` (`PAPER_ZONE_SCORE_RR=1`). Do not combine with P7/P8 on the first walk. Do not turn a flag on in systemd until that walk wins.
+One flag / one walk: `be` first (`PAPER_BE_R=0.5` — after MFE ≥ 0.5R, SL → entry). The 11/28 SLs-ran-then-died figure came from a walk whose JSON records `days: 180`, `oneBook: true` and **no** `trainDays` — its accept set was picked with an in-sample family floor, so treat the figure as a hint, not a verdict. `paper review` now carries `trainDays` and `paper ab` prints `NOT COMPARABLE` when base and variant differ on `days` / `one-book` / `train-days` / slippage. `deploy/replay-map-ab.sh` defaults to a frozen 90d floor; decide on that walk. Then `scorerr` (`PAPER_ZONE_SCORE_RR=1`). Do not combine with P7/P8 on the first walk. Do not turn a flag on in systemd until that walk wins.
+
+### T3 — Trading Terminal (viewer)
+
+`bun run term` — one looping text screen over feed `GET /observe`, for the split host falling back to `:43181/paper/observe`. It holds no engine, no store and no key, and issues `GET` only: **a viewer, never a command source** (lock above). Accept / reject / arm stay CLI or HTTP POST. A daemon that is not answering renders `down` and a missing tape field renders `—` / `N miss`, so an outage cannot read as "nothing to do".
 
 ### P5 — multi-venue
 
