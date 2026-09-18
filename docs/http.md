@@ -27,6 +27,16 @@ WS + ticker ages + kline lag (15/60/240).
 
 `ok` is ticker/WS freshness, **not** kline lag. Use `klineLag.ok` (and paper `gates.tradingAllowed`) before drawing HTF.
 
+### `GET /metrics`
+
+Same facts as `/health`, in Prometheus text exposition (`text/plain; version=0.0.4`) for a scraper. Additive — no JSON contract changes.
+
+`minh_feed_ok`, `minh_feed_connected`, `minh_feed_last_message_age_ms`, `minh_feed_last_pong_age_ms`, `minh_kline_lag_ok`, `minh_kline_lag_stale_rows`, and `minh_feed_ticker_age_ms{symbol="…"}`. An unknown age exports `-1`, never `0` — missing is not fresh.
+
+```bash
+curl -sS http://127.0.0.1:43180/metrics
+```
+
 ### `GET /config`
 
 The knob registry as this process resolved it at boot, plus a pending diff. Layers, lowest → highest precedence: registry `default` < `file` (config.json) < `dotenv` (.env) < `env` (real env vars — Bun merges .env into process.env at boot, real env winning). An explicitly empty override means "unset", except `BYBIT_REST_FALLBACKS` where it disables the fallbacks.
