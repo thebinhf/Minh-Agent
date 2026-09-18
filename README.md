@@ -119,6 +119,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `AGENT_BIAS_CHOP` | `deny` | 4H mixed chop is a MAP deny (`bias_chop`). `0` = off (A/B). `proximal` = allow only when last is in proximal→entry. 1H chop does not override 4H |
 | `AGENT_ZONE_FRESH` | off | `1` = MAP deny when the zone is `touched` or already penetrated (`zone_fresh`). Signal-cleaning filter. Off until a one-flag 180d A/B |
 | `AGENT_ZONE_IMPULSE_MIN` | off | Float floor on the departure impulse in ATR. MAP deny below the floor (`zone_impulse`). Unset / `0` / invalid = off. A/B before on |
+| `MINH_DECISION_LOG` | off | `1` = log one JSON line per MAP card at 4H close (`[minh:decision]`): inputs (bias, quant tape, family score/RR, freshness, impulse), the verdict, and the reason. Journald captures it; nothing reads it back. Only the exact string `1` turns it on |
 | `PAPER_TA_FIB` | off | `arm` = ARM wait unless last is nearest fib 0.5/0.618. Missing fib is not a wait |
 | `AGENT_TA_OSC` | off | `accept` = MAP deny when RSI/div opposes the zone. Missing osc is not a veto |
 | `PAPER_TA_VOL` | off | `arm` = ARM wait on kline volume climax (rel ≥ 2). Volume 0 stays missing |
@@ -128,13 +129,17 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_PROXIMITY_ARM` | on (`0` disables) | Rest accepted cards in the proximal band |
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
+| `PAPER_ZONE_SCORE_RR` | off | `1` = rank MAP/ARM by sampled family `avgRealizedRr` then score then card `rr`. Cold last. A/B before on |
+| `PAPER_BE_R` | off | Float R multiple. After favorable MFE ≥ N, move SL to entry (`position.managed` / `be`). Unset / `0` / invalid = off. A/B before on |
 | `PAPER_FAMILY_SCORE_MIN` | `0.5` | Score floor after a sample. Cold / missing history is not a veto |
 | `PAPER_FAMILY_FLOOR_MIN_TRADES` | `2` | Closed trades before the RR floor applies. `1` is an A/B. Cold history is still not a veto |
 | `PAPER_MAP_SKIP` | (none) | Comma symbols MAP will not auto-accept. Unset / `0` / blank = none. Feed watchlist unchanged |
-| `PAPER_ARM_MAX` | `2` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId`. Occupied slots stay. `0` = unlimited (still one per symbol). 180d: 2 beat 3/5/0 |
+| `PAPER_ARM_MAX` | `2` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId` (`PAPER_ZONE_SCORE_RR=1` inserts realized RR first). Occupied slots stay. `0` = unlimited (still one per symbol). 180d: 2 beat 3/5/0 |
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings (`zone.accepted` / `zone.armed` / fill / OCO / close) |
 | `PAPER_OBSERVE` | off (host unit `1`) | `1` = GET-only paper HTTP/CLI. MAP/ARM/EVENT still run. systemd sets this. |
+
+Every flag above is validated at boot (`src/config/runtime-flags.ts`). A value that cannot mean anything — `PAPER_ARM_MAX=abc`, `PAPER_TA_FIB=armed`, `MINH_DECISION_LOG=on` — makes the feed, paper, live-shadow and the paper CLI **refuse to start** and lists each offender, instead of quietly falling back to the default. An operator typo can no longer read as a strategy change.
 
 `BYBIT_API_KEY` / `BYBIT_API_SECRET` (and similar names) are **forbidden**. Paper and live-shadow refuse to start if they are set. Exec refuses them too: its keys come from credential files only.
 
@@ -174,6 +179,7 @@ Full contract: [docs/http.md](docs/http.md).
 | `GET /confirm` | Optional LTF (20×15m; scalp `5`) |
 | `GET /brief-pack` | Tickers + lag + `gates` + paper desk + accepted zones |
 | `GET /health` | WS + kline lag |
+| `GET /metrics` | Same health facts as Prometheus text |
 | `GET /brief` `/chart` `/depth` `/heatmap` `/market` | Snapshots |
 
 Watchlist: BTC ETH SOL ENA BNB XRP DOGE AVAX LINK HYPE.

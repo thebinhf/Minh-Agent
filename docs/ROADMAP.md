@@ -25,7 +25,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 | Quant | Cascade / crowded / OI / CVD veto. Missing ≠ veto | On |
 | Overlay | `GET /ta` 22 methods. `signal: false`. Does not arm | Overlay only |
 
-P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP. Signal-quality filters `AGENT_ZONE_FRESH` (deny touched/penetrated zones) and `AGENT_ZONE_IMPULSE_MIN` (deny shallow impulses) join the same queue: off by default, one flag per walk, counted in `skipReasons` (`zone_fresh` / `zone_impulse`).
+P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP. Signal-quality filters `AGENT_ZONE_FRESH` (deny touched/penetrated zones) and `AGENT_ZONE_IMPULSE_MIN` (deny shallow impulses) join the same queue: off by default, one flag per walk, counted in `skipReasons` (`zone_fresh` / `zone_impulse`). P9 EVENT manage (`PAPER_BE_R`) and realized-RR rank (`PAPER_ZONE_SCORE_RR`) are the same discipline: off, one flag per walk. BE is not a skipReason — it is a stop move on an open (`position.managed`).
 
 ## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups)
 
@@ -52,6 +52,10 @@ One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / 
 ### P8 A/B
 
 `deploy/replay-map-ab.sh sd` vs `baseline` (all three families). Same honesty: missing flow/liq stays missing.
+
+### P9 — EVENT manage + realized-RR rank
+
+One flag / one walk: `be` first (`PAPER_BE_R=0.5` — after MFE ≥ 0.5R, SL → entry). Lab (skip-HYPE 180d): 11/28 SLs ran then died; 20/20 TPs had already cleared 0.5R. Then `scorerr` (`PAPER_ZONE_SCORE_RR=1`). Do not combine with P7/P8 on the first walk. Do not turn a flag on in systemd until that walk wins.
 
 ### P5 — multi-venue
 

@@ -40,6 +40,11 @@ Environment=LIVE_SHADOW_URL=http://127.0.0.1:43182/live/shadow
 # Optional observer pings: PAPER_NOTIFY=telegram|webhook plus token/URL.
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/bybit-ws-tracker /opt/minh-agent/data /tmp
+MemoryMax=1G
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target minh.target

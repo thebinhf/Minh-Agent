@@ -19,6 +19,11 @@ Environment=LIVE_FEED_URL=http://127.0.0.1:43180
 # Does not open the paper ledger. Does not send orders. Feed HTTP is the tape.
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/bybit-ws-tracker /opt/minh-agent/data /tmp
+MemoryMax=512M
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target minh.target
