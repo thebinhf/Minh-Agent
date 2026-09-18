@@ -79,6 +79,7 @@ export async function startLive(opts?: {
   const store = openLiveDb(config.dbPath);
   const tape = opts?.feed ?? defaultTape(config.feedUrl);
   let lastFp = "";
+  let planning = false;
 
   async function planMap(info: { interval: string; map: unknown }): Promise<ShadowMapPlan | null> {
     const health = await tape.health();
@@ -101,9 +102,15 @@ export async function startLive(opts?: {
     const map = await tape.mapLatest?.();
     if (!map) return;
     const fp = map240Fingerprint(map);
-    if (!fp || fp === lastFp) return;
-    lastFp = fp;
-    const result = await planMap({ interval: "240", map });
+    if (!fp || fp === lastFp || planning) return;
+    planning = true;
+    const result = await planMap({ interval: "240", map }).finally(() => {
+      planning = false;
+    });
+    // Only a cycle that looked at the cards consumes the bar. This process boots
+    // beside the feed and its first ticks are gate-denied by design; latching the
+    // fingerprint there muted the shadow for up to a full 4H close.
+    if (!result || result.evaluated) lastFp = fp;
     if (result?.accepted.length) {
       console.log(`[minh:live] map plan ${result.accepted.join(",")}`);
     }
