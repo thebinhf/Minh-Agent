@@ -335,4 +335,49 @@ describe("live-shadow HTTP", () => {
       svc.stop();
     }
   });
+
+  test("a gate-denied cycle does not consume the 4H bar, and the same bar then plans once", async () => {
+    const dir = tempRoot();
+    const map = mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) });
+    let feedOk = false;
+    let cardsFetched = 0;
+    const svc = await startLive({
+      config: liveConfig(dir),
+      tick: false,
+      fetchCards: async () => {
+        cardsFetched += 1;
+        return [DEMAND];
+      },
+      feed: {
+        health: async () => ({ ok: feedOk, url: "http://127.0.0.1:43180/health", klineLagOk: feedOk }),
+        tickers: async () => [{ symbol: "BTCUSDT", lastPrice: String(ARM_DEMAND_LAST) }],
+        lastKline: async () => null,
+        mapLatest: async () => map,
+      },
+    });
+    const planRows = () => svc.store.events().filter((row) => row.kind === "map_plan");
+    try {
+      // Boot race: the shadow ticks before its feed is healthy. It must not eat
+      // the bar it never looked at.
+      await svc.tick();
+      expect(cardsFetched).toBe(0);
+      expect(planRows()).toEqual([]);
+
+      await svc.tick();
+      expect(cardsFetched).toBe(0);
+
+      feedOk = true;
+      await svc.tick();
+      expect(cardsFetched).toBe(1);
+      expect(planRows().map((row) => [row.zoneId, row.allow])).toEqual([[DEMAND.zoneId, true]]);
+
+      // The bar is now consumed: a steady feed must not re-plan the same close.
+      await svc.tick();
+      await svc.tick();
+      expect(cardsFetched).toBe(1);
+      expect(planRows()).toHaveLength(1);
+    } finally {
+      svc.stop();
+    }
+  });
 });

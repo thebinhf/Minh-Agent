@@ -22,6 +22,12 @@ export type ShadowMapPlan = {
   accepted: string[];
   skipped: number;
   skipReasons: Record<PolicyReason, number>;
+  /**
+   * False means this cycle never looked at a card (policy off, or the gates
+   * denied before the cards were fetched) — `accepted: []` and `skipped: 0` are
+   * then "not evaluated", not "evaluated and empty".
+   */
+  evaluated: boolean;
 };
 
 export type ShadowArmPlan = {
@@ -85,7 +91,7 @@ export async function planMapClose(
   } = {},
 ): Promise<ShadowMapPlan | null> {
   if (info.interval !== "240") return null;
-  if (!mapAcceptEnabled()) return { accepted: [], skipped: 0, skipReasons: emptySkipReasons() };
+  if (!mapAcceptEnabled()) return { accepted: [], skipped: 0, skipReasons: emptySkipReasons(), evaluated: false };
 
   const now = opts.now ?? Date.now();
   store.expire(now);
@@ -99,7 +105,7 @@ export async function planMapClose(
   });
   const skipReasons = emptySkipReasons();
   if (!gates.tradingAllowed) {
-    return { accepted: [], skipped: 0, skipReasons };
+    return { accepted: [], skipped: 0, skipReasons, evaluated: false };
   }
 
   const cards = await fetchCards(feedUrl);
@@ -163,7 +169,7 @@ export async function planMapClose(
     store.acceptCard(row.card, now);
     accepted.push(row.card.zoneId);
   }
-  return { accepted, skipped, skipReasons };
+  return { accepted, skipped, skipReasons, evaluated: true };
 }
 
 /** Would-arm only. Never paperArm / never rest OCO. Cascade/crowded still wait. */
