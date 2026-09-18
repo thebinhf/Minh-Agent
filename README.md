@@ -229,10 +229,17 @@ Playbook: [docs/operator.md](docs/operator.md). Spec: [docs/paper-trading.md](do
 Watch the mesh (read-only, viewer only — it never sends a command):
 
 ```bash
-bun run term              # one live text screen: feed/gates/MAP/tape/desk/ledger/events
+bun run term              # one live text screen: feed/gates/MAP/tape/desk/ledger/cards/events
 bun run term --once       # single snapshot, exit 1 when the feed is down
 scripts/ops-check.sh      # health + lag + disk + lab freshness for a 5m cron
 ```
+
+`bun run term` reads four GETs per redraw — feed `/observe`, paper `/paper/observe`
+(only when the feed has no embedded desk), feed `/zones?interval=240`, and
+`$LIVE_SHADOW_URL` — and joins them into one `MAPCARDS` block: every card the
+detector sees now, which of them the desk is holding, and the policy reason the
+shadow gave each one. That is the live answer to "why is nothing armed", which
+until now only a `replay-map` JSON could attribute.
 
 Host unit: [`deploy/bybit-tracker.service`](deploy/bybit-tracker.service) (`Restart=always`, CVD/liq watchlist). Observer: [`deploy/live-shadow.service`](deploy/live-shadow.service). Exec: [`deploy/minh-exec.service`](deploy/minh-exec.service) — opt-in, **not** part of `minh.target`, keys via `LoadCredential=`. After a green merge:
 

@@ -73,21 +73,6 @@ export type PendingRow = {
   zoneId: string | null;
 };
 
-export type ZoneRow = {
-  zoneId: string;
-  symbol: string;
-  tf: string;
-  side: string;
-  setup: string;
-  proximal: number | null;
-  entry: number | null;
-  sl: number | null;
-  tp: number | null;
-  rr: number | null;
-  freshness: string;
-  expiresTs: number | null;
-};
-
 export type AlertRow = {
   id: number;
   symbol: string;
@@ -104,6 +89,46 @@ export type EventRow = {
   brief: string;
 };
 
+/** Where a card stands in the paper ledger. `none` = detected but never accepted. */
+export type PaperStage = "open" | "armed" | "accepted" | "none";
+
+/**
+ * What the live shadow's policy said about this card. `none` = the shadow
+ * answered and has no verdict for it (1H cards are never judged — its MAP plan
+ * runs on 4H closes only). `unknown` = the shadow never answered, which is not
+ * the same fact as "no verdict".
+ */
+export type ShadowVerdict = "allow" | "arm" | "deny" | "none" | "unknown";
+
+export type MapRow = {
+  zoneId: string;
+  symbol: string;
+  tf: string;
+  side: string;
+  setup: string;
+  rr: number | null;
+  proximal: number | null;
+  entry: number | null;
+  sl: number | null;
+  freshness: string;
+  expiresTs: number | null;
+  detected: boolean;
+  paper: PaperStage;
+  shadow: ShadowVerdict;
+  reason: string | null;
+};
+
+export type MapPanel = {
+  /** Quality of the detection source (`GET /zones`), not of the rows. */
+  quality: "ok" | "missing";
+  interval: string | null;
+  ts: number | null;
+  shadowSource: "ok" | "missing" | "down";
+  /** When the shadow last ran a MAP plan; verdicts older than the newest 4H close are stale. */
+  shadowPlanTs: number | null;
+  rows: MapRow[];
+};
+
 export type DeskSource = {
   name: string;
   equity: string | null;
@@ -115,7 +140,6 @@ export type DeskSource = {
   open: OpenRow[];
   pending: PendingRow[];
   alerts: AlertRow[];
-  zones: ZoneRow[];
   recent: EventRow[];
 };
 
@@ -127,6 +151,7 @@ export type TerminalModel = {
   tape: TapeSource | null;
   shadow: ShadowSource | null;
   desk: DeskSource | null;
+  cards: MapPanel | null;
 };
 
 const MISSING = "—";
@@ -167,7 +192,7 @@ function tapeField(raw: unknown): TapeField {
 /** `null` everywhere means "this source never answered", not "nothing happened". */
 export function buildTerminalModel(raw: unknown, asof = Date.now()): TerminalModel {
   if (!isRecord(raw)) {
-    return { asof, feed: null, gates: null, map: null, tape: null, shadow: null, desk: null };
+    return { asof, feed: null, gates: null, map: null, tape: null, shadow: null, desk: null, cards: null };
   }
   const feed = isRecord(raw.feed) ? raw.feed : null;
   const gates = isRecord(raw.gates) ? raw.gates : null;
@@ -181,6 +206,24 @@ export function buildTerminalModel(raw: unknown, asof = Date.now()): TerminalMod
   const event = desk && isRecord(desk.event) ? desk.event : null;
   const standing = desk && isRecord(desk.standing) ? desk.standing : null;
   const account = desk && isRecord(desk.account) ? desk.account : null;
+  const cardBody = isRecord(raw.cardBody) ? raw.cardBody : null;
+  const shadowBody = isRecord(raw.shadowBody) ? raw.shadowBody : null;
+  const cards = buildMapPanel(cardBody, shadowBody, event, shadow);
+  // The terminal's own read of /live/shadow beats the feed's 400ms probe: one
+  // screen must not claim the shadow is missing while listing its verdicts.
+  const shadowModel: ShadowSource | null = shadowBody
+    ? {
+      quality: "ok" as const,
+      accepted: count(shadowBody.accepted),
+      wouldArm: count(shadowBody.wouldArm),
+    }
+    : shadow
+      ? {
+        quality: shadow.quality === "ok" || shadow.quality === "missing" ? shadow.quality : "down",
+        accepted: num(shadow.accepted) ?? 0,
+        wouldArm: num(shadow.wouldArm) ?? 0,
+      }
+      : null;
   return {
     asof,
     feed: feed
@@ -212,13 +255,7 @@ export function buildTerminalModel(raw: unknown, asof = Date.now()): TerminalMod
         liq: tapeField(tape.liq),
       }
       : null,
-    shadow: shadow
-      ? {
-        quality: shadow.quality === "ok" || shadow.quality === "missing" ? shadow.quality : "down",
-        accepted: num(shadow.accepted) ?? 0,
-        wouldArm: num(shadow.wouldArm) ?? 0,
-      }
-      : null,
+    shadow: shadowModel,
     desk: desk
       ? {
         name: text(account?.name, "paper"),
@@ -265,20 +302,6 @@ export function buildTerminalModel(raw: unknown, asof = Date.now()): TerminalMod
           price: text(row.price),
           zoneId: text(row.zoneId, MISSING) === MISSING ? null : text(row.zoneId),
         })),
-        zones: records(event?.zones).map((row) => ({
-          zoneId: text(row.zoneId),
-          symbol: text(row.symbol),
-          tf: text(row.tf),
-          side: text(row.side),
-          setup: text(row.setup, "sd"),
-          proximal: num(row.proximal),
-          entry: num(row.entry),
-          sl: num(row.sl),
-          tp: num(row.tp),
-          rr: num(row.rr),
-          freshness: text(row.freshness, "unknown"),
-          expiresTs: num(row.expiresTs ?? row.baseEndTs),
-        })),
         recent: records(desk.recent).map((row) => ({
           id: num(row.id) ?? 0,
           kind: text(row.kind),
@@ -288,6 +311,145 @@ export function buildTerminalModel(raw: unknown, asof = Date.now()): TerminalMod
         })),
       }
       : null,
+    cards,
+  };
+}
+
+const PAPER_STAGE_RANK: Record<PaperStage, number> = { open: 0, armed: 1, accepted: 2, none: 3 };
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)) : [];
+}
+
+function zoneIdOf(row: Record<string, unknown>): string {
+  return text(row.zoneId, "");
+}
+
+/** Tolerant mirror of `intervalMsForTf`: a junk tf renders no deadline, never throws. */
+function tfMillis(tf: string): number | null {
+  if (tf === "240") return 4 * 60 * 60 * 1000;
+  if (tf === "60") return 60 * 60 * 1000;
+  return null;
+}
+
+/**
+ * The desk publishes standing zone *cards*, not ledger rows, so the deadline
+ * this panel prints is the one `decideMapAccept` judges a detection by (base bar
+ * end + expiry window). The render only shows it for cards the desk is not
+ * already holding, where it is the number that matters.
+ */
+function cardDeadline(row: Record<string, unknown>): number | null {
+  const stated = num(row.expiresTs);
+  if (stated !== null) return stated;
+  const baseEnd = num(row.baseEndTs);
+  const bars = num(row.expiryBars);
+  const intervalMs = tfMillis(text(row.tf, ""));
+  if (baseEnd === null || bars === null || intervalMs === null) return null;
+  return baseEnd + bars * intervalMs;
+}
+
+/** The shadow records one `map_plan` row per card per 4H close; newest first. */
+function latestMapVerdicts(shadowBody: Record<string, unknown>): Map<string, { allow: boolean; reason: string }> {
+  const out = new Map<string, { allow: boolean; reason: string }>();
+  for (const row of records(shadowBody.events)) {
+    if (row.kind !== "map_plan") continue;
+    const zoneId = zoneIdOf(row);
+    if (!zoneId || out.has(zoneId)) continue;
+    out.set(zoneId, { allow: bool(row.allow), reason: text(row.reason, "?") });
+  }
+  return out;
+}
+
+/**
+ * One row per card, joining the three live sources: what the detector sees now
+ * (`GET /zones`), what the paper ledger did about it, and what the shadow's
+ * policy answered. `detected: false` means the card still stands on the desk
+ * but the detector no longer lists it; a `shadow: "unknown"` row says the
+ * shadow never answered, not that it declined.
+ */
+function buildMapPanel(
+  cardBody: Record<string, unknown> | null,
+  shadowBody: Record<string, unknown> | null,
+  deskEvent: Record<string, unknown> | null,
+  shadowCounts: Record<string, unknown> | null,
+): MapPanel | null {
+  if (cardBody === null && deskEvent === null) return null;
+  const detectedCards = records(cardBody?.zones);
+  const standingCards = records(deskEvent?.zones);
+  const detectedIds = new Set(detectedCards.map(zoneIdOf).filter(Boolean));
+  const openIds = new Set(records(deskEvent?.open).map(zoneIdOf).filter(Boolean));
+  const armedIds = new Set([
+    ...records(deskEvent?.pending),
+    ...records(deskEvent?.alerts),
+  ].map(zoneIdOf).filter(Boolean));
+  const acceptedIds = new Set(standingCards.map(zoneIdOf).filter(Boolean));
+  const verdicts = shadowBody ? latestMapVerdicts(shadowBody) : null;
+  const armedByShadow = new Set(strings(shadowBody?.wouldArm));
+  let shadowPlanTs: number | null = null;
+  for (const row of records(shadowBody?.events)) {
+    if (row.kind !== "map_plan") continue;
+    const ts = num(row.ts);
+    if (ts !== null && (shadowPlanTs === null || ts > shadowPlanTs)) shadowPlanTs = ts;
+  }
+
+  const rows: MapRow[] = [];
+  const seen = new Set<string>();
+  for (const row of [...standingCards, ...detectedCards]) {
+    const zoneId = zoneIdOf(row);
+    if (!zoneId || seen.has(zoneId)) continue;
+    seen.add(zoneId);
+    const paper: PaperStage = openIds.has(zoneId)
+      ? "open"
+      : armedIds.has(zoneId)
+        ? "armed"
+        : acceptedIds.has(zoneId)
+          ? "accepted"
+          : "none";
+    let shadow: ShadowVerdict = "unknown";
+    let reason: string | null = null;
+    if (verdicts) {
+      if (armedByShadow.has(zoneId)) shadow = "arm";
+      else {
+        const found = verdicts.get(zoneId);
+        if (found) {
+          shadow = found.allow ? "allow" : "deny";
+          reason = found.allow ? null : found.reason;
+        } else {
+          shadow = "none";
+        }
+      }
+    }
+    rows.push({
+      zoneId,
+      symbol: text(row.symbol),
+      tf: text(row.tf),
+      side: text(row.side),
+      setup: text(row.setup, "sd"),
+      rr: num(row.rr),
+      proximal: num(row.proximal),
+      entry: num(row.entry),
+      sl: num(row.sl),
+      freshness: text(row.freshness, "unknown"),
+      expiresTs: cardDeadline(row),
+      detected: detectedIds.has(zoneId),
+      paper,
+      shadow,
+      reason,
+    });
+  }
+  rows.sort((a, b) => (
+    PAPER_STAGE_RANK[a.paper] - PAPER_STAGE_RANK[b.paper]
+    || a.symbol.localeCompare(b.symbol)
+    || (b.rr ?? 0) - (a.rr ?? 0)
+    || a.zoneId.localeCompare(b.zoneId)
+  ));
+  return {
+    quality: Array.isArray(cardBody?.zones) ? "ok" : "missing",
+    interval: text(cardBody?.interval, MISSING) === MISSING ? null : text(cardBody?.interval),
+    ts: num(cardBody?.ts),
+    shadowSource: shadowBody ? "ok" : shadowCounts?.quality === "down" ? "down" : "missing",
+    shadowPlanTs,
+    rows,
   };
 }
 
@@ -302,7 +464,10 @@ function eventBrief(row: Record<string, unknown>): string {
 }
 
 function age(ms: number | null): string {
-  if (ms === null || ms < 0) return MISSING;
+  if (ms === null) return MISSING;
+  // A source that stamps after our snapshot (fetch latency, clock skew) is fresh
+  // — rendering that as unknown would hide a live answer.
+  if (ms < 0) return "0s";
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
   if (ms < 86_400_000) return `${(ms / 3_600_000).toFixed(1)}h`;
@@ -337,6 +502,56 @@ function tapeCell(field: TapeField, symbols: number): string {
   if (symbols === 0) return MISSING;
   const missing = field.missing;
   return `${field.ok}/${symbols} ok${missing > 0 ? ` ${missing} miss` : ""}`;
+}
+
+/** A 4H watchlist can surface dozens of cards; the rest stay one GET away. */
+const MAX_MAP_ROWS = 12;
+
+function tfLabel(tf: string): string {
+  if (tf === "240") return "4h";
+  if (tf === "60") return "1h";
+  return tf;
+}
+
+function paperSummary(rows: MapRow[]): string {
+  const stage = { open: 0, armed: 0, accepted: 0 };
+  for (const row of rows) {
+    if (row.paper !== "none") stage[row.paper] += 1;
+  }
+  const off = rows.length - stage.open - stage.armed - stage.accepted;
+  const parts: string[] = [];
+  if (stage.open) parts.push(`open=${stage.open}`);
+  if (stage.armed) parts.push(`armed=${stage.armed}`);
+  if (stage.accepted) parts.push(`accepted=${stage.accepted}`);
+  return `desk ${parts.length ? parts.join(" ") : "idle"} off-desk=${off}`;
+}
+
+/**
+ * The shadow's policy runs with a cold family floor, so its verdict is advisory
+ * next to the desk. A shadow that never answered says `down`, not `deny 0`.
+ */
+function shadowSummary(rows: MapRow[], source: MapPanel["shadowSource"]): string {
+  if (source === "down") return "shadow down";
+  if (source !== "ok") return "shadow off";
+  const reasons = new Map<string, number>();
+  let denied = 0;
+  let passed = 0;
+  let none = 0;
+  for (const row of rows) {
+    if (row.shadow === "deny") {
+      denied += 1;
+      const reason = row.reason ?? "?";
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    } else if (row.shadow === "allow" || row.shadow === "arm") {
+      passed += 1;
+    } else if (row.shadow === "none") {
+      none += 1;
+    }
+  }
+  const parts = [...reasons]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([reason, n]) => `${reason} ${n}`);
+  return `shadow pass=${passed} deny=${denied}${parts.length ? ` (${parts.join(", ")})` : ""} no-verdict=${none}`;
 }
 
 export function renderTerminal(model: TerminalModel): string {
@@ -374,6 +589,31 @@ export function renderTerminal(model: TerminalModel): string {
   lines.push(
     `SHADOW ${s ? `${s.quality}${s.quality === "ok" ? ` accepted=${s.accepted} would-arm=${s.wouldArm}` : ""}` : MISSING}`,
   );
+  const c = model.cards;
+  if (c) {
+    const head = c.quality === "ok"
+      ? `${tfLabel(c.interval ?? "")} cards=${c.rows.length} @ ${utc(c.ts)}Z (${age(c.ts === null ? null : model.asof - c.ts)} ago)`
+      : "— /zones did not answer, desk rows only";
+    const plan = c.shadowPlanTs === null
+      ? ""
+      : ` plan=${utc(c.shadowPlanTs)}Z (${age(model.asof - c.shadowPlanTs)} ago)`;
+    lines.push(`MAPCARDS ${head}   ${paperSummary(c.rows)}   ${shadowSummary(c.rows, c.shadowSource)}${plan}`);
+    for (const row of c.rows.slice(0, MAX_MAP_ROWS)) {
+      const band = row.proximal !== null && row.sl !== null ? `${row.proximal}..${row.sl}` : MISSING;
+      const win = row.paper === "none" && row.expiresTs !== null ? ` win=${utc(row.expiresTs)}Z` : "";
+      const vanished = c.quality === "ok" && !row.detected ? " undetected" : "";
+      lines.push(
+        `  CARD   ${row.symbol} ${tfLabel(row.tf)} ${row.side}/${row.setup} band=${band}` +
+        ` entry=${row.entry ?? MISSING} rr=${row.rr ?? MISSING} ${row.freshness}${win}${vanished}` +
+        `${row.paper === "none" ? "" : ` paper=${row.paper}`}` +
+        ` shadow=${row.shadow === "unknown" ? MISSING : row.shadow}${row.reason ? ` ${row.reason}` : ""}` +
+        ` ${row.zoneId}`,
+      );
+    }
+    if (c.rows.length > MAX_MAP_ROWS) {
+      lines.push(`  +${c.rows.length - MAX_MAP_ROWS} more cards — GET /zones?interval=${c.interval ?? "240"}`);
+    }
+  }
   if (d) {
     for (const row of d.open) {
       lines.push(
@@ -388,13 +628,6 @@ export function renderTerminal(model: TerminalModel): string {
     }
     for (const row of d.alerts) {
       lines.push(`  ALERT  ${row.symbol} ${row.op} ${row.price}${row.zoneId ? ` zone=${row.zoneId}` : ""}`);
-    }
-    for (const row of d.zones) {
-      const band = row.proximal !== null && row.sl !== null ? `${row.proximal}..${row.sl}` : MISSING;
-      lines.push(
-        `  ZONE   ${row.symbol} ${row.tf} ${row.side}/${row.setup} band=${band} entry=${row.entry ?? MISSING} rr=${row.rr ?? MISSING}` +
-        ` ${row.freshness}${row.expiresTs !== null ? ` exp=${utc(row.expiresTs)}Z` : ""} ${row.zoneId}`,
-      );
     }
     lines.push(d.recent.length === 0 ? "EVENTS none yet" : "EVENTS");
     for (const row of d.recent.slice(0, 8)) {

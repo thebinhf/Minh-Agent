@@ -131,17 +131,151 @@ describe("terminal rows", () => {
     expect(text).toContain("zone=btc-4h-d-20260914-demo");
   });
 
-  test("resting OCO, armed alert, accepted zone and recent events each get a line", () => {
+  test("resting OCO, armed alert, MAP verdict row and recent events each get a line", () => {
     const text = renderTerminal(buildTerminalModel(observeBody(), ASOF));
     expect(text).toContain("REST   BTCUSDT long limit=77300 sl=76900 tp=78100 rr=2 zone=btc-4h-d-20260914-demo");
     expect(text).toContain("ALERT  SOLUSDT above 180.5");
-    expect(text).toContain("ZONE   DOGEUSDT 240 supply/reversal band=0.08447..0.08546018 entry=0.084665 rr=2 virgin");
+    expect(text).toContain(
+      "CARD   DOGEUSDT 4h supply/reversal band=0.08447..0.08546018 entry=0.084665 rr=2 virgin paper=accepted shadow=—",
+    );
+    expect(text).toContain("MAPCARDS — /zones did not answer, desk rows only");
+    expect(text).not.toContain("plan=");
+    expect(text).not.toContain("undetected");
     expect(text).toContain("position.managed  BTCUSDT    action=be");
     expect(text).toContain("order.invalidated ETHUSDT    cancelCode=deep_mitigate");
   });
 
   test("mutation lock is on the same screen as the desk", () => {
     expect(renderTerminal(buildTerminalModel(observeBody(), ASOF))).toContain("MUTATIONS blocked");
+  });
+});
+
+describe("MAP verdict panel", () => {
+  function card(zoneId: string, symbol: string, over: Record<string, unknown> = {}) {
+    return {
+      zoneId,
+      symbol,
+      tf: "240",
+      side: "supply",
+      setup: "sd",
+      proximal: 108_400,
+      entry: 107_900,
+      sl: 107_100,
+      tp: 106_300,
+      rr: 2.41,
+      freshness: "virgin",
+      baseEndTs: ASOF - 3_600_000,
+      expiryBars: 48,
+      ...over,
+    };
+  }
+
+  function detected(zones: unknown[]) {
+    return { ts: ASOF - 120_000, interval: "240", symbols: ["BTCUSDT"], zones };
+  }
+
+  function shadow(events: unknown[], wouldArm: string[] = []) {
+    return { mode: "live-shadow", accepted: [], wouldArm, events, counts: { mapAllow: 0, armAllow: 0 } };
+  }
+
+  test("a detected card carries the reason the policy kept it off the desk", () => {
+    const model = buildTerminalModel(observeBody({
+      cardBody: detected([
+        card("btc-4h-s-1", "BTCUSDT"),
+        card("btc-4h-s-2", "BTCUSDT", { rr: 3 }),
+      ]),
+      shadowBody: shadow([
+        { id: 9, ts: ASOF - 60_000, kind: "map_plan", symbol: "BTCUSDT", zoneId: "btc-4h-s-2", allow: false, reason: "family_floor", last: "108000" },
+        { id: 8, ts: ASOF - 60_000, kind: "map_plan", symbol: "BTCUSDT", zoneId: "btc-4h-s-1", allow: false, reason: "bias_chop", last: "108000" },
+      ]),
+    }), ASOF);
+    const text = renderTerminal(model);
+    expect(text).toContain("MAPCARDS 4h cards=3 @");
+    expect(text).toContain("desk accepted=1 off-desk=2");
+    expect(text).toContain("shadow pass=0 deny=2 (bias_chop 1, family_floor 1) no-verdict=1");
+    expect(text).toContain("CARD   BTCUSDT 4h supply/sd band=108400..107100 entry=107900 rr=2.41 virgin win=2026-09-26");
+    expect(text).toContain("shadow=deny bias_chop btc-4h-s-1");
+    expect(text).toContain("shadow=deny family_floor btc-4h-s-2");
+    expect(text).toContain("plan=2026-09-18 08:06Z (1m ago)");
+    expect(text).not.toMatch(/\b(undefined|null|NaN)\b/);
+  });
+
+  test("the desk's own stage outranks the shadow's advisory verdict", () => {
+    const model = buildTerminalModel(observeBody({
+      cardBody: detected([card("btc-4h-d-20260914-demo", "BTCUSDT", { side: "demand" })]),
+      shadowBody: shadow(
+        [{ id: 9, ts: ASOF - 60_000, kind: "map_plan", symbol: "BTCUSDT", zoneId: "btc-4h-d-20260914-demo", allow: false, reason: "family_floor", last: null }],
+        ["btc-4h-d-20260914-demo"],
+      ),
+    }), ASOF);
+    const row = model.cards?.rows.find((item) => item.zoneId === "btc-4h-d-20260914-demo");
+    expect(row?.paper).toBe("open");
+    expect(row?.shadow).toBe("arm");
+    expect(renderTerminal(model)).toContain("desk open=1 accepted=1 off-desk=0");
+  });
+
+  test("only the newest verdict per card counts, and non-plan events are ignored", () => {
+    const model = buildTerminalModel(observeBody({
+      cardBody: detected([card("btc-4h-s-1", "BTCUSDT")]),
+      shadowBody: shadow([
+        { id: 11, ts: ASOF, kind: "map_plan", symbol: "BTCUSDT", zoneId: "btc-4h-s-1", allow: true, reason: "ok", last: null },
+        { id: 10, ts: ASOF - 86_400_000, kind: "map_plan", symbol: "BTCUSDT", zoneId: "btc-4h-s-1", allow: false, reason: "bias_chop", last: null },
+        { id: 9, ts: ASOF, kind: "arm_plan", symbol: "BTCUSDT", zoneId: "btc-4h-s-1", allow: true, reason: "ok", last: null },
+      ]),
+    }), ASOF);
+    const row = model.cards?.rows.find((item) => item.zoneId === "btc-4h-s-1");
+    expect(row?.shadow).toBe("allow");
+    expect(row?.reason).toBeNull();
+  });
+
+  test("a card the shadow never judged says no-verdict, and a dropped card says undetected", () => {
+    const model = buildTerminalModel(observeBody({
+      cardBody: detected([]),
+      shadowBody: shadow([]),
+    }), ASOF);
+    const text = renderTerminal(model);
+    expect(text).toContain("MAPCARDS 4h cards=1 @");
+    expect(text).toContain("undetected paper=accepted shadow=none doge-4h-s-rv-20260912-01");
+    expect(text).toContain("shadow pass=0 deny=0 no-verdict=1");
+  });
+
+  test("the accept-gate deadline shows for off-desk cards only", () => {
+    const offDesk = renderTerminal(buildTerminalModel(observeBody({
+      cardBody: detected([card("btc-4h-s-1", "BTCUSDT")]),
+    }), ASOF));
+    expect(offDesk).toContain("win=2026-09-26");
+    const held = renderTerminal(buildTerminalModel(observeBody({
+      cardBody: detected([card("btc-4h-d-20260914-demo", "BTCUSDT", { side: "demand" })]),
+    }), ASOF));
+    expect(held).toContain("paper=open");
+    expect(held).not.toContain("win=");
+  });
+
+  test("rows past the cap point at the endpoint instead of vanishing", () => {
+    const many = Array.from({ length: 14 }, (_, i) => card(`btc-4h-s-${i}`, "BTCUSDT", { rr: 2 + i / 100 }));
+    const text = renderTerminal(buildTerminalModel(observeBody({
+      cardBody: detected(many),
+    }), ASOF));
+    expect(text.match(/^  CARD   /gm)).toHaveLength(12);
+    expect(text).toContain("+3 more cards — GET /zones?interval=240");
+  });
+
+  test("the terminal's own shadow read wins over the feed's probe", () => {
+    const model = buildTerminalModel(observeBody({
+      shadow: { quality: "missing", accepted: 0, wouldArm: 0 },
+      cardBody: detected([]),
+      shadowBody: { ...shadow([]), accepted: [{ zoneId: "a" }, { zoneId: "b" }], wouldArm: ["a"] },
+    }), ASOF);
+    expect(model.shadow).toEqual({ quality: "ok", accepted: 2, wouldArm: 1 });
+    expect(renderTerminal(model)).toContain("SHADOW ok accepted=2 would-arm=1");
+  });
+
+  test("a source stamped after our snapshot reads fresh, not unknown", () => {
+    const text = renderTerminal(buildTerminalModel(observeBody({
+      cardBody: { ...detected([]), ts: ASOF + 5_000 },
+    }), ASOF));
+    expect(text).toContain("MAPCARDS 4h cards=1 @ 2026-09-18 08:07Z (0s ago)");
+    expect(text).not.toContain("— ago");
   });
 });
 

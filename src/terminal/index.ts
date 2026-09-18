@@ -75,15 +75,29 @@ async function resolveUrls(args: Args): Promise<{ feed: string; paper: string }>
 /**
  * The single-process host embeds the desk in feed `/observe`; the split host
  * (paper on its own port) does not. Both shapes end up as one model.
+ *
+ * `/zones` and the shadow body are the two extra reads the verdict panel needs:
+ * the detector's current MAP and the policy's per-card answer. Both are fail-soft.
  */
-async function readModel(urls: { feed: string; paper: string }, now: number): Promise<TerminalModel> {
+async function readModel(
+  urls: { feed: string; paper: string },
+  shadowUrl: string | null,
+  now: number,
+): Promise<TerminalModel> {
   const observe = await getJson(`${urls.feed}/observe`, 2_000);
   const body = observe && typeof observe === "object" ? observe as Record<string, unknown> : null;
   let paper = body?.paper;
   if (paper === null || paper === undefined) {
     paper = await getJson(`${urls.paper}/paper/observe`, 2_000);
   }
-  return buildTerminalModel({ ...(body ?? {}), paper: paper ?? null }, now);
+  const [cardBody, shadowBody] = await Promise.all([
+    getJson(`${urls.feed}/zones?interval=240`, 2_000),
+    shadowUrl ? getJson(shadowUrl, 1_000) : Promise.resolve(null),
+  ]);
+  return buildTerminalModel(
+    { ...(body ?? {}), paper: paper ?? null, cardBody: cardBody ?? null, shadowBody: shadowBody ?? null },
+    now,
+  );
 }
 
 function paint(model: TerminalModel, first: boolean): void {
@@ -101,13 +115,13 @@ export async function runTerminal(argv: string[] = Bun.argv.slice(2)): Promise<n
     return 0;
   }
   const urls = await resolveUrls(args);
-  const shadow = liveShadowObserveUrl();
+  const shadowUrl = liveShadowObserveUrl();
   let first = true;
   for (;;) {
     const now = Date.now();
     let model: TerminalModel;
     try {
-      model = await readModel(urls, now);
+      model = await readModel(urls, shadowUrl, now);
     } catch (error) {
       process.stderr.write(`[minh:term] ${error instanceof Error ? error.message : String(error)}\n`);
       return 1;
@@ -115,7 +129,7 @@ export async function runTerminal(argv: string[] = Bun.argv.slice(2)): Promise<n
     paint(model, first);
     first = false;
     process.stdout.write(
-      `SOURCES feed=${urls.feed} · desk=${urls.paper}/paper · shadow=${shadow ?? "off (LIVE_SHADOW_URL unset)"}\n`,
+      `SOURCES feed=${urls.feed} · desk=${urls.paper}/paper · shadow=${shadowUrl ?? "off (LIVE_SHADOW_URL unset)"}\n`,
     );
     if (args.once) return model.feed === null ? 1 : 0;
     await Bun.sleep(args.intervalSec * 1000);
