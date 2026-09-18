@@ -68,7 +68,7 @@ curl -sS 'http://127.0.0.1:43180/map?symbol=BTCUSDT'
 
 ### `GET /map-latest`
 
-Last 1H/4H dump (`map-latest.json`). `404` `{ "error": "map_latest_missing" }` until the first confirmed close.
+Last 1H/4H dump (`map-latest.json`). The closer also publishes once at boot, when at least one confirmed 1H/4H bar is cached (without re-firing the webhook or the accept path), so a restart no longer leaves this file as old as the last close before it went down. `404` `{ "error": "map_latest_missing" }` until a dump exists — on a fresh database that is still the first confirmed close.
 
 ### `GET /zones`
 
