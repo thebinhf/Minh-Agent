@@ -22,10 +22,24 @@ One text screen answers the whole loop: is the feed connected and are klines
 advancing, do the gates allow trading and why not, when did MAP last dump, how
 much of the quant tape is actually there (`ok` vs `missing` per field), equity
 and Δ% against starting cash, how many cards are accepted / resting / open /
-armed, each open with unrealised PnL as a multiple of **original** risk (so
-`-0.5R` means half your risk, comparable across symbols), each resting OCO and
-accepted band with its expiry, whether the mutation lock is on, what shadow
-would have armed, and the last events.
+armed, **every card the detector sees right now and what stopped it** (see
+below), each open with unrealised PnL as a multiple of **original** risk (so
+`-0.5R` means half your risk, comparable across symbols), each resting OCO,
+whether the mutation lock is on, what shadow would have armed, and the last
+events.
+
+`MAPCARDS` joins three already-published reads: feed `GET /zones?interval=240`
+(the detector's current MAP), the desk's standing cards, and
+`$LIVE_SHADOW_URL`'s `map_plan` events (the policy's per-card answer). Each row
+prints `paper=open|armed|accepted` for the stage the **desk** reached, and
+`shadow=allow|arm|deny <reason>` for what the **shadow** policy said. They are
+different ledgers with different inputs — the shadow runs a cold family floor and
+no paper history — so `paper=accepted shadow=deny family_floor` is a real,
+readable state, not a contradiction. `shadow=—` means the shadow never answered;
+`no-verdict=N` means it answered and has no judgement for those cards (it plans
+on 4H closes only). The first 12 rows print; the rest are counted and point at
+the endpoint. A card the desk still holds but the detector dropped reads
+`undetected`.
 
 It is a **viewer, never a command source** (locked in [ROADMAP.md](ROADMAP.md)):
 no engine, no store, `GET` only — you still accept, reject and arm through the
@@ -33,6 +47,15 @@ CLI below. A daemon that is not answering renders `down` and a missing tape
 field renders `—` / `N miss`, so an outage can never read as "nothing to do".
 Commands stay raw JSON on purpose (`paper status` / `event` / `day` / `week`),
 which is what `--once` and a pipe consume.
+
+**If the shadow column is empty after a restart:** the shadow latches one plan
+per 4H bar (a fingerprint of the latest confirmed 240 candle). A shadow that
+boots *before* its feed gets one gated-denied cycle, latches the fingerprint
+anyway, and then stays silent until the next 4H close — up to 4 hours. Every
+`map_plan` event carries the wall-clock `ts` of the cycle that wrote it and the
+panel prints it as `plan=... (Nm ago)`: a plan older than the newest 4H close
+means the shadow did not evaluate that close. Start the feed first, or wait for
+the next close.
 
 ## MAP
 
