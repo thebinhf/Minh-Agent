@@ -12,6 +12,8 @@
 #   PAPER_LAB_TRAIN_DAYS       family-floor window, default 90 (`0` = in-sample)
 #   PAPER_AB_BASE              review JSON to subtract after this arm's walk
 #   PAPER_AB_BE_R / PAPER_AB_IMPULSE_MIN  the float a given arm applies
+#   PAPER_AB_LABEL             suffix for the artifact name — set it whenever a
+#                              float arm is re-walked at another value (be-be1r)
 set -euo pipefail
 
 ROOT="${MINH_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
@@ -69,6 +71,9 @@ esac
 
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+# Arms that take a float (`be`, `impulse`) need a label: two `be` walks at 0.5R
+# and 1R otherwise differ only by timestamp.
+LABEL="${NAME}${PAPER_AB_LABEL:+-$PAPER_AB_LABEL}"
 # `--days N` is relative to the clock at start, so arms walked 20 minutes apart
 # do not share a window. Set PAPER_AB_FROM + PAPER_AB_TO once per session and
 # every arm walks the same bars.
@@ -86,10 +91,10 @@ args=(replay-map --one-book "${WINDOW[@]}")
 if [[ -n "$TRAIN" && "$TRAIN" != "0" ]]; then
   args+=(--train-days "$TRAIN")
 fi
-JSON="$OUT_DIR/ab-${NAME}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.json"
-REVIEW="$OUT_DIR/ab-${NAME}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.review.json"
+JSON="$OUT_DIR/ab-${LABEL}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.json"
+REVIEW="$OUT_DIR/ab-${LABEL}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.review.json"
 
-echo "[minh:ab] $NAME window=$WINDOW_LABEL one-book train=${TRAIN:-none}" >&2
+echo "[minh:ab] $LABEL window=$WINDOW_LABEL one-book train=${TRAIN:-none}" >&2
 bun run paper "${args[@]}" > "$JSON"
 bun run paper review "$JSON" | tee "$REVIEW"
 

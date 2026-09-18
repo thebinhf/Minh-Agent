@@ -100,9 +100,11 @@ export function eventManageApplies(manage: EventManage, setup: ZoneSetup | null 
  * 0.5R the move fired on 87 positions. 68 of them exited at exactly 0 — worth
  * ~+4.6k of avoided loser loss — but TP exits fell 36 → 19, because a card with
  * a 2R target that pokes 0.5R and retraces now leaves at entry instead of the
- * target. Net −4.77k equity, −4.69k realizedPnl. For a fixed fraction of R
- * below the target the trade is structurally negative here; anything worth
- * re-testing has to sit at or beyond the target, not below it.
+ * target. Net −4.77k equity, −4.69k realizedPnl. Re-walked at 1.0R: 58 moves,
+ * 27 scratches, TP exits 36 → 31, −520 equity — still negative, and improving
+ * monotonically only because it approaches the target, where the move stops
+ * doing anything. A fixed fraction of R *below* the target is structurally
+ * negative on this method; do not shop for a better number.
  */
 export function eventBeR(): number | null {
   const raw = process.env.PAPER_BE_R?.trim();

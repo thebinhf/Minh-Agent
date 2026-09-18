@@ -61,6 +61,8 @@ One flag / one walk, one **pinned** window (`PAPER_AB_FROM` / `PAPER_AB_TO`), fr
 
 **`scorerr` (`PAPER_ZONE_SCORE_RR=1`) — no gain, keep off.** Same window: −20 accepted, equity −84.70, realizedPnl −160.17. Reordering sampled families by realised RR costs a little and wins nothing; it does not earn a second look before the queue ahead of it.
 
+**Re-walked at 1.0R — still off, and the shape says why.** Same window again: 58 moves, 27 scratched at 0, TP exits 36 → 31, equity −520.03, realizedPnl −382.66. The damage shrinks ~9× as the floor rises toward the 2R target, and it never crosses zero, because a move placed *below* the target is only ever paid by selling back the tail. Another value between 0.5R and 1R is not worth a walk; anything that returns has to be a different mechanism (a trail, or a partial close at 1R), not the same stop move at a better number.
+
 P8 setups (`sd` / `breakout` / `reversal`) stay the live default. Next in the queue: P5 multi-venue, and the order-flow / volume-profile work.
 
 ### T3 — Trading Terminal (viewer)

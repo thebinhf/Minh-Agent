@@ -130,7 +130,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_CONFIRM_15` | on (`0` disables) | ARM also needs a confirmed 15m close with the zone |
 | `PAPER_ZONE_SCORE` | on (`0` disables) | Rank MAP accept by 7-day family paper score when history exists. Sampled families below the floor or `avgRealizedRr ≤ 0` skip (`family_floor`) |
 | `PAPER_ZONE_SCORE_RR` | off | `1` = rank MAP/ARM by sampled family `avgRealizedRr` then score then card `rr`. Cold last. **180d A/B: equity −84.7, realizedPnl −160.2 → no gain, stays off** |
-| `PAPER_BE_R` | off | Float R multiple. After favorable MFE ≥ N, move SL to entry (`position.managed` / `be`). Unset / `0` / invalid = off. **180d A/B at 0.5R: equity −4 770.6, realizedPnl −4 689.8 — 68 trades scratched at 0 but 17 of 36 winners went with them → stays off** |
+| `PAPER_BE_R` | off | Float R multiple. After favorable MFE ≥ N, move SL to entry (`position.managed` / `be`). Unset / `0` / invalid = off. **180d A/B: 0.5R → equity −4 770.6, 1.0R → −520.0; both negative (scratches bought with forfeited winners) → stays off** |
 | `PAPER_FAMILY_SCORE_MIN` | `0.5` | Score floor after a sample. Cold / missing history is not a veto |
 | `PAPER_FAMILY_FLOOR_MIN_TRADES` | `2` | Closed trades before the RR floor applies. `1` is an A/B. Cold history is still not a veto |
 | `PAPER_MAP_SKIP` | (none) | Comma symbols MAP will not auto-accept. Unset / `0` / blank = none. Feed watchlist unchanged |
