@@ -22,7 +22,7 @@ import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine, type PaperUniverse } from "./engine";
 import { PaperReject } from "./errors";
 import { familyStatsFromEngine, familyStatsFromMetrics, mapAcceptEnabled, runMapAccept } from "./map-accept";
-import { familyFromCard, familyKey, rankZoneCards, type FamilyStats } from "./score";
+import { familyForCard, familyRealizedRrOf, familyScoreOf, rankZoneCards, type FamilyStats } from "./score";
 import {
   createReplayFeed,
   loadReplaySeries,
@@ -404,9 +404,11 @@ export async function runReplayMap(opts: {
           closes: bars240.slice(-20).map((item) => item.close),
         });
         if (asofRow?.quality === "asof") quantQuality = "asof";
-        const ranked = rankZoneCards(cards, (card) => (
-          familyByKey.get(familyKey(familyFromCard(card)))?.score ?? null
-        ));
+        const ranked = rankZoneCards(
+          cards,
+          familyScoreOf(familyByKey),
+          familyRealizedRrOf(familyByKey),
+        );
         for (const card of ranked) {
           const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
           const decision = replayDecide({
@@ -417,7 +419,7 @@ export async function runReplayMap(opts: {
             held,
             asof,
             tape: asofRow?.tape ?? null,
-            family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+            family: familyForCard(familyByKey, card) ?? null,
             bars240,
           });
           if (!decision.allow) {
@@ -793,9 +795,11 @@ export async function runReplayMapBook(opts: {
             closes: bars240.slice(-20).map((item) => item.close),
           });
           if (asofRow?.quality === "asof") quantQuality = "asof";
-          const ranked = rankZoneCards(cards, (card) => (
-            familyByKey.get(familyKey(familyFromCard(card)))?.score ?? null
-          ));
+          const ranked = rankZoneCards(
+            cards,
+            familyScoreOf(familyByKey),
+            familyRealizedRrOf(familyByKey),
+          );
           for (const card of ranked) {
             const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
             const decision = replayDecide({
@@ -806,7 +810,7 @@ export async function runReplayMapBook(opts: {
               held,
               asof,
               tape: asofRow?.tape ?? null,
-              family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+              family: familyForCard(familyByKey, card) ?? null,
               bars240,
             });
             if (!decision.allow) {

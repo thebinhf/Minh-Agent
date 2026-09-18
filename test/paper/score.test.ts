@@ -6,6 +6,7 @@ import {
   familyKey,
   familyScoreMin,
   paperZoneScoreEnabled,
+  paperZoneScoreRrEnabled,
   parseFamilyFromZoneId,
   rankZoneCards,
   zoneScore,
@@ -15,6 +16,7 @@ import type { ZoneCard } from "../../src/zones/card";
 const saved = process.env.PAPER_ZONE_SCORE;
 const savedFloor = process.env.PAPER_FAMILY_SCORE_MIN;
 const savedMinTrades = process.env.PAPER_FAMILY_FLOOR_MIN_TRADES;
+const savedRr = process.env.PAPER_ZONE_SCORE_RR;
 
 afterEach(() => {
   if (saved === undefined) delete process.env.PAPER_ZONE_SCORE;
@@ -23,6 +25,8 @@ afterEach(() => {
   else process.env.PAPER_FAMILY_SCORE_MIN = savedFloor;
   if (savedMinTrades === undefined) delete process.env.PAPER_FAMILY_FLOOR_MIN_TRADES;
   else process.env.PAPER_FAMILY_FLOOR_MIN_TRADES = savedMinTrades;
+  if (savedRr === undefined) delete process.env.PAPER_ZONE_SCORE_RR;
+  else process.env.PAPER_ZONE_SCORE_RR = savedRr;
 });
 const SUPPLY: ZoneCard = {
   zoneId: "btc-4h-s-20260908-01",
@@ -121,5 +125,23 @@ describe("zone score from paper metrics", () => {
     process.env.PAPER_ZONE_SCORE = "0";
 
     expect(familyFloorVeto({ score: "0.1", trades: 9, avgRealizedRr: "-1" })).toBe(false);
+  });
+
+  test("PAPER_ZONE_SCORE_RR ranks sampled realized RR ahead of fill/win score", () => {
+    delete process.env.PAPER_ZONE_SCORE;
+    delete process.env.PAPER_ZONE_SCORE_RR;
+    expect(paperZoneScoreRrEnabled()).toBe(false);
+    const weak: ZoneCard = { ...SUPPLY, zoneId: "bnb-4h-s-20260908-01", rr: 2.2 };
+    const strong: ZoneCard = { ...SUPPLY, zoneId: "doge-4h-s-20260908-01", rr: 2.0 };
+    const scoreOf = (card: ZoneCard) => (card.zoneId.startsWith("bnb") ? "0.71" : "0.66");
+    const rrOf = (card: ZoneCard) => (card.zoneId.startsWith("bnb") ? "-0.08" : "1.5");
+    expect(rankZoneCards([weak, strong], scoreOf, rrOf).map((card) => card.zoneId))
+      .toEqual([weak.zoneId, strong.zoneId]);
+    process.env.PAPER_ZONE_SCORE_RR = "1";
+    expect(paperZoneScoreRrEnabled()).toBe(true);
+    expect(rankZoneCards([weak, strong], scoreOf, rrOf).map((card) => card.zoneId))
+      .toEqual([strong.zoneId, weak.zoneId]);
+    expect(rankZoneCards([weak, strong], scoreOf).map((card) => card.zoneId))
+      .toEqual([weak.zoneId, strong.zoneId]);
   });
 });

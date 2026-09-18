@@ -10,6 +10,15 @@ export function paperZoneScoreEnabled(): boolean {
   return process.env.PAPER_ZONE_SCORE !== "0";
 }
 
+/**
+ * PAPER_ZONE_SCORE_RR=1: rank MAP/ARM by sampled family avgRealizedRr
+ * (high first, cold last) then score then card rr. Default off. A/B before on.
+ * Does not change the floor veto.
+ */
+export function paperZoneScoreRrEnabled(): boolean {
+  return process.env.PAPER_ZONE_SCORE_RR?.trim() === "1";
+}
+
 /** Fill+invalidate+cancel attempts before fillRate counts. */
 export const ZONE_SCORE_MIN_ATTEMPTS = 3;
 /** Closed trades before winRate counts as a sample. */
@@ -58,6 +67,19 @@ export function familyFromCard(card: Pick<ZoneCard, "symbol" | "tf" | "side"> & 
     side: card.side,
     setup: parseZoneSetup(card.setup ?? setupFromZoneId(card.zoneId)),
   };
+}
+
+/** Family row for a card. Missing = cold history, never a zero. */
+export function familyForCard(stats: Map<string, FamilyStats>, card: ZoneCard): FamilyStats | undefined {
+  return stats.get(familyKey(familyFromCard(card)));
+}
+
+export function familyScoreOf(stats: Map<string, FamilyStats>): (card: ZoneCard) => string | null {
+  return (card) => familyForCard(stats, card)?.score ?? null;
+}
+
+export function familyRealizedRrOf(stats: Map<string, FamilyStats>): (card: ZoneCard) => string | null {
+  return (card) => familyForCard(stats, card)?.avgRealizedRr ?? null;
 }
 
 function setupFromZoneId(zoneId: string | null | undefined): ZoneSetup {
@@ -135,21 +157,31 @@ export function zoneScore(input: ZoneScoreInput): string | null {
   return null;
 }
 
+function cmpNullableDec(
+  a: string | null,
+  b: string | null,
+): number | null {
+  if (a != null && b != null) {
+    const cmp = Dec.from(b).cmp(Dec.from(a));
+    return cmp !== 0 ? cmp : null;
+  }
+  if (a != null) return -1;
+  if (b != null) return 1;
+  return null;
+}
+
 export function compareZoneCards(
   a: ZoneCard,
   b: ZoneCard,
   scoreOf: (card: ZoneCard) => string | null,
+  realizedRrOf?: (card: ZoneCard) => string | null,
 ): number {
-  const sa = scoreOf(a);
-  const sb = scoreOf(b);
-  if (sa != null && sb != null) {
-    const cmp = Dec.from(sb).cmp(Dec.from(sa));
-    if (cmp !== 0) return cmp;
-  } else if (sa != null) {
-    return -1;
-  } else if (sb != null) {
-    return 1;
+  if (paperZoneScoreRrEnabled() && realizedRrOf) {
+    const byRr = cmpNullableDec(realizedRrOf(a), realizedRrOf(b));
+    if (byRr != null) return byRr;
   }
+  const byScore = cmpNullableDec(scoreOf(a), scoreOf(b));
+  if (byScore != null) return byScore;
   if (a.rr !== b.rr) return b.rr - a.rr;
   return a.zoneId.localeCompare(b.zoneId);
 }
@@ -157,14 +189,19 @@ export function compareZoneCards(
 /**
  * Rank by family score (high first). All-null / kill-switch keeps input order.
  * Tie-break: higher card RR, then zoneId.
+ * PAPER_ZONE_SCORE_RR=1 inserts sampled avgRealizedRr ahead of score.
  */
 export function rankZoneCards(
   cards: ZoneCard[],
   scoreOf: (card: ZoneCard) => string | null,
+  realizedRrOf?: (card: ZoneCard) => string | null,
 ): ZoneCard[] {
   if (!paperZoneScoreEnabled()) return cards;
-  if (!cards.some((card) => scoreOf(card) != null)) return cards;
-  return [...cards].sort((a, b) => compareZoneCards(a, b, scoreOf));
+  const hasScore = cards.some((card) => scoreOf(card) != null);
+  const hasRr = paperZoneScoreRrEnabled() && realizedRrOf != null
+    && cards.some((card) => realizedRrOf(card) != null);
+  if (!hasScore && !hasRr) return cards;
+  return [...cards].sort((a, b) => compareZoneCards(a, b, scoreOf, realizedRrOf));
 }
 
 export type FamilyStats = {
