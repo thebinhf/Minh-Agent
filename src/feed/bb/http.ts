@@ -19,6 +19,7 @@ import type { TrackerConfig } from "./types";
 import { buildChart, buildDepth, buildHeatmap, buildMarket } from "./view";
 import { buildFeatures, parseFeaturesAsof } from "../../features/snapshot";
 import { buildTa, parseTaAsof } from "../../ta/snapshot";
+import { buildFeedMetrics } from "./metrics";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
@@ -120,6 +121,15 @@ export function startHttp(config: TrackerConfig, store: TrackerDb, extras?: Feed
 
       if (path === "/health") {
         return json(buildFeedHealth(store, config));
+      }
+      if (path === "/metrics") {
+        return new Response(buildFeedMetrics(buildFeedHealth(store, config)), {
+          headers: {
+            "content-type": "text/plain; version=0.0.4; charset=utf-8",
+            "access-control-allow-origin": "*",
+            "cache-control": "no-store",
+          },
+        });
       }
       if (path === "/config") {
         if (!extras?.configBoot) return json({ error: "config boot unavailable" }, 404);

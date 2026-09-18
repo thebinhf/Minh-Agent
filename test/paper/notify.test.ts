@@ -62,6 +62,7 @@ describe("paper notify", () => {
       .toContain("zone.accepted");
     expect(formatNotifyText(event("zone.armed", { zoneId: "btc-4h-s-01", limitPrice: "79200" })))
       .toContain("zone.armed");
+    expect(normalizeNotifyKinds(["position.managed", "alert.fired"])).toEqual(["alert.fired"]);
   });
 
   test("telegram POSTs sendMessage; cancelled/rejected are skipped", async () => {

@@ -446,6 +446,9 @@ function wrap(db: Database) {
       liq_price = COALESCE(?, liq_price)
      WHERE id = ? AND status = 'open'`,
   );
+  const updateStopLossStmt = db.prepare(
+    `UPDATE paper_positions SET stop_loss = ? WHERE id = ? AND status = 'open'`,
+  );
   const closePositionStmt = db.prepare(
     `UPDATE paper_positions SET
       status = 'closed',
@@ -674,6 +677,10 @@ function wrap(db: Database) {
     },
     markOpen(id: number, unrealizedPnl: string, markPrice: string, margin: string, liqPrice: string | null = null) {
       markOpenStmt.run(unrealizedPnl, markPrice, margin, liqPrice, id);
+    },
+    updateStopLoss(id: number, stopLoss: string) {
+      const result = updateStopLossStmt.run(stopLoss, id);
+      return result.changes;
     },
     closePosition(row: {
       id: number;

@@ -13,10 +13,11 @@ import {
 import { parseZoneCard, type CancelCode, type ZoneCard, type ZoneSide } from "../zones/card";
 import { LEDGER_CAP_PER_SYMBOL, zoneExpiresTs } from "../zones/ledger";
 import { proximityDecision } from "../zones/proximity";
-import { familyFloorVeto, familyFromCard, familyKey, type FamilyStats } from "../paper/score";
+import { familyFloorVeto, familyForCard, type FamilyStats } from "../paper/score";
 import { isMidRange, readMapBias, type MapBias, type SymbolBias } from "./bias";
 import { quantVeto, readMapQuant, type QuantTape } from "./quant";
 import { oscAcceptVeto, type TaOscTape } from "./ta-gate";
+import { emitDecision, formatDecision } from "./decision-log";
 
 /**
  * AGENT_MAP=0: this policy is a no-op. 4H close still uses the old MAP_ACCEPT
@@ -350,18 +351,30 @@ export async function onMapCloseAccept(
       continue;
     }
     const standing = engine.zones("accepted", now).filter((row) => row.symbol === card.symbol).length;
+    const bias = biases.get(card.symbol);
+    const tape = tapes.get(card.symbol);
+    const family = familyForCard(familyByKey, card) ?? null;
     const decision = decideMapAccept({
       card,
-      bias: biases.get(card.symbol),
+      bias,
       last: lastBySymbol.get(card.symbol),
       minRr,
       acceptedForSymbol: standing + allow.filter((item) => item.symbol === card.symbol).length,
       tradingAllowed: gates.tradingAllowed,
       now,
-      tape: tapes.get(card.symbol),
-      family: familyByKey.get(familyKey(familyFromCard(card))) ?? null,
+      tape,
+      family,
       osc: opts.oscBySymbol?.get(card.symbol) ?? null,
     });
+    emitDecision(formatDecision({
+      card,
+      bias: bias ?? null,
+      last: lastBySymbol.get(card.symbol) ?? null,
+      tape: tape ?? null,
+      family,
+      decision,
+      asof: now,
+    }));
     if (!decision.allow) {
       skipped += 1;
       bumpSkipReason(skipReasons, decision.reason);

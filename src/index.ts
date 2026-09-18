@@ -1,4 +1,5 @@
 import { loadFeedHealth, onMapCloseAccept } from "./agent/policy";
+import { assertValidRuntimeEnv } from "./config/runtime-flags";
 import { EMPTY_BRIEF_PACK_PAPER } from "./feed/bb/brief-pack";
 import { startBybitTracker } from "./feed/bb/index";
 import { startPaper, type PaperFeature } from "./paper/index";
@@ -13,6 +14,8 @@ import { taOscFromMap } from "./ta/arm-tape";
  */
 let paperDeskFn: (() => ReturnType<typeof paperDesk>) | null = null;
 let paperRef: PaperFeature | null = null;
+
+assertValidRuntimeEnv();
 
 const bb = await startBybitTracker({
   paperDesk: () => paperDeskFn?.() ?? EMPTY_BRIEF_PACK_PAPER,

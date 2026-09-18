@@ -88,3 +88,13 @@ export function mapPayload(opts: {
 }
 
 export const HEALTH_OK = { ok: true, url: "http://127.0.0.1:43180/health", klineLagOk: true };
+
+/** The shared 4H card window: 2026-09-07T17:20Z → 19:20Z. */
+export const MAP_CARD_BASE_START_TS = 1_788_801_600_000;
+export const MAP_CARD_BASE_END_TS = 1_788_808_800_000;
+/**
+ * Cards live `expiryBars × 4H` past their end, and `decideMapAccept` /
+ * `planMapClose` default `now` to the wall clock. Any test that omits `now`
+ * starts failing once real time passes that window, so pin the clock here.
+ */
+export const MAP_CARD_ASOF = MAP_CARD_BASE_END_TS + 2 * 60 * 60 * 1000;

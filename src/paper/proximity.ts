@@ -10,7 +10,7 @@ import {
   proximityDecision,
 } from "../zones/proximity";
 import { familyStatsFromEngine } from "./map-accept";
-import { compareZoneCards, familyFromCard, familyKey, paperZoneScoreEnabled, type FamilyStats } from "./score";
+import { compareZoneCards, familyRealizedRrOf, familyScoreOf, paperZoneScoreEnabled, type FamilyStats } from "./score";
 import { taArmReason, type TaArmReason, type TaArmTape } from "../agent/ta-gate";
 
 export function proximityArmEnabled(): boolean {
@@ -115,7 +115,8 @@ function zonedBusy(engine: PaperEngine): Set<string> {
  * Rest limit+alert for accepted ledger cards when last is in the proximal band
  * and the last confirmed 15m agrees. Does not read GET /zones.
  * Kill: PAPER_PROXIMITY_ARM=0. 15m: PAPER_CONFIRM_15=0.
- * Under PAPER_ARM_MAX, rank ready cards by family score then rr then zoneId.
+ * Under PAPER_ARM_MAX, rank ready cards by family score then rr then zoneId
+ * (`PAPER_ZONE_SCORE_RR=1` inserts sampled avgRealizedRr ahead of score).
  * Occupied slots stay; only new arms compete for free slots.
  */
 export async function runProximityArm(
@@ -225,12 +226,8 @@ export async function runProximityArm(
     return { armed, rejected, taWaits };
   }
   const stats = familyByKey ?? familyStatsFromEngine(engine, now);
-  const scoreOf = (card: ZoneCard) => (
-    paperZoneScoreEnabled()
-      ? stats.get(familyKey(familyFromCard(card)))?.score ?? null
-      : null
-  );
-  const ranked = [...candidates].sort((a, b) => compareZoneCards(a, b, scoreOf));
+  const scoreOf = paperZoneScoreEnabled() ? familyScoreOf(stats) : () => null;
+  const ranked = [...candidates].sort((a, b) => compareZoneCards(a, b, scoreOf, familyRealizedRrOf(stats)));
   for (const card of ranked) {
     if (free <= 0) break;
     if (occupied.has(card.symbol)) continue;

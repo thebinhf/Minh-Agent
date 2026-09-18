@@ -32,6 +32,7 @@ import {
   requireLeverage,
   takeProfitCloseQty,
 } from "./phase2";
+import { beStopFor, stopImproves } from "./manage";
 import {
   assertOptionalMinRr,
   assertSlTpSide,
@@ -1168,6 +1169,20 @@ export function createPaperEngine(opts: {
           realizedPnl: result.realizedPnl,
         }, now, fresh.zone_id ?? null));
         continue;
+      }
+      const be = beStopFor(fresh, last);
+      if (be) {
+        const snapped = snapPrice(be.stop, spec);
+        if (stopImproves(side, stop, snapped) && !slHit(side, last, snapped)) {
+          store.updateStopLoss(fresh.id, snapped.toText());
+          events.push(emit("position.managed", fresh.symbol, {
+            positionId: fresh.id,
+            action: "be",
+            stopLoss: snapped.toText(),
+            last: last.toText(),
+            mfeR: be.mfeR.toText(),
+          }, now, fresh.zone_id ?? null));
+        }
       }
       if (
         parseMarginMode(store.getAccount().margin_mode) === "isolated"

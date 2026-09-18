@@ -1,10 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { agentMapEnabled, biasChopEnabled, biasChopMode, decideMapAccept, emptySkipReasons, onMapCloseAccept, zoneFreshFilter, zoneImpulseMin } from "../../src/agent/policy";
 import { readMapBias } from "../../src/agent/bias";
 import { mockFeed, OPEN_LONG, paperEngine } from "../paper/helpers";
 import type { ZoneCard } from "../../src/zones/card";
-import { HEALTH_OK, mapPayload } from "./htf";
+import { HEALTH_OK, MAP_CARD_ASOF, MAP_CARD_BASE_END_TS, MAP_CARD_BASE_START_TS, mapPayload } from "./htf";
+
+beforeAll(() => setSystemTime(MAP_CARD_ASOF));
+afterAll(() => setSystemTime());
 
 const dirs: string[] = [];
 const savedAccept = process.env.MAP_ACCEPT;
@@ -46,8 +49,8 @@ const SUPPLY: ZoneCard = {
   tf: "240",
   side: "supply",
   setup: "sd",
-  baseStartTs: 1_788_801_600_000,
-  baseEndTs: 1_788_808_800_000,
+  baseStartTs: MAP_CARD_BASE_START_TS,
+  baseEndTs: MAP_CARD_BASE_END_TS,
   zoneLow: 79_250,
   zoneHigh: 79_472,
   distal: 79_472,

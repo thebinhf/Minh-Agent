@@ -43,7 +43,9 @@ and cannot arm, live-shadow mirrors decisions without orders, no LLM/MCP sits
 in the autonomous path, and the ROADMAP locks (boundary, event-once, missing
 tape ≠ 0) are still in place. The P7 TA gates and the `AGENT_ZONE_FRESH` /
 `AGENT_ZONE_IMPULSE_MIN` filters are accept-time **filters** on the same
-method — off by default, A/B before on — not new signals.
+method — off by default, A/B before on — not new signals. P9 `PAPER_BE_R`
+moves an already-open stop; `PAPER_ZONE_SCORE_RR` only reorders sampled
+families. Neither emits a card.
 
 ## Findings and follow-ups
 

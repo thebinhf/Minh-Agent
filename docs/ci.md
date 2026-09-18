@@ -26,7 +26,11 @@ After a green merge:
 deploy/pull-restart.sh
 ```
 
-`MINH_ROOT` defaults to `/opt/minh-agent`. Fast-forward only (`git pull --ff-only`). Restarts tracker + live-shadow + lab timer.
+`MINH_ROOT` defaults to `/opt/minh-agent`. Fast-forward only (`git pull --ff-only`). Typechecks **before** touching systemd, then restarts tracker + live-shadow + lab timer and probes `GET :43180/health` for up to 60s. If the feed never answers, it resets to the SHA it started from and restarts again — a bad build does not stay live. Paper `:43181` and shadow `:43182` are warn-only (both are fail-soft observers). A healthy process running the wrong strategy is still the operator's call.
+
+DB backup: [`deploy/backup-db.sh`](../deploy/backup-db.sh) takes an online-safe (`.backup`) snapshot of every mesh SQLite DB — feed, paper, live-shadow, exec — into `MINH_BACKUP_DIR` (`$MINH_ROOT/backups` by default), keeping `MINH_BACKUP_KEEP` (14) stamped copies each and refusing when free space is under 2× the largest DB. `deploy/replay-map-lab.sh` runs it before each walk, so a lab accident cannot cost the ledger.
+
+Host probe: [`scripts/ops-check.sh`](../scripts/ops-check.sh) — feed / paper / shadow health, `klineLag.ok`, DB disk use, lab freshness. Exit 1 and a `PAPER_NOTIFY` page on the first three; shadow and lab are warn-only. No unit ships: run it every 5m from cron (`*/5 * * * * /opt/minh-agent/scripts/ops-check.sh`) or your own timer. It checks; it never restarts.
 
 Optional paper lab (not CI): [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + [`deploy/replay-map-lab.timer`](../deploy/replay-map-lab.timer). Walks 180d one-book then `paper review`. Does not touch the live ledger. Do not run it in Actions.
 

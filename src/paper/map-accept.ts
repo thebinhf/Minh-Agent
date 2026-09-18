@@ -5,8 +5,9 @@ import { parseZoneCard } from "../zones/card";
 import { proximityDecision } from "../zones/proximity";
 import {
   familyFloorVeto,
-  familyFromCard,
-  familyKey,
+  familyForCard,
+  familyRealizedRrOf,
+  familyScoreOf,
   paperZoneScoreEnabled,
   rankZoneCards,
   type FamilyStats,
@@ -128,7 +129,7 @@ export function runMapAccept(
   }
   const ranked = rankAcceptable(picked, stats);
   for (const card of ranked) {
-    if (familyFloorVeto(stats.get(familyKey(familyFromCard(card))))) {
+    if (familyFloorVeto(familyForCard(stats, card))) {
       bump("family_floor");
       continue;
     }
@@ -178,7 +179,7 @@ export function familyStatsFromMetrics(metrics: {
 
 function rankAcceptable(cards: ZoneCard[], stats: Map<string, FamilyStats>): ZoneCard[] {
   if (!paperZoneScoreEnabled()) return cards;
-  return rankZoneCards(cards, (card) => stats.get(familyKey(familyFromCard(card)))?.score ?? null);
+  return rankZoneCards(cards, familyScoreOf(stats), familyRealizedRrOf(stats));
 }
 
 export async function fetchZoneCards(

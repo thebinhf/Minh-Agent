@@ -515,7 +515,7 @@ Do not paraphrase, weaken, or implement around these. They override any later co
 | No keys | If `BYBIT_API_KEY`, `BYBIT_API_SECRET`, or similar are set, paper **refuses to start** and prints that paper never uses keys. Do not read them “just in case”. |
 | Separate DB | `PAPER_DB_PATH` ≠ `BYBIT_DB_PATH`. Paper opens the feed DB readonly or uses HTTP. |
 | Separate HTTP | Paper does not add methods to the feed server (today GET-only on `:43180`). |
-| No mid-watch spam | No interval bot that posts marks / PnL to chat. Tick may log **events once** (`alert.fired`, `order.filled`, `order.invalidated`, `position.closed`). Optional Telegram/webhook on those same kinds (`PAPER_NOTIFY`). |
+| No mid-watch spam | No interval bot that posts marks / PnL to chat. Tick may log **events once** (`alert.fired`, `order.filled`, `order.invalidated`, `position.closed`, `position.managed`). Optional Telegram/webhook on fill/OCO/close (`PAPER_NOTIFY`). `position.managed` is ledger+log, not a notify kind. |
 | No auto-live bridge | No command or route that places a Bybit order from a paper id. Live bridge is a **separate ticket** (locked item 3). |
 
 Startup banner: `paper simulation only — no API keys, no real orders`.
@@ -772,7 +772,7 @@ bun run paper cancel ID
 
 ### 11.4 Events
 
-Append-only `paper_events`. Kinds: `alert.fired`, `order.filled`, `order.rejected`, `order.cancelled`, `order.invalidated`, `position.closed`.
+Append-only `paper_events`. Kinds: `alert.fired`, `order.filled`, `order.rejected`, `order.cancelled`, `order.invalidated`, `position.closed`, `position.managed` (opt-in BE stop move; not a notify kind).
 
 ```text
 bun run paper events [--limit 50]
@@ -969,6 +969,6 @@ Empirical, not a signal. Does **not** change the zone-card schema.
 
 Family key is `SYMBOL:tf:side` from the ledger card, or from a detector `zoneId` (`btc-4h-s-20260908-01`). On 4H MAP accept, cards with a non-null family score rank **before** the per-symbol cap (2). After a sample (`PAPER_FAMILY_FLOOR_MIN_TRADES` default 2 / score non-null), families below `PAPER_FAMILY_SCORE_MIN` (default `0.5`) or with `avgRealizedRr ≤ 0` skip (`family_floor`). Cold / missing history is **not** a veto. Tie-break: higher card `rr`, then `zoneId`. `PAPER_ZONE_SCORE=0` skips ranking and the floor (metrics still compute scores). `/paper/week` `review.families` is the compact rollup.
 
-Lab QC (does not walk bars): `bun run paper review FILE.json` compact-reads a `replay-map` JSON (`skipReasons`, `quantCoverage`, flags). `bun run paper ab BASE.json VARIANT.json` is variant minus base (one flag at a time; `deploy/replay-map-ab.sh`). Missing flow/cascade is a flag, not a zero. `AGENT_BIAS_CHOP=0` and `proximal` are A/B losers on the 180d tape (~−3130 / ~−2964 equity) — keep deny. 1H chop does not override 4H. `PAPER_ARM_MAX` default 2 (180d: 2 beat 3/5/0). Skip-HYPE +576 vs keep-1H but **−216** vs ARM=2 — default skip stays none. P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / `PAPER_TA_VOL` / `PAPER_TA_SHOCK` / `PAPER_TA_REV`) default **off** until a 180d review wins. Do not invent historical CVD/liq.
+Lab QC (does not walk bars): `bun run paper review FILE.json` compact-reads a `replay-map` JSON (`skipReasons`, `quantCoverage`, flags). `bun run paper ab BASE.json VARIANT.json` is variant minus base (one flag at a time; `deploy/replay-map-ab.sh`). Missing flow/cascade is a flag, not a zero. `AGENT_BIAS_CHOP=0` and `proximal` are A/B losers on the 180d tape (~−3130 / ~−2964 equity) — keep deny. 1H chop does not override 4H. `PAPER_ARM_MAX` default 2 (180d: 2 beat 3/5/0). Skip-HYPE +576 vs keep-1H but **−216** vs ARM=2 — default skip stays none. P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / `PAPER_TA_VOL` / `PAPER_TA_SHOCK` / `PAPER_TA_REV`) default **off** until a 180d review wins. P9 `PAPER_BE_R` / `PAPER_ZONE_SCORE_RR` same discipline (`deploy/replay-map-ab.sh be|scorerr`). Do not invent historical CVD/liq.
 
 

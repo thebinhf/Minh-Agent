@@ -3,6 +3,9 @@
 # Paper-only. No keys. No daemon.
 set -uo pipefail
 
+for script in deploy/*.sh scripts/*.sh; do
+  bash -n "$script" || { echo "shell syntax fail: $script" >&2; exit 1; }
+done
 tc_log="$(mktemp)"
 bun run typecheck >"$tc_log" 2>&1 &
 tc_pid=$!
