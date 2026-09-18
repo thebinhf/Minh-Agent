@@ -18,6 +18,8 @@ export type PaperReview = {
   replayMap: boolean;
   oneBook: boolean | null;
   days: number | null;
+  /** Frozen family-floor window. `null` = floor scored in-sample on the walk itself. */
+  trainDays: number | null;
   symbols: string[] | null;
   skipped: Array<{ symbol: string; error: string }>;
   htfBars: number | null;
@@ -73,6 +75,8 @@ export type PaperAb = {
   ab: true;
   base: PaperReview;
   variant: PaperReview;
+  /** Walk parameters that differ; an empty array is the only comparable pair. */
+  methodMismatch: string[];
   delta: PaperAbDelta;
 };
 
@@ -252,6 +256,7 @@ export function paperReviewFromReplayMap(body: unknown, source = "json"): PaperR
     replayMap: true,
     oneBook: folded.oneBook === true ? true : folded.oneBook === false ? false : (folded.watchlist === true ? false : null),
     days: typeof folded.days === "number" ? folded.days : null,
+    trainDays: typeof folded.trainDays === "number" ? folded.trainDays : null,
     symbols: Array.isArray(folded.symbols)
       ? asStringArray(folded.symbols)
       : typeof folded.symbol === "string" ? [folded.symbol] : null,
@@ -345,6 +350,19 @@ function countDelta<K extends string>(
   return out;
 }
 
+/** Walk parameters that must match before one review can be subtracted from another. */
+export function abMethodMismatch(base: PaperReview, variant: PaperReview): string[] {
+  const out: string[] = [];
+  const cmp = (label: string, a: unknown, b: unknown): void => {
+    if (a !== b) out.push(`${label}: base=${a ?? "null"} variant=${b ?? "null"}`);
+  };
+  cmp("days", base.days, variant.days);
+  cmp("oneBook", base.oneBook, variant.oneBook);
+  cmp("trainDays", base.trainDays, variant.trainDays);
+  cmp("slippage", base.slippage, variant.slippage);
+  return out;
+}
+
 /**
  * Variant minus base. One flag at a time. Does not walk bars.
  * Accepts replay-map JSON or a prior `paper review` JSON.
@@ -358,6 +376,7 @@ export function paperAbFromReviews(base: PaperReview, variant: PaperReview): Pap
     ab: true,
     base,
     variant,
+    methodMismatch: abMethodMismatch(base, variant),
     delta: {
       accepted: variant.accepted - base.accepted,
       hypeAccepted: variant.hypeAccepted - base.hypeAccepted,

@@ -27,7 +27,7 @@ Live-shadow (P4) is a **separate process**. It does not share the paper ledger a
 
 P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** until a host 180d one-flag A/B. Not MVP. Signal-quality filters `AGENT_ZONE_FRESH` (deny touched/penetrated zones) and `AGENT_ZONE_IMPULSE_MIN` (deny shallow impulses) join the same queue: off by default, one flag per walk, counted in `skipReasons` (`zone_fresh` / `zone_impulse`). P9 EVENT manage (`PAPER_BE_R`) and realized-RR rank (`PAPER_ZONE_SCORE_RR`) are the same discipline: off, one flag per walk. BE is not a skipReason — it is a stop move on an open (`position.managed`).
 
-## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups)
+## Shipped this cycle (P0–P4, P6 overlay, P7 flags, P8 setups, P9 flags, T3 terminal)
 
 | Slice | What | Default |
 | --- | --- | --- |
@@ -55,7 +55,19 @@ One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / 
 
 ### P9 — EVENT manage + realized-RR rank
 
-One flag / one walk: `be` first (`PAPER_BE_R=0.5` — after MFE ≥ 0.5R, SL → entry). Lab (skip-HYPE 180d): 11/28 SLs ran then died; 20/20 TPs had already cleared 0.5R. Then `scorerr` (`PAPER_ZONE_SCORE_RR=1`). Do not combine with P7/P8 on the first walk. Do not turn a flag on in systemd until that walk wins.
+One flag / one walk, one **pinned** window (`PAPER_AB_FROM` / `PAPER_AB_TO`), frozen 90d floor. Both P9 arms are decided — `paper ab` on the pair reported `methodMismatch: []`.
+
+**`be` (`PAPER_BE_R=0.5`) — rejected, keep off.** 180d one-book 2026-03-17 → 2026-09-14: baseline equity 13 706.34 / realizedPnl +4 610.88 (87 closes: 51 SL −11 456.04, 36 TP +16 066.92) vs BE 8 935.75 / −78.87 (124 closes). The move fired on 87 positions; 68 exited at exactly 0, which did avoid ≈ +4 571 of loser loss — but TP exits fell **36 → 19**. The old note read "20/20 TPs had already cleared 0.5R" as proof BE spares winners; it is the opposite: a 2R target that pokes 0.5R and retraces now leaves at entry, so up to 17 of the baseline's winners cashed 0 instead of +2R (an upper bound — the accept sets are not identical). Net −4 770.6 equity, −4 689.8 realizedPnl (the DB ledger sum and `paper ab` agree to the cent). At any fixed fraction of R *below* the target the exchange is structurally negative on this method.
+
+**`scorerr` (`PAPER_ZONE_SCORE_RR=1`) — no gain, keep off.** Same window: −20 accepted, equity −84.70, realizedPnl −160.17. Reordering sampled families by realised RR costs a little and wins nothing; it does not earn a second look before the queue ahead of it.
+
+**Re-walked at 1.0R — still off, and the shape says why.** Same window again: 58 moves, 27 scratched at 0, TP exits 36 → 31, equity −520.03, realizedPnl −382.66. The damage shrinks ~9× as the floor rises toward the 2R target, and it never crosses zero, because a move placed *below* the target is only ever paid by selling back the tail. Another value between 0.5R and 1R is not worth a walk; anything that returns has to be a different mechanism (a trail, or a partial close at 1R), not the same stop move at a better number.
+
+P8 setups (`sd` / `breakout` / `reversal`) stay the live default. Next in the queue: P5 multi-venue, and the order-flow / volume-profile work.
+
+### T3 — Trading Terminal (viewer)
+
+`bun run term` — one looping text screen over feed `GET /observe`, for the split host falling back to `:43181/paper/observe`. It holds no engine, no store and no key, and issues `GET` only: **a viewer, never a command source** (lock above). Accept / reject / arm stay CLI or HTTP POST. A daemon that is not answering renders `down` and a missing tape field renders `—` / `N miss`, so an outage cannot read as "nothing to do".
 
 ### P5 — multi-venue
 

@@ -34,6 +34,10 @@ Host probe: [`scripts/ops-check.sh`](../scripts/ops-check.sh) — feed / paper /
 
 Optional paper lab (not CI): [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh) + [`deploy/replay-map-lab.timer`](../deploy/replay-map-lab.timer). Walks 180d one-book then `paper review`. Does not touch the live ledger. Do not run it in Actions.
 
+Method change to expect: the lab now defaults `PAPER_LAB_TRAIN_DAYS=90` (family floor frozen before the holdout) and unsets every A/B knob inherited from the shell, so a nightly from before this change is **not** comparable with one after — the old number was partly in-sample. `PAPER_LAB_TRAIN_DAYS=0` restores the old walk. Artifacts carry the window in their name (`review-180d-t90-*.json`), and `paper ab` marks a pair non-comparable (`methodMismatch` + a `NOT COMPARABLE` stderr line) when the two walks differ on `days` / `oneBook` / `trainDays` / slippage.
+
+Walk every arm of an A/B on **one pinned window**: export `PAPER_AB_FROM` / `PAPER_AB_TO` once, then run each arm. `--days N` is measured from the clock at each arm's own start, so arms walked 20 minutes apart do not even see the same window. Note that `ticks` is *not* a control variable: the per-bar print sequence comes from `walkSide()`, i.e. the side currently being walked, which follows open state — so arms legitimately differ in ticks and `quantCoverage.samples` once the flag changes anything. Pin the window, then compare bars (`htfBars` / `ltfBars`, which must match) and read `methodMismatch`; a tick delta on identical bars is the flag, not the harness. The `compare` mode of `replay-map-ab.sh` takes the two review JSONs it should subtract.
+
 Do **not** put `BYBIT_API_KEY` / `BYBIT_API_SECRET` in Actions secrets. Paper and live-shadow refuse to start if those env names are set.
 
 Live-shadow is a host unit ([`deploy/live-shadow.service`](../deploy/live-shadow.service)), not CI. Do not start it in Actions.
