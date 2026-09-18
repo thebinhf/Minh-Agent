@@ -4,11 +4,24 @@
 #
 #   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal|fresh|impulse|be|scorerr
 #   deploy/replay-map-ab.sh compare BASE.json VARIANT.json
+#
+# Session knobs (export once, then walk every arm):
+#   PAPER_AB_FROM / PAPER_AB_TO  ISO dates — pin the window so all arms walk the
+#                              same bars. Without them `--days N` is relative to
+#                              each arm's start clock.
+#   PAPER_LAB_TRAIN_DAYS       family-floor window, default 90 (`0` = in-sample)
+#   PAPER_AB_BASE              review JSON to subtract after this arm's walk
+#   PAPER_AB_BE_R / PAPER_AB_IMPULSE_MIN  the float a given arm applies
+#   PAPER_AB_LABEL             suffix for the artifact name — set it whenever a
+#                              float arm is re-walked at another value (be-be1r)
 set -euo pipefail
 
-ROOT="${MINH_ROOT:-/opt/minh-agent}"
+ROOT="${MINH_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
 OUT_DIR="${MINH_LAB_DIR:-$ROOT/lab}"
 DAYS="${PAPER_LAB_DAYS:-180}"
+# House method: freeze the family floor on the first 90d so the holdout is honest.
+# `0` = score the floor on the walk window itself (numbers are then in-sample).
+TRAIN="${PAPER_LAB_TRAIN_DAYS-90}"
 NAME="${1:-}"
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 export PATH="$BUN_INSTALL/bin:$PATH"
@@ -28,7 +41,7 @@ fi
 # Clear A/B knobs, then set exactly one. Default = current main (ARM_MAX=2).
 unset AGENT_BIAS_CHOP PAPER_FAMILY_FLOOR_MIN_TRADES PAPER_MAP_SKIP PAPER_ARM_MAX \
   PAPER_TA_FIB AGENT_TA_OSC PAPER_TA_VOL PAPER_TA_SHOCK PAPER_TA_REV PAPER_SETUPS \
-  AGENT_ZONE_FRESH AGENT_ZONE_IMPULSE_MIN PAPER_BE_R PAPER_ZONE_SCORE_RR
+  AGENT_ZONE_FRESH AGENT_ZONE_IMPULSE_MIN PAPER_BE_R PAPER_ZONE_SCORE_RR MINH_DECISION_LOG
 case "$NAME" in
   baseline) ;;
   chop0) export AGENT_BIAS_CHOP=0 ;;
@@ -58,11 +71,31 @@ esac
 
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-JSON="$OUT_DIR/ab-${NAME}-${DAYS}-${STAMP}.json"
-REVIEW="$OUT_DIR/ab-${NAME}-${DAYS}-${STAMP}.review.json"
+# Arms that take a float (`be`, `impulse`) need a label: two `be` walks at 0.5R
+# and 1R otherwise differ only by timestamp.
+LABEL="${NAME}${PAPER_AB_LABEL:+-$PAPER_AB_LABEL}"
+# `--days N` is relative to the clock at start, so arms walked 20 minutes apart
+# do not share a window. Set PAPER_AB_FROM + PAPER_AB_TO once per session and
+# every arm walks the same bars.
+WINDOW=(--days "$DAYS")
+WINDOW_LABEL="${DAYS}d"
+if [[ -n "${PAPER_AB_FROM:-}" || -n "${PAPER_AB_TO:-}" ]]; then
+  if [[ -z "${PAPER_AB_FROM:-}" || -z "${PAPER_AB_TO:-}" ]]; then
+    echo "[minh:ab] PAPER_AB_FROM and PAPER_AB_TO must both be set (or neither)" >&2
+    exit 1
+  fi
+  WINDOW=(--from "$PAPER_AB_FROM" --to "$PAPER_AB_TO")
+  WINDOW_LABEL="${PAPER_AB_FROM}_$PAPER_AB_TO"
+fi
+args=(replay-map --one-book "${WINDOW[@]}")
+if [[ -n "$TRAIN" && "$TRAIN" != "0" ]]; then
+  args+=(--train-days "$TRAIN")
+fi
+JSON="$OUT_DIR/ab-${LABEL}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.json"
+REVIEW="$OUT_DIR/ab-${LABEL}-${WINDOW_LABEL}-t${TRAIN:-none}-${STAMP}.review.json"
 
-echo "[minh:ab] $NAME days=$DAYS one-book" >&2
-bun run paper replay-map --days "$DAYS" --one-book > "$JSON"
+echo "[minh:ab] $LABEL window=$WINDOW_LABEL one-book train=${TRAIN:-none}" >&2
+bun run paper "${args[@]}" > "$JSON"
 bun run paper review "$JSON" | tee "$REVIEW"
 
 if [[ -n "${PAPER_AB_BASE:-}" ]]; then

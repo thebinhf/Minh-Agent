@@ -22,6 +22,7 @@
     "paper": "bun run src/paper/cli.ts",
     "features": "bun run src/features/cli.ts",
     "live": "bun run src/live/cli.ts",
+    "term": "bun run src/terminal/index.ts",
     "exec": "bun run src/exec/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",

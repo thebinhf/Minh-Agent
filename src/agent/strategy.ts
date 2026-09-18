@@ -95,8 +95,16 @@ export function eventManageApplies(manage: EventManage, setup: ZoneSetup | null 
 /**
  * PAPER_BE_R=<float>: after favorable excursion ≥ N× original risk, move SL
  * to entry (`position.managed` / `be`). Unset / 0 / invalid = off.
- * Lab (skip-HYPE 180d): 39% of SLs ran ≥0.5R then died; every TP had already
- * cleared 0.5R, so BE does not clip winners. A/B before on.
+ *
+ * Measured off, 180d one-book on a frozen 90d floor (2026-03-17 → 09-14): at
+ * 0.5R the move fired on 87 positions. 68 of them exited at exactly 0 — worth
+ * ~+4.6k of avoided loser loss — but TP exits fell 36 → 19, because a card with
+ * a 2R target that pokes 0.5R and retraces now leaves at entry instead of the
+ * target. Net −4.77k equity, −4.69k realizedPnl. Re-walked at 1.0R: 58 moves,
+ * 27 scratches, TP exits 36 → 31, −520 equity — still negative, and improving
+ * monotonically only because it approaches the target, where the move stops
+ * doing anything. A fixed fraction of R *below* the target is structurally
+ * negative on this method; do not shop for a better number.
  */
 export function eventBeR(): number | null {
   const raw = process.env.PAPER_BE_R?.trim();

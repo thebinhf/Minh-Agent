@@ -662,6 +662,12 @@ async function main(): Promise<void> {
     try {
       const body = await paperAbFromFiles(command.base, command.variant);
       console.log(JSON.stringify(body, null, 2));
+      if (body.methodMismatch.length > 0) {
+        console.error(
+          `[minh:ab] NOT COMPARABLE — base and variant were walked differently: ${body.methodMismatch.join(", ")}. ` +
+          "The delta above is two different experiments subtracted.",
+        );
+      }
     } catch (error) {
       if (error instanceof PaperReject) {
         console.log(JSON.stringify(error.toJSON(), null, 2));

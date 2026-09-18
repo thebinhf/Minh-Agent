@@ -10,6 +10,55 @@ Price Action + Supply/Demand. **No 30-minute scan. No live orders.** Paper week.
 | **ARM** | Last in proximal → entry on an **accepted** card + confirmed 15m same direction | Tick rests post-only OCO | Quiet. Notify `zone.armed` |
 | **EVENT** | Pending limit / open position | Tick: OCO / SL/TP | `GET /paper/event` or notify fill/invalid/close |
 
+## Watch
+
+```bash
+bun run term                 # redraws every 5s
+bun run term --interval 15
+bun run term --once          # one snapshot; exit 1 if the feed is down (scriptable)
+```
+
+One text screen answers the whole loop: is the feed connected and are klines
+advancing, do the gates allow trading and why not, when did MAP last dump, how
+much of the quant tape is actually there (`ok` vs `missing` per field), equity
+and Δ% against starting cash, how many cards are accepted / resting / open /
+armed, **every card the detector sees right now and what stopped it** (see
+below), each open with unrealised PnL as a multiple of **original** risk (so
+`-0.5R` means half your risk, comparable across symbols), each resting OCO,
+whether the mutation lock is on, what shadow would have armed, and the last
+events.
+
+`MAPCARDS` joins three already-published reads: feed `GET /zones?interval=240`
+(the detector's current MAP), the desk's standing cards, and
+`$LIVE_SHADOW_URL`'s `map_plan` events (the policy's per-card answer). Each row
+prints `paper=open|armed|accepted` for the stage the **desk** reached, and
+`shadow=allow|arm|deny <reason>` for what the **shadow** policy said. They are
+different ledgers with different inputs — the shadow runs a cold family floor and
+no paper history — so `paper=accepted shadow=deny family_floor` is a real,
+readable state, not a contradiction. `shadow=—` means the shadow never answered;
+`no-verdict=N` means it answered and has no judgement for those cards (it plans
+on 4H closes only). The first 12 rows print; the rest are counted and point at
+the endpoint. A card the desk still holds but the detector dropped reads
+`undetected`.
+
+It is a **viewer, never a command source** (locked in [ROADMAP.md](ROADMAP.md)):
+no engine, no store, `GET` only — you still accept, reject and arm through the
+CLI below. A daemon that is not answering renders `down` and a missing tape
+field renders `—` / `N miss`, so an outage can never read as "nothing to do".
+Commands stay raw JSON on purpose (`paper status` / `event` / `day` / `week`),
+which is what `--once` and a pipe consume.
+
+**If the shadow column looks empty:** every `map_plan` event carries the
+wall-clock `ts` of the cycle that wrote it and the panel prints it as
+`plan=... (Nm ago)`, so read that first — a plan older than the newest 4H close
+means the shadow did not evaluate that bar. Until PR #97 lands, the usual cause
+is a boot race: a shadow started *before* its feed consumes the bar on one
+gate-denied cycle and then stays quiet until the next close, so start the feed
+first. Once that lands a bar is consumed only by a cycle that actually evaluated
+its cards, and the retry is automatic. When there is no plan age at all, the
+cause is upstream: `shadow off` / `shadow down` means no shadow is wired or
+reachable, and `MAP_ACCEPT=0` plans nothing.
+
 ## MAP
 
 Read `ticker` + `klines.240` + `klines.60` + **`klineLag`** from **`GET /map`** (daily `klines.D` if backfilled). No query → feed watchlist (10, cap 10) as `{ maps, klineLag }`. Do **not** dump `/brief` 15m into chat. `/brief` is unchanged and is **not** the MAP candle source.
@@ -49,7 +98,7 @@ Account seed: risk 2%, `minRr` **2** (config, not an engine constant). Engine st
 
 ## EVENT
 
-EVENT is **OCO + tick**. Do not poll `/confirm` / `/brief` / 30-minute scan. Pending limit invalidates itself; fill/SL/TP fire as events. Optional `PAPER_BE_R=0.5` (default **off**, one 180d A/B): after last runs ≥ N× original risk in the trade's favor, tick moves SL to entry once (`position.managed` / `be`). Return through entry is a 0-R SL, not a −1R. Same-bar adverse-first prints still let original SL beat the excursion (replay honesty). Not a Telegram kind unless you add it.
+EVENT is **OCO + tick**. Do not poll `/confirm` / `/brief` / 30-minute scan. Pending limit invalidates itself; fill/SL/TP fire as events. `PAPER_BE_R` (move SL to entry after last runs ≥ N× original risk, `position.managed` / `be`) is **off and measured off**: on a 180d one-book frozen-floor walk, 0.5R turned 68 trades into 0-R scratches but took TP exits from 36 to 19 — net −4 770.6 equity. The scratches are real; the forfeited right tail is bigger. Do not enable it, and do not re-argue it from the −1R side of the ledger alone. See [ROADMAP.md](ROADMAP.md).
 
 Bound pending (`zoneId` on an accepted ledger card) dies with the zone: expiry, `deep_mitigate` (≥50% into the zone after rest), `htf_break` (through SL), or operator `paper zone reject` cancel the resting limit **and** the matching armed alert (`order.invalidated` carries that `cancelCode`). Cascade/crowded still **wait** — skip fill this tick, keep the pending, do not reject the card. Unzoned `paper limit` / `--no-oco` unchanged. Do not auto-close opens.
 

@@ -59,6 +59,19 @@ describe("paper review", () => {
     expect(() => parsePaperArgs(["ab", "only.json"])).toThrow();
   });
 
+  test("review carries its train window and ab flags a mismatched pair", () => {
+    const frozen = paperReviewFromReplayMap(oneBook({ trainDays: 90 }));
+    const inSample = paperReviewFromReplayMap(oneBook({}));
+    expect(frozen.trainDays).toBe(90);
+    expect(inSample.trainDays).toBeNull();
+    expect(paperAbFromReviews(frozen, inSample).methodMismatch).toEqual(["trainDays: base=90 variant=null"]);
+    expect(paperAbFromReviews(inSample, frozen).methodMismatch).toEqual(["trainDays: base=null variant=90"]);
+    expect(paperAbFromReviews(frozen, paperReviewFromReplayMap(oneBook({ trainDays: 90 }))).methodMismatch)
+      .toEqual([]);
+    expect(paperAbFromReviews(frozen, paperReviewFromReplayMap(oneBook({ trainDays: 90, days: 30, oneBook: undefined, watchlist: true }))).methodMismatch)
+      .toEqual(["days: base=180 variant=30", "oneBook: base=true variant=false"]);
+  });
+
   test("one-book JSON: flags missing flow/cascade; HYPE accepted is a flag", () => {
     const body = paperReviewFromReplayMap(oneBook({
       accepted: ["btc-4h-s-20260908-01", "hype-4h-s-20260908-01"],

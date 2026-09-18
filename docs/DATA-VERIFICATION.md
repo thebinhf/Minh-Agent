@@ -78,7 +78,7 @@ breadth, not design:
 | T0 | All Bybit linear (869 symbols) | `config.symbols` → registry-driven universe from `instruments-info`; WS subscribe in chunks; per-symbol coverage stays honest (`GET /coverage`) |
 | T1 | Bybit spot (538) | same cache schema, second `category`; zone detector stays perp-first |
 | T2 | Second venue (public, no keys) behind the same zone-card + paper desk | ROADMAP P5 — normalized kline/ticker schema, venue table per cache row; after the P7 A/B queue resolves |
-| T3 | Terminal UI | reads the existing read-only HTTP surface (`/observe`, `/ta`, `/zones`, `/flow`, `/liq-heatmap`); UI stays a viewer — never a command source (lock) |
+| T3 | Terminal UI | **Shipped as a viewer**: `bun run term` (`src/terminal/`) reads the existing read-only HTTP surface (`/observe`, which embeds the paper desk; `/ta`, `/zones`, `/flow`, `/liq-heatmap` remain curl-able) and renders one text screen. UI stays a viewer — never a command source (lock). Breadth is still T0: the cache remains 10 Bybit linear perps |
 
 Invariants that survive every stage: missing tape ≠ 0, as-of honesty with
 `quantCoverage`, venue rules stay venue rules, and keys/order placement exist
