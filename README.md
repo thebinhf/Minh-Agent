@@ -249,6 +249,8 @@ deploy/pull-restart.sh
 
 Stale ticker → reject. Stale klines with a live ticker → `klineLag.ok=false`, `gates.tradingAllowed=false`, new open/limit/arm reject with `kline_lag`. Open positions stay open.
 
+A `MAP` age on the terminal far past the last 1H close means the closer did not run, not that a write was lost: a dump that fails (Windows answers `EPERM` when another handle holds `map-latest.json`) releases its bars and retries on the next closer tick, so a lock costs seconds. The feed log line is `map close`.
+
 ## Development
 
 ```bash
