@@ -4,19 +4,23 @@
 #   MINH_ROOT=/opt/minh-agent MINH_BACKUP_DIR=/var/backups/minh-agent deploy/backup-db.sh
 set -euo pipefail
 
-ROOT="${MINH_ROOT:-/opt/minh-agent}"
+ROOT="${MINH_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
 BACKUP_DIR="${MINH_BACKUP_DIR:-$ROOT/backups}"
 KEEP="${MINH_BACKUP_KEEP:-14}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 cd "$ROOT"
 
-DBS=(
-  "${BYBIT_DB_PATH:-/var/lib/bybit-ws-tracker/market.sqlite}"
-  "${PAPER_DB_PATH:-$ROOT/data/paper.sqlite}"
-  "${LIVE_DB_PATH:-/var/lib/bybit-ws-tracker/live-shadow.sqlite}"
-  "${EXEC_DB_PATH:-$ROOT/data/exec.sqlite}"
-)
+# Ask the config, never guess it: the hardcoded paths this script used to carry
+# skipped the market cache on a checkout that keeps it under data/.
+DBS=()
+while IFS= read -r line; do
+  [[ -n "$line" ]] && DBS+=("$line")
+done < <(bun run scripts/db-paths.ts 2>/dev/null || true)
+if [[ "${#DBS[@]}" -eq 0 ]]; then
+  echo "[minh:backup] refuse: no db path resolved (bun run scripts/db-paths.ts)" >&2
+  exit 1
+fi
 
 mkdir -p "$BACKUP_DIR"
 
