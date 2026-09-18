@@ -1,4 +1,5 @@
 import { assertNoApiKeys } from "../paper/config";
+import { assertValidRuntimeEnv } from "../config/runtime-flags";
 import { PaperSafetyError } from "../paper/errors";
 import { httpFeed } from "../paper/feed";
 import { gatesFromFeedHealth } from "../paper/gates";
@@ -70,6 +71,7 @@ export async function startLive(opts?: {
   feed?: LiveTape;
 }): Promise<LiveFeature> {
   assertNoApiKeys();
+  assertValidRuntimeEnv();
   if (!liveEnabled()) {
     throw new PaperSafetyError("LIVE_SHADOW=0 — live-shadow is off");
   }

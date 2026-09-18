@@ -1,4 +1,5 @@
 import { loadConfig as loadFeedConfig } from "../feed/bb/config";
+import { assertValidRuntimeEnv } from "../config/runtime-flags";
 import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./config";
 import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine } from "./engine";
@@ -23,6 +24,7 @@ export async function startPaper(opts?: {
   tick?: boolean;
 }): Promise<PaperFeature> {
   assertNoApiKeys();
+  assertValidRuntimeEnv();
   const config = opts?.config ?? await loadPaperConfig();
   const feedCfg = await loadFeedConfig();
   assertSeparateDb(config.dbPath, feedCfg.dbPath);
