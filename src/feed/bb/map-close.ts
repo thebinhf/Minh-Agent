@@ -61,10 +61,46 @@ export function buildWatchlistMap(
   return buildMapBatch(store, { symbols, dbPath: config.dbPath, now });
 }
 
-export async function writeMapSnapshot(path: string, body: unknown): Promise<void> {
+const RENAME_ATTEMPTS = 4;
+const RENAME_DELAY_MS = 50;
+
+/** On Windows these mean "someone else has the destination open right now". */
+function lockHeld(code: string | undefined): boolean {
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
+}
+
+/**
+ * Windows `rename` over a file another handle has open (antivirus, the indexer,
+ * a concurrent `/map-latest` reader) throws instead of waiting. The lock is
+ * momentary, so retry — a single EPERM used to leave the MAP stale for an hour.
+ */
+export async function writeMapSnapshot(
+  path: string,
+  body: unknown,
+  renameImpl: (from: string, to: string) => Promise<void> = rename,
+): Promise<void> {
   const tmp = `${path}.tmp`;
   await Bun.write(tmp, `${JSON.stringify(body, null, 2)}\n`);
-  await rename(tmp, path);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await renameImpl(tmp, path);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt + 1 >= RENAME_ATTEMPTS || !lockHeld(code)) throw error;
+      await Bun.sleep(RENAME_DELAY_MS * (attempt + 1));
+    }
+  }
+}
+
+/**
+ * The close is consumed only once its dump is on disk. A failed write used to
+ * leave `prev` holding the bar, so nothing retried until the next 1H close.
+ */
+export function rollbackTick(seen: Set<string>, tick: MapCloseTick): Set<string> {
+  const back = new Set(seen);
+  for (const bar of tick.bars) back.delete(mapCloseKey(bar));
+  return back;
 }
 
 export async function postMapCloseWebhook(url: string, body: unknown): Promise<void> {
@@ -105,9 +141,9 @@ export function startMapCloser(
     webhook?: (url: string, body: unknown) => Promise<void>;
     onClose?: (info: { interval: (typeof MAP_CLOSE_INTERVALS)[number]; path: string; map: unknown }) => Promise<void>;
   } = {},
-): { stop: () => void } {
+): { tick: () => Promise<void>; stop: () => void } {
   if (!mapCloseEnabled()) {
-    return { stop() { /* MAP_CLOSE=0 */ } };
+    return { tick: async () => { /* MAP_CLOSE=0 */ }, stop() { /* MAP_CLOSE=0 */ } };
   }
   const path = mapClosePath(config, process.env.MAP_CLOSE_PATH);
   const webhook = process.env.MAP_CLOSE_WEBHOOK?.trim() || "";
@@ -118,26 +154,14 @@ export function startMapCloser(
   const write = hooks.write ?? writeMapSnapshot;
   const post = hooks.webhook ?? postMapCloseWebhook;
 
-  const run = async () => {
-    if (busy) return;
-    let bars: MapCloseBar[] = [];
-    try {
-      bars = readLatestBars(store);
-    } catch {
-      return;
-    }
-    const tick = tickMapClose(prev, bars);
-    prev = tick.next;
-    if (!seeded) {
-      seeded = true;
-      return;
-    }
-    if (!tick.interval) return;
+  const dump = async (tick: MapCloseTick, notify: boolean) => {
+    if (busy || tick.interval === null) return;
     busy = true;
     try {
       const body = buildWatchlistMap(store, config);
       await write(path, body);
       console.log(`[minh:bb] map close ${tick.interval} wrote ${path}`);
+      if (!notify) return;
       if (webhook) {
         try {
           await post(webhook, { kind: "map.close", interval: tick.interval, path, map: body });
@@ -153,10 +177,34 @@ export function startMapCloser(
         }
       }
     } catch (error) {
+      // The close is only consumed once its dump exists: a Windows sharing
+      // violation used to leave the MAP stale until the next hourly close.
+      prev = rollbackTick(prev, tick);
       console.error("[minh:bb] map close", error instanceof Error ? error.message : error);
     } finally {
       busy = false;
     }
+  };
+
+  const run = async () => {
+    if (busy) return;
+    let bars: MapCloseBar[] = [];
+    try {
+      bars = readLatestBars(store);
+    } catch {
+      return;
+    }
+    const tick = tickMapClose(prev, bars);
+    prev = tick.next;
+    if (!seeded) {
+      seeded = true;
+      // Publish a current file at boot: `/map-latest` was previously as old as the
+      // last close before the restart. Notify stays off, because a bar that closed
+      // while we were down must not re-trigger the webhook or the accept path.
+      await dump(tick, false);
+      return;
+    }
+    await dump(tick, true);
   };
 
   const timer = setInterval(() => {
@@ -164,6 +212,7 @@ export function startMapCloser(
   }, intervalMs);
   timer.unref?.();
   return {
+    tick: run,
     stop() {
       clearInterval(timer);
     },
