@@ -2,7 +2,7 @@
 # One-flag paper A/B walk. Does not combine flags. Does not invent CVD/liq.
 # Paper-only. Does not touch the live ledger. Not GitHub Actions.
 #
-#   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal|fresh|impulse|be|scorerr
+#   deploy/replay-map-ab.sh baseline|chop0|floor1|arm2|arm5|arm0|allocate|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal|fresh|impulse|be|scorerr
 #   deploy/replay-map-ab.sh compare BASE.json VARIANT.json
 #
 # Session knobs (export once, then walk every arm):
@@ -41,7 +41,8 @@ fi
 # Clear A/B knobs, then set exactly one. Default = current main (ARM_MAX=2).
 unset AGENT_BIAS_CHOP PAPER_FAMILY_FLOOR_MIN_TRADES PAPER_MAP_SKIP PAPER_ARM_MAX \
   PAPER_TA_FIB AGENT_TA_OSC PAPER_TA_VOL PAPER_TA_SHOCK PAPER_TA_REV PAPER_SETUPS \
-  AGENT_ZONE_FRESH AGENT_ZONE_IMPULSE_MIN PAPER_BE_R PAPER_ZONE_SCORE_RR MINH_DECISION_LOG
+  AGENT_ZONE_FRESH AGENT_ZONE_IMPULSE_MIN PAPER_BE_R PAPER_ZONE_SCORE_RR MINH_DECISION_LOG \
+  PAPER_MAP_ALLOCATE
 case "$NAME" in
   baseline) ;;
   chop0) export AGENT_BIAS_CHOP=0 ;;
@@ -49,6 +50,7 @@ case "$NAME" in
   arm2) export PAPER_ARM_MAX=2 ;;
   arm5) export PAPER_ARM_MAX=5 ;;
   arm0) export PAPER_ARM_MAX=0 ;;
+  allocate) export PAPER_MAP_ALLOCATE=rank ;;
   skiphype) export PAPER_MAP_SKIP=HYPEUSDT ;;
   fib) export PAPER_TA_FIB=arm ;;
   osc) export AGENT_TA_OSC=accept ;;
@@ -63,7 +65,7 @@ case "$NAME" in
   be) export PAPER_BE_R="${PAPER_AB_BE_R:-0.5}" ;;
   scorerr) export PAPER_ZONE_SCORE_RR=1 ;;
   *)
-    echo "usage: $0 baseline|chop0|floor1|arm2|arm5|arm0|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal|fresh|impulse|be|scorerr" >&2
+    echo "usage: $0 baseline|chop0|floor1|arm2|arm5|arm0|allocate|skiphype|fib|osc|vol|shock|rev|sd|breakout|reversal|fresh|impulse|be|scorerr" >&2
     echo "       $0 compare BASE.json VARIANT.json" >&2
     exit 1
     ;;

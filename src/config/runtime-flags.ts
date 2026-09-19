@@ -74,6 +74,11 @@ export function validateRuntimeEnv(env: Record<string, string | undefined> = pro
     errors.push(`AGENT_BIAS_CHOP=${chop}: expected deny|off|0|proximal`);
   }
 
+  const allocate = get("PAPER_MAP_ALLOCATE");
+  if (allocate !== undefined && !["feed", "rank", "off", "0"].includes(allocate.toLowerCase())) {
+    errors.push(`PAPER_MAP_ALLOCATE=${allocate}: expected feed|rank (unset = feed)`);
+  }
+
   const fib = get("PAPER_TA_FIB");
   if (fib !== undefined && !["off", "0", "arm", "1"].includes(fib.toLowerCase())) {
     errors.push(`PAPER_TA_FIB=${fib}: expected arm|1|off|0`);

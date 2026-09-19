@@ -45,6 +45,10 @@ P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** u
 
 ## After MVP (research, not product)
 
+### S1 — strategy layer
+
+`src/strategy/` is where a *named strategy* owns the decisions that are not per-card signal checks. First owner: MAP slot allocation (`PAPER_MAP_ALLOCATE=feed|rank`, default `feed` = the desk's shipped order), because the 180d decision corpus showed the per-symbol cap denies 44% of all evaluations — allocation, not signal quality, is what decides this book. Next in this layer, each one flag / one walk: the ARM cap's ranking rule, then exposure sizing. The locks hold: it holds no keys, never places, never arms from `GET /ta`, and an LLM does not pick zones.
+
 ### P7 — 180d A/B on the host
 
 One flag / one walk: `fib` first (`PAPER_TA_FIB=arm`). Then osc / vol / shock / rev. Do not combine with P8 A/B on the first walk. Replay does not invent CVD. Do not turn a flag on in systemd until that walk wins.

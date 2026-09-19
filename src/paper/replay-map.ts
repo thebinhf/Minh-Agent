@@ -2,7 +2,8 @@ import { existsSync, unlinkSync } from "node:fs";
 import { loadConfig as loadFeedConfig } from "../feed/bb/config";
 import { openDb } from "../feed/bb/db";
 import { intervalToMs, parseTimeArg } from "../feed/bb/recovery";
-import { agentMapEnabled, bumpSkipReason, decideMapAccept, emptySkipReasons, mergeSkipReasons, type PolicyReason } from "../agent/policy";
+import { agentMapEnabled, bumpSkipReason, decideMapAccept, emptySkipReasons, mergeSkipReasons, type PolicyDecision, type PolicyReason } from "../agent/policy";
+import { familyRankCompare, mapAllocateMode, planMapAccept, type AllocateMode } from "../strategy/allocate";
 import { emitDecision, formatDecision } from "../agent/decision-log";
 import {
   biasFromBars,
@@ -23,7 +24,7 @@ import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine, type PaperUniverse } from "./engine";
 import { PaperReject } from "./errors";
 import { familyStatsFromEngine, familyStatsFromMetrics, mapAcceptEnabled, runMapAccept } from "./map-accept";
-import { familyForCard, familyRealizedRrOf, familyScoreOf, rankZoneCards, type FamilyStats } from "./score";
+import { familyForCard, type FamilyStats } from "./score";
 import {
   createReplayFeed,
   loadReplaySeries,
@@ -154,7 +155,7 @@ function oscFromReplay(bars: ReplayBar[]): TaOscTape | null {
   return taOscFromBars(taBarsFromSnaps(replaySnaps(bars, "240")));
 }
 
-function replayDecide(input: {
+type ReplayJudgeInput = {
   card: ZoneCard;
   bias: SymbolBias;
   last: number;
@@ -164,8 +165,13 @@ function replayDecide(input: {
   tape: ReturnType<typeof asOfTape>["tape"] | null;
   family: FamilyStats | null | undefined;
   bars240: ReplayBar[];
-}) {
-  const decision = decideMapAccept({
+};
+
+/** Everything but the slot position, which the allocator fills in. */
+type ReplayCard = Omit<ReplayJudgeInput, "held">;
+
+function replayJudge(input: ReplayJudgeInput) {
+  return decideMapAccept({
     card: input.card,
     bias: input.bias,
     last: input.last,
@@ -177,8 +183,14 @@ function replayDecide(input: {
     family: input.family ?? null,
     osc: oscFromReplay(input.bars240),
   });
-  // The walk already evaluates every card with as-of features; labelling it is
-  // what turns 180 days of replay into a corpus instead of a verdict count.
+}
+
+/**
+ * The walk evaluates every card with as-of features; labelling it is what turns
+ * 180 days of replay into a corpus instead of a verdict count. Called once per
+ * card with the *final* decision, after slot allocation.
+ */
+function noteReplayDecision(input: ReplayCard, decision: PolicyDecision): void {
   emitDecision(formatDecision({
     card: input.card,
     bias: input.bias,
@@ -188,7 +200,51 @@ function replayDecide(input: {
     decision,
     asof: input.asof,
   }));
-  return decision;
+}
+
+/**
+ * One MAP accept pass over a symbol's cards: the strategy allocates the
+ * per-symbol slots, then the cards land. Both walk paths (single symbol and
+ * `--one-book`) come through here, which is the point of the allocator — the
+ * walk runs the same allocation the desk does, so a walk measures the host.
+ */
+function acceptWalkCards(
+  engine: PaperEngine,
+  items: ReplayCard[],
+  familyByKey: Map<string, FamilyStats>,
+  skipReasons: Record<PolicyReason, number>,
+  accepted: string[],
+): void {
+  if (items.length === 0) return;
+  const asof = items[0]!.asof;
+  const mode = mapAllocateMode();
+  const decisions = planMapAccept({
+    items,
+    standingFor: (card) => engine.zones("accepted", asof).filter((row) => row.symbol === card.symbol).length,
+    compare: mode === "rank" ? familyRankCompare(familyByKey) : undefined,
+    decide: (item, held) => replayJudge({ ...item, held }),
+  });
+  items.forEach((item, i) => {
+    const decision = decisions[i]!;
+    noteReplayDecision(item, decision);
+    if (!decision.allow) {
+      bumpSkipReason(skipReasons, decision.reason);
+      return;
+    }
+    try {
+      engine.acceptZone(item.card, item.asof);
+      accepted.push(item.card.zoneId);
+    } catch (error) {
+      if (error instanceof PaperReject) {
+        if (error.error === "duplicate_zone") return;
+        if (error.error === "ledger_cap") {
+          bumpSkipReason(skipReasons, "ledger_cap");
+          return;
+        }
+      }
+      throw error;
+    }
+  });
 }
 
 function noteTaWaits(
@@ -238,6 +294,8 @@ export type ReplayMapResult = {
   ltfBars: number;
   ticks: number;
   slippage: "0";
+  /** Which slot-allocation order the walk ran: see `src/strategy/allocate.ts`. */
+  allocate: AllocateMode;
   quant: "asof" | "missing";
   quantCoverage: QuantCoverage;
   accepted: string[];
@@ -263,6 +321,8 @@ export type ReplayMapBook = {
   ltfBars: number;
   ticks: number;
   slippage: "0";
+  /** Which slot-allocation order the walk ran: see `src/strategy/allocate.ts`. */
+  allocate: AllocateMode;
   quant: "asof" | "missing";
   quantCoverage: QuantCoverage;
   accepted: string[];
@@ -417,42 +477,22 @@ export async function runReplayMap(opts: {
           closes: bars240.slice(-20).map((item) => item.close),
         });
         if (asofRow?.quality === "asof") quantQuality = "asof";
-        const ranked = rankZoneCards(
-          cards,
-          familyScoreOf(familyByKey),
-          familyRealizedRrOf(familyByKey),
-        );
-        for (const card of ranked) {
-          const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
-          const decision = replayDecide({
+        acceptWalkCards(
+          engine,
+          cards.map((card) => ({
             card,
             bias,
             last,
             minRr,
-            held,
             asof,
             tape: asofRow?.tape ?? null,
             family: familyForCard(familyByKey, card) ?? null,
             bars240,
-          });
-          if (!decision.allow) {
-            bumpSkipReason(skipReasons, decision.reason);
-            continue;
-          }
-          try {
-            engine.acceptZone(card, asof);
-            accepted.push(card.zoneId);
-          } catch (error) {
-            if (error instanceof PaperReject) {
-              if (error.error === "duplicate_zone") continue;
-              if (error.error === "ledger_cap") {
-                bumpSkipReason(skipReasons, "ledger_cap");
-                continue;
-              }
-            }
-            throw error;
-          }
-        }
+          })),
+          familyByKey,
+          skipReasons,
+          accepted,
+        );
       }
     }
 
@@ -497,6 +537,7 @@ export async function runReplayMap(opts: {
     ltfBars,
     ticks,
     slippage: "0",
+    allocate: mapAllocateMode(),
     quant: quantQuality,
     quantCoverage,
     accepted: [...new Set(accepted)],
@@ -808,42 +849,22 @@ export async function runReplayMapBook(opts: {
             closes: bars240.slice(-20).map((item) => item.close),
           });
           if (asofRow?.quality === "asof") quantQuality = "asof";
-          const ranked = rankZoneCards(
-            cards,
-            familyScoreOf(familyByKey),
-            familyRealizedRrOf(familyByKey),
-          );
-          for (const card of ranked) {
-            const held = engine.zones("accepted", asof).filter((row) => row.symbol === symbol).length;
-            const decision = replayDecide({
+          acceptWalkCards(
+            engine,
+            cards.map((card) => ({
               card,
               bias,
               last,
               minRr,
-              held,
               asof,
               tape: asofRow?.tape ?? null,
               family: familyForCard(familyByKey, card) ?? null,
               bars240,
-            });
-            if (!decision.allow) {
-              bumpSkipReason(skipReasons, decision.reason);
-              continue;
-            }
-            try {
-              engine.acceptZone(card, asof);
-              accepted.push(card.zoneId);
-            } catch (error) {
-              if (error instanceof PaperReject) {
-                if (error.error === "duplicate_zone") continue;
-                if (error.error === "ledger_cap") {
-                  bumpSkipReason(skipReasons, "ledger_cap");
-                  continue;
-                }
-              }
-              throw error;
-            }
-          }
+            })),
+            familyByKey,
+            skipReasons,
+            accepted,
+          );
         }
       }
       continue;
@@ -883,6 +904,7 @@ export async function runReplayMapBook(opts: {
     ltfBars,
     ticks,
     slippage: "0",
+    allocate: mapAllocateMode(),
     quant: quantQuality,
     quantCoverage,
     accepted: [...new Set(accepted)],
