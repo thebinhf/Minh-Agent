@@ -80,6 +80,7 @@ export async function startLive(opts?: {
   const tape = opts?.feed ?? defaultTape(config.feedUrl);
   let lastFp = "";
   let planning = false;
+  let lastMapPoll = 0;
 
   async function planMap(info: { interval: string; map: unknown }): Promise<ShadowMapPlan | null> {
     const health = await tape.health();
@@ -99,6 +100,12 @@ export async function startLive(opts?: {
 
   async function pollMapClose(): Promise<void> {
     if (opts?.pollMap === false) return;
+    // The dump cannot change faster than a 1H close, and this process only acts on
+    // the 4H one. Fetching the whole watchlist body on every ARM tick and throwing
+    // it away at the fingerprint cost ~680 KB per tick for nothing.
+    const polled = Date.now();
+    if (polled - lastMapPoll < config.mapPollMs) return;
+    lastMapPoll = polled;
     const map = await tape.mapLatest?.();
     if (!map) return;
     const fp = map240Fingerprint(map);

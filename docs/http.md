@@ -368,7 +368,7 @@ Separate process (`bun run live`). Own sqlite. Reads feed HTTP. **Does not** ope
 | `GET /live/shadow` | Standing shadow cards + `wouldArm` + recent plan events |
 | `POST /live/map-close` | `{ interval, map }` (webhook `map.close` body). 4H plans; 1H → `plan: null` |
 
-Polls `GET /map-latest` for 4H fingerprint changes and consumes a bar **only when a cycle actually evaluated its cards** — a gates-denied or `MAP_ACCEPT=0` cycle returns `plan.evaluated: false`, leaves the fingerprint alone and retries on the next tick (one plan in flight), so booting before the feed no longer mutes the shadow until the next close. Optional feed `MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close`. `LIVE_SHADOW=0` refuses start. `LIVE_DB_PATH` must not equal paper or feed sqlite.
+Polls `GET /map-latest` every `LIVE_MAP_POLL_MS` (default 30000 — the ARM tick runs at `LIVE_TICK_MS`, and a 4H bar cannot arrive faster than the poll), on 4H fingerprint changes, and consumes a bar **only when a cycle actually evaluated its cards** — a gates-denied or `MAP_ACCEPT=0` cycle returns `plan.evaluated: false`, leaves the fingerprint alone and retries on the next allowed poll (one plan in flight), so booting before the feed no longer mutes the shadow until the next close. Optional feed `MAP_CLOSE_WEBHOOK=http://127.0.0.1:43182/live/map-close`. `LIVE_SHADOW=0` refuses start. `LIVE_DB_PATH` must not equal paper or feed sqlite.
 
 ```bash
 curl -sS http://127.0.0.1:43182/live/health
