@@ -360,7 +360,10 @@ export async function onMapCloseAccept(
   const mode = mapAllocateMode();
   const decisions = planMapAccept({
     items,
-    standingFor: (card) => engine.zones("accepted", now).filter((row) => row.symbol === card.symbol).length,
+    standingFor: (symbol) => {
+      const rows = engine.zones("accepted", now).filter((row) => row.symbol === symbol);
+      return { count: rows.length, zoneIds: rows.map((row) => row.zoneId) };
+    },
     compare: mode === "rank" ? familyRankCompare(familyByKey) : undefined,
     decide: (item, acceptedForSymbol) => decideMapAccept({
       card: item.card,

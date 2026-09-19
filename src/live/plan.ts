@@ -121,7 +121,10 @@ export async function planMapClose(
   const mode = mapAllocateMode();
   const decisions = planMapAccept({
     items,
-    standingFor: (card) => store.acceptedForSymbol(card.symbol),
+    standingFor: (symbol) => {
+      const rows = store.accepted(now).filter((row) => row.symbol === symbol);
+      return { count: rows.length, zoneIds: rows.map((row) => row.zoneId) };
+    },
     compare: mode === "rank" ? familyRankCompare() : undefined,
     decide: (item, acceptedForSymbol) => decideMapAccept({
       card: item.card,

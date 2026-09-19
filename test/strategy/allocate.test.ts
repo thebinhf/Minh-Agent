@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { familyRankCompare, mapAllocateMode, planMapAccept } from "../../src/strategy/allocate";
+import { familyRankCompare, mapAllocateMode, planMapAccept, type ZoneStanding } from "../../src/strategy/allocate";
 import type { PolicyDecision } from "../../src/agent/policy";
 import type { ZoneCard } from "../../src/zones/card";
 import type { FamilyStats } from "../../src/paper/score";
@@ -72,11 +72,16 @@ function decide(item: Item, acceptedForSymbol: number): PolicyDecision {
 const CHOP: PolicyDecision = { allow: false, reason: "bias_chop" };
 const EXPIRED: PolicyDecision = { allow: false, reason: "expired" };
 
+/** A symbol's standing rows as the allocator sees them. */
+function stood(count: number, zoneIds: string[] = []): ZoneStanding {
+  return { count, zoneIds };
+}
+
 /** What the desk did before this module: one pass, slots consumed in payload order. */
-function sequential(items: Item[], standing: (symbol: string) => number): PolicyDecision[] {
+function sequential(items: Item[], standing: (symbol: string) => ZoneStanding): PolicyDecision[] {
   const accepted: ZoneCard[] = [];
   return items.map((item) => {
-    const slots = standing(item.card.symbol) + accepted.filter((a) => a.symbol === item.card.symbol).length;
+    const slots = standing(item.card.symbol).count + accepted.filter((a) => a.symbol === item.card.symbol).length;
     const verdict = decide(item, slots);
     if (verdict.allow) accepted.push(item.card);
     return verdict;
@@ -85,10 +90,10 @@ function sequential(items: Item[], standing: (symbol: string) => number): Policy
 
 function verdicts(
   items: Item[],
-  standing: (symbol: string) => number = () => 0,
+  standing: (symbol: string) => ZoneStanding = () => stood(0),
   compare?: (a: ZoneCard, b: ZoneCard) => number,
 ) {
-  return planMapAccept({ items, standingFor: (card) => standing(card.symbol), decide, compare });
+  return planMapAccept({ items, standingFor: standing, decide, compare });
 }
 
 describe("MAP slot allocation", () => {
@@ -106,7 +111,7 @@ describe("MAP slot allocation", () => {
       item("sol-3", { symbol: "SOLUSDT" }),
       item("sol-4", { symbol: "SOLUSDT" }),
     ];
-    const standing = (symbol: string) => (symbol === "SOLUSDT" ? 1 : 0);
+    const standing = (symbol: string) => stood(symbol === "SOLUSDT" ? 1 : 0);
     const planned = verdicts(items, standing);
     const walk = sequential(items, standing);
     expect(planned.map((row) => `${row.allow}:${row.reason}`)).toEqual(walk.map((row) => `${row.allow}:${row.reason}`));
@@ -130,7 +135,7 @@ describe("MAP slot allocation", () => {
       item("btc-strong", { rr: 3 }),
       item("btc-mid", { rr: 2 }),
     ];
-    const planned = verdicts(items, () => 0, byRr);
+    const planned = verdicts(items, () => stood(0), byRr);
     expect(planned.map((row) => `${row.allow}`)).toEqual(["false", "true", "true"]);
     expect(planned[0]!.reason).toBe("ledger_cap");
     // Output stays index-aligned with the input, so callers emit once per card.
@@ -139,18 +144,39 @@ describe("MAP slot allocation", () => {
 
   test("an equal rank keeps arrival order, so ranking never becomes a coin flip", () => {
     const items = [item("btc-a", { rr: 2 }), item("btc-b", { rr: 2 }), item("btc-c", { rr: 2 })];
-    const planned = verdicts(items, () => 0, () => 0);
+    const planned = verdicts(items, () => stood(0), () => 0);
     expect(planned.map((row) => row.reason)).toEqual(["ok", "ok", "ledger_cap"]);
   });
 
   test("standing cards reduce what the pass may add", () => {
     const items = [item("btc-a"), item("btc-b")];
-    expect(verdicts(items, () => 1).map((row) => row.reason)).toEqual(["ok", "ledger_cap"]);
-    expect(verdicts(items, () => 2).map((row) => row.reason)).toEqual(["ledger_cap", "ledger_cap"]);
+    expect(verdicts(items, () => stood(1)).map((row) => row.reason)).toEqual(["ok", "ledger_cap"]);
+    expect(verdicts(items, () => stood(2)).map((row) => row.reason)).toEqual(["ledger_cap", "ledger_cap"]);
+  });
+
+  test("a card already on the ledger is not locked out of the slot it holds", () => {
+    // The field bug this guards: BTC stood at 2/2, and the next 4H close
+    // re-priced both of its own incumbents as `ledger_cap` — the terminal showed
+    // a deny on cards the desk was holding.
+    const items = [item("btc-old-1"), item("btc-old-2"), item("btc-new")];
+    const standing = () => stood(2, ["btc-old-1", "btc-old-2"]);
+    expect(verdicts(items, standing).map((row) => row.reason)).toEqual(["ok", "ok", "ledger_cap"]);
+  });
+
+  test("one incumbent leaves exactly one slot for challengers", () => {
+    const items = [item("btc-held"), item("btc-challenger"), item("btc-late")];
+    const standing = () => stood(1, ["btc-held"]);
+    expect(verdicts(items, standing).map((row) => row.reason)).toEqual(["ok", "ok", "ledger_cap"]);
+  });
+
+  test("an incumbent that fails another gate reports that gate, not the cap", () => {
+    const items = [item("btc-held", { post: CHOP }), item("btc-challenger")];
+    const standing = () => stood(2, ["btc-held", "btc-other"]);
+    expect(verdicts(items, standing).map((row) => row.reason)).toEqual(["bias_chop", "ledger_cap"]);
   });
 
   test("no cards, no plan", () => {
-    expect(planMapAccept({ items: [] as Item[], standingFor: () => 0, decide })).toEqual([]);
+    expect(planMapAccept({ items: [] as Item[], standingFor: () => stood(0), decide })).toEqual([]);
   });
 });
 
