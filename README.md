@@ -121,7 +121,9 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `AGENT_BIAS_CHOP` | `deny` | 4H mixed chop is a MAP deny (`bias_chop`). `0` = off (A/B). `proximal` = allow only when last is in proximal→entry. 1H chop does not override 4H |
 | `AGENT_ZONE_FRESH` | off | `1` = MAP deny when the zone is `touched` or already penetrated (`zone_fresh`). Signal-cleaning filter. Off until a one-flag 180d A/B |
 | `AGENT_ZONE_IMPULSE_MIN` | off | Float floor on the departure impulse in ATR. MAP deny below the floor (`zone_impulse`). Unset / `0` / invalid = off. A/B before on |
-| `MINH_DECISION_LOG` | off | `1` = log one JSON line per MAP card at 4H close (`[minh:decision]`): inputs (bias, quant tape, family score/RR, freshness, impulse), the verdict, and the reason. Journald captures it; nothing reads it back. Only the exact string `1` turns it on |
+| `MINH_DECISION_LOG` | off | `1` = log one JSON line per MAP card at 4H close (`[minh:decision]`): inputs (bias, quant tape, family score/RR, freshness, impulse), the verdict, and the reason. Journald captures it. Only the exact string `1` turns it on |
+| `MINH_DECISION_FILE` | off | Path: append the same record as JSONL. Works in `replay-map` too, which is how a corpus gets deep enough to measure (`0` / blank = off). Writes never block accept, and a failing write is a warning, not a denied card |
+| `MINH_DECISION_DB` | `data/decisions.sqlite` | Corpus DB that `bun run agent corpus` ingests into and summarizes from |
 | `PAPER_TA_FIB` | off | `arm` = ARM wait unless last is nearest fib 0.5/0.618. Missing fib is not a wait |
 | `AGENT_TA_OSC` | off | `accept` = MAP deny when RSI/div opposes the zone. Missing osc is not a veto |
 | `PAPER_TA_VOL` | off | `arm` = ARM wait on kline volume climax (rel ≥ 2). Volume 0 stays missing |
@@ -201,6 +203,8 @@ bun run paper replay-map --days 180 --one-book --train-days 90
 bun run paper replay-map BTCUSDT --from 2026-08-01 --to 2026-08-15
 bun run paper review ./lab/replay-map.json
 bun run paper ab ./lab/base.review.json ./lab/chop0.review.json
+MINH_DECISION_FILE=./data/decisions.jsonl bun run paper replay-map --days 180 --one-book --train-days 90
+bun run agent corpus --file ./data/decisions.jsonl
 ```
 
 `paper arm` = post-only limit + fire-once alert. OCO: last through SL **before** the limit → `order.invalidated`. After fill, SL/TP run on the position.
@@ -209,6 +213,8 @@ Replay walks local klines (`bun run backfill` first). Separate `*-replay.sqlite`
 `replay-map` walks 4H detect → policy → 15m ARM on the same tape. Omit symbol = watchlist. `--days 180` (max). `--one-book` shares one equity. `--train-days 90` freezes family floor. Quant as-of. `quantCoverage` counts ok vs missing per field (flow/cascade 0/0 is a flag, not a zero). `*-replay-map.sqlite`.
 `paper review FILE.json` is compact QC from that JSON (skipReasons, coverage, flags). Does not walk bars. Nightly: [`deploy/replay-map-lab.sh`](deploy/replay-map-lab.sh).
 `paper ab BASE.json VARIANT.json` is variant minus base. One flag at a time: [`deploy/replay-map-ab.sh`](deploy/replay-map-ab.sh).
+
+`agent corpus` turns those `[minh:decision]` lines into a queryable SQLite table (one row per card per 4H close, keyed `asof + zoneId`, re-ingest is a no-op) and prints the counts a live host cannot produce: a desk this size emits a few hundred labels a month, so **accept-rate by reason, setup, side, freshness, bias and tape coverage comes from walks**. `--days N` counts back from the newest decision, not from today, because a walk's rows carry past close times. One DB per flag arm: a second arm that flips a verdict on a key the DB already holds keeps the first row and the CLI says so. `--json` for scripts. It reads and summarizes only — it does not arm, accept or place anything.
 
 HTTP: `GET /paper/event`, `GET /paper/week`, `POST /paper/zones`, `POST /paper/arm`, `GET /paper/status`, `GET /paper/metrics`. See [docs/http.md](docs/http.md).
 

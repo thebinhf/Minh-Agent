@@ -132,6 +132,8 @@ bun run paper replay-batch ./zones.json
 bun run paper replay-map --days 180 --one-book
 bun run paper review ./lab/replay-map.json
 bun run paper ab ./lab/base.review.json ./lab/chop0.review.json
+MINH_DECISION_FILE=./data/decisions.jsonl bun run paper replay-map --days 180 --one-book --train-days 90
+bun run agent corpus --file ./data/decisions.jsonl --days 180
 ```
 
 Optional `--interval 15` (walk), `--funding-rate` if you want 8h settlements (kline cache has no funding tape). Auto S/D stays in MAP — replay only receives the zone.
@@ -139,6 +141,17 @@ Optional `--interval 15` (walk), `--funding-rate` if you want 8h settlements (kl
 Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). Output is a table (fill / OCO / SL / TP). One bad row does not stop the rest.
 
 `replay-map` is the method walk (detect → policy → ARM). `paper review FILE.json` is compact QC: skipReasons, `quantCoverage` (ok vs missing per field), flags (`hype_accepted`, `flow_missing`, `cascade_missing`, `tape_skipped`). Missing CVD/liq is a flag, not a zero. Does not walk bars. `paper ab BASE.json VARIANT.json` is variant minus base — one flag at a time. Nightly: [`deploy/replay-map-lab.sh`](../deploy/replay-map-lab.sh). A/B: [`deploy/replay-map-ab.sh`](../deploy/replay-map-ab.sh).
+
+## CORPUS
+
+Every MAP verdict with the as-of features that produced it, in SQLite. A live host answers *why not this card*; the corpus answers *how often does each rule fire, and on what kind of card* — which needs a walk, because this desk emits a few hundred labels a month. `bun run agent corpus` ingests the JSONL (one row per card per 4H close, re-ingest is a no-op) and prints rows, cards, span and accept-rate split by reason, setup, side, freshness, HTF bias and symbol, plus tape coverage as *known vs missing*.
+
+Reads and counts only. It does not arm, accept or place — a viewer, like `bun run term`. A row is an **evaluation**, not a card: a standing card is re-judged at every close, so `evals=` exceeds `cards=`. The `cards=` half of the `allow` line is the number `paper review` calls `accepted[]` — on a 180d one-book walk they matched exactly (567).
+
+Two traps it will tell you about:
+
+- `--days N` counts back from the **newest decision**, not from today. Walk rows carry past close times, so a wall-clock window prints `rows=0` on a corpus that is full.
+- The key is `asof + zone_id`, so one row per card per close. A walk that re-evaluates a standing card in the same close keeps the **first** verdict, and the ingest line counts those as `WARNING N`. Two flag arms in one db take the same path silently — give each arm its own `--db`.
 
 ## LIVE-SHADOW
 
