@@ -26,6 +26,8 @@ export type LiveConfig = {
   dbPath: string;
   feedUrl: string;
   tickMs: number;
+  /** Cadence for fetching the MAP dump. The ARM tick runs at tickMs; a 4H bar cannot. */
+  mapPollMs: number;
   minRr: string | null;
 };
 
@@ -47,6 +49,7 @@ export async function loadLiveConfig(): Promise<LiveConfig> {
     dbPath,
     feedUrl: strEnv("LIVE_FEED_URL") ?? paper.feedUrl ?? "http://127.0.0.1:43180",
     tickMs: intEnv("LIVE_TICK_MS") ?? 400,
+    mapPollMs: intEnv("LIVE_MAP_POLL_MS") ?? 30_000,
     minRr: strEnv("LIVE_MIN_RR") ?? paper.account.minRr,
   };
 }
