@@ -149,6 +149,10 @@ export function validateRuntimeEnv(env: Record<string, string | undefined> = pro
   if (be !== undefined && !isPosNum(be)) {
     errors.push(`PAPER_BE_R=${be}: expected float > 0 (unset = off)`);
   }
+  const zoneMin = get("ZONE_MIN_RR");
+  if (zoneMin !== undefined && !isPosNum(zoneMin)) {
+    errors.push(`ZONE_MIN_RR=${zoneMin}: expected float > 0 (unset = 2, the RR floor detection draws cards at)`);
+  }
   for (const name of ["BYBIT_OI_EXTREME", "BYBIT_FLOW_EXTREME", "BYBIT_FUNDING_EXTREME", "BYBIT_LIQ_BAND"] as const) {
     const raw = get(name);
     if (raw !== undefined && !isPosNum(raw)) {

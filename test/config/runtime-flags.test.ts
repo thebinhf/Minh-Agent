@@ -18,12 +18,15 @@ describe("runtime env validation", () => {
       PAPER_OBSERVE: "1",
       MINH_DECISION_LOG: "1",
       MAP_CLOSE_WEBHOOK: "http://127.0.0.1:43182/live/map-close",
+      ZONE_MIN_RR: "1.5",
     })).toEqual([]);
   });
 
   test("typos fail fast instead of silent default", () => {
     expect(validateRuntimeEnv({ PAPER_ARM_MAX: "abc" }).length).toBe(1);
     expect(validateRuntimeEnv({ PAPER_BE_R: "soon" }).length).toBe(1);
+    expect(validateRuntimeEnv({ ZONE_MIN_RR: "abc" }).length).toBe(1);
+    expect(validateRuntimeEnv({ ZONE_MIN_RR: "0" }).length).toBe(1);
     expect(validateRuntimeEnv({ AGENT_BIAS_CHOP: "chop" }).length).toBe(1);
     expect(validateRuntimeEnv({ PAPER_TA_FIB: "armed" }).length).toBe(1);
     expect(validateRuntimeEnv({ PAPER_SETUPS: "ict" }).length).toBe(1);

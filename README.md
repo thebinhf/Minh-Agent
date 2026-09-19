@@ -93,6 +93,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_DB_PATH` | paper SQLite | Ledger (must not equal the feed DB) |
 | `LIVE_HTTP_HOST` / `LIVE_HTTP_PORT` | `127.0.0.1` / `43182` | Live-shadow bind (`bun run live`) |
 | `LIVE_DB_PATH` | live-shadow SQLite | Must not equal paper or feed |
+| `ZONE_MIN_RR` | `2` | RR that zone detection draws a card's TP at. A detected card sits on it, so an account `min_rr` below this can never reject anything — `paper`/`live` boot says so instead. Non-numeric or `<= 0` refuses start |
 | `LIVE_FEED_URL` | `http://127.0.0.1:43180` | Public tape. Does not start a second WS |
 | `EXEC_MODE` | (none) | `testnet` or `mainnet`. Exec refuses to start without it; `mainnet` also needs `EXEC_MAINNET_CONFIRM=1` |
 | `EXEC_HTTP_HOST` / `EXEC_HTTP_PORT` | `127.0.0.1` / `43183` | Exec bind (`bun run exec`) |
