@@ -110,9 +110,11 @@ export type CorpusIngest = {
   inserted: number;
   skippedUnparseable: number;
   /**
-   * Keys already in the DB that carry a *different* verdict. That is a second
-   * flag arm replayed into one DB: the earlier row stays, so the summary would
-   * silently describe only the first walk. Say it out loud and point at `--db`.
+   * Keys already in the DB holding a *different* verdict, so the first row won.
+   * A walk does this legitimately — a card accepted at a close is re-evaluated
+   * in the same cycle and turns into `stand_aside`. Two flag arms ingested into
+   * one DB do it silently, and the summary would then describe one arm only.
+   * Either way, say it out loud.
    */
   verdictConflicts: number;
 };

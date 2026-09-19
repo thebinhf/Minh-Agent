@@ -66,8 +66,8 @@ export async function runAgent(argv: string[] = Bun.argv.slice(2)): Promise<numb
       process.stdout.write(`ingest ${ingest.file}: ${ingest.parsed} parsed, ${ingest.inserted} new, ${ingest.skippedUnparseable} unparseable\n`);
       if (ingest.verdictConflicts > 0) {
         process.stdout.write(
-          `WARNING ${ingest.verdictConflicts} card-closes already had a different verdict in this db and kept it.`
-          + ` A second flag arm needs its own --db, or these counts describe the first walk only\n`,
+          `WARNING ${ingest.verdictConflicts} card-closes already had a different verdict in this db and kept the first.`
+          + ` One walk re-evaluates a standing card, which is normal; two flag arms in one db is not — give each arm its own --db\n`,
         );
       }
       process.stdout.write(formatCorpusSummary(summary));

@@ -151,7 +151,7 @@ Reads and counts only. It does not arm, accept or place — a viewer, like `bun 
 Two traps it will tell you about:
 
 - `--days N` counts back from the **newest decision**, not from today. Walk rows carry past close times, so a wall-clock window prints `rows=0` on a corpus that is full.
-- **One `--db` per flag arm.** The key is `asof + zone_id`, so a variant that flips a verdict keeps the first row. The ingest line prints `WARNING N … kept it` when that happens.
+- The key is `asof + zone_id`, so one row per card per close. A walk that re-evaluates a standing card in the same close keeps the **first** verdict, and the ingest line counts those as `WARNING N`. Two flag arms in one db take the same path silently — give each arm its own `--db`.
 
 ## LIVE-SHADOW
 
