@@ -146,7 +146,7 @@ Batch file: operator-picked zones (`symbol/side/price/sl/tp/tf` + `from`/`to`). 
 
 Every MAP verdict with the as-of features that produced it, in SQLite. A live host answers *why not this card*; the corpus answers *how often does each rule fire, and on what kind of card* — which needs a walk, because this desk emits a few hundred labels a month. `bun run agent corpus` ingests the JSONL (one row per card per 4H close, re-ingest is a no-op) and prints rows, cards, span and accept-rate split by reason, setup, side, freshness, HTF bias and symbol, plus tape coverage as *known vs missing*.
 
-Reads and counts only. It does not arm, accept or place — a viewer, like `bun run term`.
+Reads and counts only. It does not arm, accept or place — a viewer, like `bun run term`. A row is an **evaluation**, not a card: a standing card is re-judged at every close, so `evals=` exceeds `cards=`. The `cards=` half of the `allow` line is the number `paper review` calls `accepted[]` — on a 180d one-book walk they matched exactly (567).
 
 Two traps it will tell you about:
 

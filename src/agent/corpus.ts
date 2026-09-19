@@ -150,6 +150,8 @@ export type CorpusSummary = {
   lastAsof: number | null;
   spanDays: number | null;
   accepted: number;
+  /** Rows are evaluations, so one card can be allowed at several closes. */
+  acceptedCards: number;
   acceptRate: string;
   byReason: Array<{ reason: string; n: number }>;
   bySetup: Array<{ setup: string; n: number; accepted: number }>;
@@ -174,8 +176,13 @@ export function summarizeCorpus(corpus: ReturnType<typeof openCorpusDb>, days = 
   const since = (newest.m ?? 0) - days * 86_400_000;
   const totals = db.prepare(
     `SELECT COUNT(*) n, COUNT(DISTINCT zone_id) cards, MIN(asof) first, MAX(asof) last,
-            COALESCE(SUM(allow),0) accepted FROM decisions WHERE asof >= ?`,
-  ).get(since) as { n: number; cards: number; first: number | null; last: number | null; accepted: number };
+            COALESCE(SUM(allow),0) accepted,
+            COUNT(DISTINCT CASE WHEN allow = 1 THEN zone_id END) accepted_cards
+     FROM decisions WHERE asof >= ?`,
+  ).get(since) as {
+    n: number; cards: number; first: number | null; last: number | null;
+    accepted: number; accepted_cards: number;
+  };
   const tape = db.prepare(
     `SELECT COALESCE(SUM(flow_reading IS NOT NULL),0) flow_known, COALESCE(SUM(flow_reading IS NULL),0) flow_missing,
             COALESCE(SUM(oi_reading IS NOT NULL),0) oi_known, COALESCE(SUM(oi_reading IS NULL),0) oi_missing,
@@ -191,6 +198,7 @@ export function summarizeCorpus(corpus: ReturnType<typeof openCorpusDb>, days = 
     lastAsof: totals.last,
     spanDays: totals.first && totals.last ? Math.round(((totals.last - totals.first) / 86_400_000) * 10) / 10 : null,
     accepted: totals.accepted,
+    acceptedCards: totals.accepted_cards,
     acceptRate: totals.n ? (totals.accepted / totals.n).toFixed(4) : "0",
     byReason: group(db, `SELECT reason, COUNT(*) n FROM decisions WHERE asof >= ? GROUP BY reason ORDER BY n DESC`, since)
       .map((row) => ({ reason: String(row.reason), n: Number(row.n) })),
@@ -221,9 +229,9 @@ export function formatCorpusSummary(summary: CorpusSummary): string {
   const cut = summary.rows === summary.totalRows ? "" : `/${summary.totalRows} in db`;
   lines.push(
     `corpus rows=${summary.rows}${cut} cards=${summary.cards} window=${summary.windowDays}d`
-    + ` ${day(summary.firstAsof)}→${day(summary.lastAsof)} (${span})`
-    + ` accept=${summary.accepted} (${summary.acceptRate})`,
+    + ` ${day(summary.firstAsof)}→${day(summary.lastAsof)} (${span})`,
   );
+  lines.push(`allow     evals=${summary.accepted} cards=${summary.acceptedCards} rate=${summary.acceptRate}`);
   lines.push(`reasons   ${summary.byReason.map((row) => `${row.reason}=${row.n}`).join(" ") || "—"}`);
   lines.push(`setups    ${summary.bySetup.map((row) => `${row.setup}=${row.n}/${row.accepted}`).join(" ") || "—"}`);
   lines.push(`sides     ${summary.bySide.map((row) => `${row.side}=${row.n}/${row.accepted}`).join(" ") || "—"}`);

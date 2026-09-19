@@ -90,6 +90,7 @@ ${JSON.stringify(rows[1])}
       expect(summary.totalRows).toBe(3);
       expect(summary.cards).toBe(3);
       expect(summary.accepted).toBe(1);
+      expect(summary.acceptedCards).toBe(1);
       expect(summary.acceptRate).toBe("0.3333");
       expect(summary.byReason.map((row) => `${row.reason}=${row.n}`)).toEqual(["bias_chop=2", "ok=1"]);
       expect(summary.bySetup.map((row) => `${row.setup}=${row.n}/${row.accepted}`).sort())
@@ -114,13 +115,18 @@ ${JSON.stringify(rows[1])}
     await Bun.write(path, [
       JSON.stringify(record()),
       JSON.stringify(record({ asof: 1_789_086_400_000, allow: true, reason: "ok" })),
+      JSON.stringify(record({ asof: 1_789_172_800_000, allow: true, reason: "ok" })),
     ].join("\n"));
     const corpus = openCorpusDb(join(dir, "decisions.sqlite"));
     try {
-      expect((await ingestDecisionFile(corpus, path)).inserted).toBe(2);
+      expect((await ingestDecisionFile(corpus, path)).inserted).toBe(3);
       const summary = summarizeCorpus(corpus, 400);
-      expect(summary.rows).toBe(2);
+      expect(summary.rows).toBe(3);
       expect(summary.cards).toBe(1);
+      // Counts are evaluations: one card allowed at two closes is two rows.
+      expect(summary.accepted).toBe(2);
+      expect(summary.acceptedCards).toBe(1);
+      expect(formatCorpusSummary(summary)).toContain("allow     evals=2 cards=1");
     } finally {
       corpus.close();
     }
