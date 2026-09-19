@@ -9,7 +9,7 @@ import { parseTimeArg } from "../feed/bb/recovery";
 import { bindPaperNotify } from "./notify";
 import { paperArm, paperDay, paperStatus, paperWeek } from "./ops";
 import { paperEvent } from "./event";
-import { observerMode, paperObserve } from "./observe";
+import { observerBlocksCommand, paperObserve } from "./observe";
 import { DEFAULT_METRICS_DAYS, parseMetricsDays, paperMetrics } from "./metrics";
 import { parseZoneId } from "./gates";
 import { acceptTokenKind, lookupSuggestedZone } from "./zone-accept";
@@ -468,15 +468,9 @@ export async function runPaperCommand(
 ): Promise<unknown> {
   if (command.name === "account") return engine.account();
   if (command.name === "observe") return paperObserve(engine);
-  if (observerMode() && (
-    command.name === "open" || command.name === "limit" || command.name === "arm"
-    || command.name === "close" || command.name === "cancel"
-    || command.name === "zone-accept" || command.name === "zone-reject"
-    || command.name === "alert-set" || command.name === "alert-cancel"
-    || command.name === "mark"
-  )) {
+  if (observerBlocksCommand(command.name)) {
     throw new PaperReject("observer", "observe", {
-      message: "PAPER_OBSERVE=1 — status/observe only; MAP/ARM/EVENT run in-process",
+      message: "PAPER_OBSERVE=1 — entries refused; use close/cancel/alert-cancel/mark to get out, or PAPER_OBSERVE=0",
     });
   }
   if (command.name === "positions") {
