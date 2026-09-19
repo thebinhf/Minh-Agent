@@ -354,7 +354,13 @@ function countDelta<K extends string>(
   return out;
 }
 
-/** Walk parameters that must match before one review can be subtracted from another. */
+/**
+ * Walk parameters that must match before one review can be subtracted from
+ * another. Deliberately only the *instrument* (window, book, floor, slippage):
+ * a strategy knob under test — `allocate`, `chop0`, `arm5`, any TA flag — is the
+ * difference the experiment exists to measure, so listing one here would make
+ * its own arm permanently NOT COMPARABLE.
+ */
 export function abMethodMismatch(base: PaperReview, variant: PaperReview): string[] {
   const out: string[] = [];
   const cmp = (label: string, a: unknown, b: unknown): void => {
@@ -364,7 +370,6 @@ export function abMethodMismatch(base: PaperReview, variant: PaperReview): strin
   cmp("oneBook", base.oneBook, variant.oneBook);
   cmp("trainDays", base.trainDays, variant.trainDays);
   cmp("slippage", base.slippage, variant.slippage);
-  cmp("allocate", base.allocate, variant.allocate);
   return out;
 }
 

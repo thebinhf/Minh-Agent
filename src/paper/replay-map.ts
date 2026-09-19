@@ -203,6 +203,16 @@ function noteReplayDecision(input: ReplayCard, decision: PolicyDecision): void {
 }
 
 /**
+ * Which allocator produced this walk. `AGENT_MAP=0` sends accept down the legacy
+ * copy path, which does its own score-only ordering and never reaches
+ * `planMapAccept` — labelling such a walk `feed` or `rank` would attribute it to
+ * an allocation it did not apply.
+ */
+export function reportedAllocateMode(): AllocateMode | null {
+  return agentMapEnabled() ? mapAllocateMode() : null;
+}
+
+/**
  * One MAP accept pass over a symbol's cards: the strategy allocates the
  * per-symbol slots, then the cards land. Both walk paths (single symbol and
  * `--one-book`) come through here, which is the point of the allocator — the
@@ -294,8 +304,8 @@ export type ReplayMapResult = {
   ltfBars: number;
   ticks: number;
   slippage: "0";
-  /** Which slot-allocation order the walk ran: see `src/strategy/allocate.ts`. */
-  allocate: AllocateMode;
+  /** Which slot-allocation order the walk ran; `null` = the legacy path, which ranks differently. */
+  allocate: AllocateMode | null;
   quant: "asof" | "missing";
   quantCoverage: QuantCoverage;
   accepted: string[];
@@ -321,8 +331,8 @@ export type ReplayMapBook = {
   ltfBars: number;
   ticks: number;
   slippage: "0";
-  /** Which slot-allocation order the walk ran: see `src/strategy/allocate.ts`. */
-  allocate: AllocateMode;
+  /** Which slot-allocation order the walk ran; `null` = the legacy path, which ranks differently. */
+  allocate: AllocateMode | null;
   quant: "asof" | "missing";
   quantCoverage: QuantCoverage;
   accepted: string[];
@@ -537,7 +547,7 @@ export async function runReplayMap(opts: {
     ltfBars,
     ticks,
     slippage: "0",
-    allocate: mapAllocateMode(),
+    allocate: reportedAllocateMode(),
     quant: quantQuality,
     quantCoverage,
     accepted: [...new Set(accepted)],
@@ -904,7 +914,7 @@ export async function runReplayMapBook(opts: {
     ltfBars,
     ticks,
     slippage: "0",
-    allocate: mapAllocateMode(),
+    allocate: reportedAllocateMode(),
     quant: quantQuality,
     quantCoverage,
     accepted: [...new Set(accepted)],
