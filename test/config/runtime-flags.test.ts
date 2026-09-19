@@ -10,6 +10,7 @@ describe("runtime env validation", () => {
     expect(validateRuntimeEnv({
       AGENT_MAP: "1",
       AGENT_BIAS_CHOP: "deny",
+      PAPER_MAP_ALLOCATE: "rank",
       PAPER_ARM_MAX: "2",
       PAPER_BE_R: "0.5",
       PAPER_ZONE_SCORE_RR: "1",
@@ -28,6 +29,7 @@ describe("runtime env validation", () => {
     expect(validateRuntimeEnv({ ZONE_MIN_RR: "abc" }).length).toBe(1);
     expect(validateRuntimeEnv({ ZONE_MIN_RR: "0" }).length).toBe(1);
     expect(validateRuntimeEnv({ AGENT_BIAS_CHOP: "chop" }).length).toBe(1);
+    expect(validateRuntimeEnv({ PAPER_MAP_ALLOCATE: "armed" }).length).toBe(1);
     expect(validateRuntimeEnv({ PAPER_TA_FIB: "armed" }).length).toBe(1);
     expect(validateRuntimeEnv({ PAPER_SETUPS: "ict" }).length).toBe(1);
     expect(validateRuntimeEnv({ PAPER_MAP_SKIP: "BTC" }).length).toBe(1);

@@ -26,6 +26,8 @@ export type PaperReview = {
   ltfBars: number | null;
   ticks: number | null;
   slippage: string | null;
+  /** How MAP handed out scarce per-symbol slots: `feed` | `rank`. */
+  allocate: string | null;
   quant: "asof" | "missing" | null;
   quantCoverage: QuantCoverage | null;
   accepted: number;
@@ -206,6 +208,7 @@ function foldWatchlist(body: Record<string, unknown>): Record<string, unknown> {
     ltfBars,
     ticks,
     quant,
+    allocate: rows.map((row) => row.allocate).find((value) => typeof value === "string") ?? body.allocate,
     oneBook: false,
   };
 }
@@ -265,6 +268,7 @@ export function paperReviewFromReplayMap(body: unknown, source = "json"): PaperR
     ltfBars: typeof folded.ltfBars === "number" ? folded.ltfBars : null,
     ticks: typeof folded.ticks === "number" ? folded.ticks : null,
     slippage: typeof folded.slippage === "string" ? folded.slippage : null,
+    allocate: typeof folded.allocate === "string" ? folded.allocate : null,
     quant: folded.quant === "asof" || folded.quant === "missing" ? folded.quant : null,
     quantCoverage: coverage,
     accepted: accepted.count,
@@ -350,7 +354,13 @@ function countDelta<K extends string>(
   return out;
 }
 
-/** Walk parameters that must match before one review can be subtracted from another. */
+/**
+ * Walk parameters that must match before one review can be subtracted from
+ * another. Deliberately only the *instrument* (window, book, floor, slippage):
+ * a strategy knob under test — `allocate`, `chop0`, `arm5`, any TA flag — is the
+ * difference the experiment exists to measure, so listing one here would make
+ * its own arm permanently NOT COMPARABLE.
+ */
 export function abMethodMismatch(base: PaperReview, variant: PaperReview): string[] {
   const out: string[] = [];
   const cmp = (label: string, a: unknown, b: unknown): void => {

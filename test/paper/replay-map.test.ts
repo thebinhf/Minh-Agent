@@ -5,7 +5,7 @@ import { parsePaperArgs } from "../../src/paper/cli";
 import { paperReviewFromReplayMap } from "../../src/paper/review";
 import { loadConfig } from "../../src/feed/bb/config";
 import { PaperReject } from "../../src/paper/errors";
-import { runReplayMap, runReplayMapBook, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow } from "../../src/paper/replay-map";
+import { runReplayMap, runReplayMapBook, runReplayMapWatchlist, DAY_MS, REPLAY_MAP_MAX_DAYS, replayMapWindow, reportedAllocateMode } from "../../src/paper/replay-map";
 import { familyFromCard, familyKey } from "../../src/paper/score";
 import type { AsOfStore } from "../../src/features/tape";
 import { intervalMsForTf, type DetectBar } from "../../src/zones/detect";
@@ -358,3 +358,26 @@ describe("paper replay-map", () => {
 });
 
 
+
+describe("walk allocation label", () => {
+  const savedAgent = process.env.AGENT_MAP;
+  const savedAllocate = process.env.PAPER_MAP_ALLOCATE;
+
+  afterEach(() => {
+    if (savedAgent === undefined) delete process.env.AGENT_MAP;
+    else process.env.AGENT_MAP = savedAgent;
+    if (savedAllocate === undefined) delete process.env.PAPER_MAP_ALLOCATE;
+    else process.env.PAPER_MAP_ALLOCATE = savedAllocate;
+  });
+
+  test("only claims a mode the walk actually ran", () => {
+    delete process.env.AGENT_MAP;
+    delete process.env.PAPER_MAP_ALLOCATE;
+    expect(reportedAllocateMode()).toBe("feed");
+    process.env.PAPER_MAP_ALLOCATE = "rank";
+    expect(reportedAllocateMode()).toBe("rank");
+    // AGENT_MAP=0 forks accept into the legacy copy path, which never allocates.
+    process.env.AGENT_MAP = "0";
+    expect(reportedAllocateMode()).toBeNull();
+  });
+});

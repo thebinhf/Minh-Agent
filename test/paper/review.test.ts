@@ -72,6 +72,21 @@ describe("paper review", () => {
       .toEqual(["days: base=180 variant=30", "oneBook: base=true variant=false"]);
   });
 
+  test("allocation mode is recorded, and is not an instrument mismatch", () => {
+    const feed = paperReviewFromReplayMap(oneBook({ allocate: "feed" }));
+    const rank = paperReviewFromReplayMap(oneBook({ allocate: "rank" }));
+    expect(feed.allocate).toBe("feed");
+    // A pre-allocator walk cannot be assumed to have run the same allocation.
+    expect(paperReviewFromReplayMap(oneBook({})).allocate).toBeNull();
+    // Which order filled the slots *is* the arm under test, so `ab` must not
+    // refuse the pair the way it refuses a shifted window.
+    expect(paperAbFromReviews(feed, rank).methodMismatch).toEqual([]);
+    expect(paperAbFromReviews(feed, rank).delta.accepted).toBe(0);
+    // The instrument still has to match.
+    expect(paperAbFromReviews(feed, paperReviewFromReplayMap(oneBook({ allocate: "rank", days: 90 }))).methodMismatch)
+      .toEqual(["days: base=180 variant=90"]);
+  });
+
   test("one-book JSON: flags missing flow/cascade; HYPE accepted is a flag", () => {
     const body = paperReviewFromReplayMap(oneBook({
       accepted: ["btc-4h-s-20260908-01", "hype-4h-s-20260908-01"],

@@ -18,6 +18,7 @@ import { isMidRange, readMapBias, type MapBias, type SymbolBias } from "./bias";
 import { quantVeto, readMapQuant, type QuantTape } from "./quant";
 import { oscAcceptVeto, type TaOscTape } from "./ta-gate";
 import { emitDecision, formatDecision } from "./decision-log";
+import { familyRankCompare, mapAllocateMode, planMapAccept } from "../strategy/allocate";
 
 /**
  * AGENT_MAP=0: this policy is a no-op. 4H close still uses the old MAP_ACCEPT
@@ -340,48 +341,64 @@ export async function onMapCloseAccept(
   const tapes = readMapQuant(info.map);
   const minRr = engine.account().minRr;
   const familyByKey = familyStatsFromEngine(engine, now);
-  const allow: ZoneCard[] = [];
-  let skipped = 0;
-  const skipReasons = emptySkipReasons();
+  const items: Array<{ card: ZoneCard; bias: SymbolBias | undefined; tape: QuantTape | null; family: FamilyStats | null }> = [];
   for (const raw of cards) {
-    let card: ZoneCard;
     try {
-      card = parseZoneCard(raw);
+      const card = parseZoneCard(raw);
+      items.push({
+        card,
+        bias: biases.get(card.symbol),
+        tape: tapes.get(card.symbol) ?? null,
+        family: familyForCard(familyByKey, card) ?? null,
+      });
     } catch {
       continue;
     }
-    const standing = engine.zones("accepted", now).filter((row) => row.symbol === card.symbol).length;
-    const bias = biases.get(card.symbol);
-    const tape = tapes.get(card.symbol);
-    const family = familyForCard(familyByKey, card) ?? null;
-    const decision = decideMapAccept({
-      card,
-      bias,
-      last: lastBySymbol.get(card.symbol),
+  }
+  // Which card of a symbol takes the last slot is a strategy decision, not a
+  // side effect of how the feed sorted its response.
+  const mode = mapAllocateMode();
+  const decisions = planMapAccept({
+    items,
+    standingFor: (symbol) => {
+      const rows = engine.zones("accepted", now).filter((row) => row.symbol === symbol);
+      return { count: rows.length, zoneIds: rows.map((row) => row.zoneId) };
+    },
+    compare: mode === "rank" ? familyRankCompare(familyByKey) : undefined,
+    decide: (item, acceptedForSymbol) => decideMapAccept({
+      card: item.card,
+      bias: item.bias,
+      last: lastBySymbol.get(item.card.symbol),
       minRr,
-      acceptedForSymbol: standing + allow.filter((item) => item.symbol === card.symbol).length,
+      acceptedForSymbol,
       tradingAllowed: gates.tradingAllowed,
       now,
-      tape,
-      family,
-      osc: opts.oscBySymbol?.get(card.symbol) ?? null,
-    });
+      tape: item.tape,
+      family: item.family,
+      osc: opts.oscBySymbol?.get(item.card.symbol) ?? null,
+    }),
+  });
+  const allow: ZoneCard[] = [];
+  let skipped = 0;
+  const skipReasons = emptySkipReasons();
+  items.forEach((item, i) => {
+    const decision = decisions[i]!;
     emitDecision(formatDecision({
-      card,
-      bias: bias ?? null,
-      last: lastBySymbol.get(card.symbol) ?? null,
-      tape: tape ?? null,
-      family,
+      card: item.card,
+      bias: item.bias ?? null,
+      last: lastBySymbol.get(item.card.symbol) ?? null,
+      tape: item.tape,
+      family: item.family,
       decision,
       asof: now,
     }));
     if (!decision.allow) {
       skipped += 1;
       bumpSkipReason(skipReasons, decision.reason);
-      continue;
+      return;
     }
-    allow.push(card);
-  }
+    allow.push(item.card);
+  });
   const result = runMapAccept(engine, allow, lastBySymbol, now, familyByKey);
   mergeSkipReasons(skipReasons, result.skipReasons);
   return { accepted: result.accepted, skipped: skipped + result.skipped, skipReasons };

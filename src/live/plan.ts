@@ -10,11 +10,10 @@ import { quantVeto, readMapQuant, type QuantTape } from "../agent/quant";
 import { tradingGates } from "../paper/gates";
 import { fetchZoneCards, lastPricesFromMap, mapAcceptEnabled } from "../paper/map-accept";
 import { confirm15Bar, paperArmMaxSymbols, proximityArmEnabled } from "../paper/proximity";
-import { compareZoneCards } from "../paper/score";
+import { familyRankCompare, mapAllocateMode, planMapAccept } from "../strategy/allocate";
 import type { PaperKlineSnap } from "../paper/types";
 import { parseZoneCard, type ZoneCard } from "../zones/card";
 import { proximityDecision } from "../zones/proximity";
-import { LEDGER_CAP_PER_SYMBOL } from "../zones/ledger";
 import type { LiveDb, ShadowCard } from "./db";
 import { taArmReason, type TaArmTape, type TaOscTape } from "../agent/ta-gate";
 
@@ -111,64 +110,58 @@ export async function planMapClose(
   const cards = await fetchCards(feedUrl);
   const biases = readMapBias(info.map);
   const tapes = readMapQuant(info.map);
-  const rows: Array<{ card: ZoneCard; allow: boolean; reason: PolicyReason }> = [];
+  const items: Array<{ card: ZoneCard }> = [];
   for (const raw of cards) {
-    let card: ZoneCard;
     try {
-      card = parseZoneCard(raw);
+      items.push({ card: parseZoneCard(raw) });
     } catch {
       continue;
     }
-    const decision = decideMapAccept({
-      card,
-      bias: biases.get(card.symbol),
-      last: lastBySymbol.get(card.symbol),
+  }
+  const mode = mapAllocateMode();
+  const decisions = planMapAccept({
+    items,
+    standingFor: (symbol) => {
+      const rows = store.accepted(now).filter((row) => row.symbol === symbol);
+      return { count: rows.length, zoneIds: rows.map((row) => row.zoneId) };
+    },
+    compare: mode === "rank" ? familyRankCompare() : undefined,
+    decide: (item, acceptedForSymbol) => decideMapAccept({
+      card: item.card,
+      bias: biases.get(item.card.symbol),
+      last: lastBySymbol.get(item.card.symbol),
       minRr: opts.minRr,
-      acceptedForSymbol: store.acceptedForSymbol(card.symbol),
+      acceptedForSymbol,
       tradingAllowed: gates.tradingAllowed,
       now,
-      tape: tapes.get(card.symbol),
+      tape: tapes.get(item.card.symbol),
       family: null,
-      osc: opts.oscBySymbol?.get(card.symbol) ?? null,
-    });
-    rows.push({ card, allow: decision.allow, reason: decision.reason });
-  }
-
-  const passed = rows.filter((row) => row.allow).map((row) => row.card);
-  const ranked = [...passed].sort((a, b) => compareZoneCards(a, b, () => null));
-  const take = new Set<string>();
-  const takenBySymbol = new Map<string, number>();
-  for (const card of ranked) {
-    const standing = store.acceptedForSymbol(card.symbol) + (takenBySymbol.get(card.symbol) ?? 0);
-    if (standing >= LEDGER_CAP_PER_SYMBOL) continue;
-    take.add(card.zoneId);
-    takenBySymbol.set(card.symbol, (takenBySymbol.get(card.symbol) ?? 0) + 1);
-  }
+      osc: opts.oscBySymbol?.get(item.card.symbol) ?? null,
+    }),
+  });
 
   const accepted: string[] = [];
   let skipped = 0;
-  for (const row of rows) {
-    let allow = row.allow && take.has(row.card.zoneId);
-    let reason = row.reason;
-    if (row.allow && !allow) reason = "ledger_cap";
+  items.forEach((item, i) => {
+    const decision = decisions[i]!;
     store.recordEvent({
       ts: now,
       kind: "map_plan",
-      symbol: row.card.symbol,
-      zoneId: row.card.zoneId,
-      allow,
-      reason,
-      last: lastBySymbol.get(row.card.symbol),
-      payload: { reason },
+      symbol: item.card.symbol,
+      zoneId: item.card.zoneId,
+      allow: decision.allow,
+      reason: decision.reason,
+      last: lastBySymbol.get(item.card.symbol),
+      payload: { reason: decision.reason },
     });
-    if (!allow) {
+    if (!decision.allow) {
       skipped += 1;
-      bumpSkipReason(skipReasons, reason);
-      continue;
+      bumpSkipReason(skipReasons, decision.reason);
+      return;
     }
-    store.acceptCard(row.card, now);
-    accepted.push(row.card.zoneId);
-  }
+    store.acceptCard(item.card, now);
+    accepted.push(item.card.zoneId);
+  });
   return { accepted, skipped, skipReasons, evaluated: true };
 }
 
@@ -216,7 +209,7 @@ export function planArm(
     candidates.push(row);
   }
 
-  candidates.sort((a, b) => compareZoneCards(a.card, b.card, () => null));
+  candidates.sort((a, b) => familyRankCompare()(a.card, b.card));
   let free = cap == null ? candidates.length : cap - occupied.size;
   for (const row of candidates) {
     if (free <= 0) break;

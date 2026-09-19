@@ -7,6 +7,7 @@ src/index.ts
   → src/feed/bb     public linear WS → SQLite → HTTP :43180
   → src/zones       zone-card schema + HTF suggest + proximity math
   → src/agent       paper-only MAP bias + accept policy (no arm)
+  → src/strategy    who gets a scarce slot: MAP allocation order
   → src/paper       simulated broker → SQLite → HTTP :43181
 
 src/live/cli.ts     live-shadow observer → SQLite → HTTP :43182
@@ -16,7 +17,7 @@ src/live/cli.ts     live-shadow observer → SQLite → HTTP :43182
 Feed HTTP never imports paper. The composition root:
 
 1. Injects `paperDesk` into `GET /brief-pack` and `paperObserve` into `GET /observe`.
-2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone`. Family paper score ranks before the per-symbol cap when history exists (`PAPER_ZONE_SCORE=0` off). `MAP_ACCEPT=0` = no copy. `AGENT_MAP=0` = policy no-op (old copy still runs).
+2. On confirmed **4H** `map.close`, MAP_ACCEPT pick → agent policy → `acceptZone`. Which card of a symbol takes the last slot is `src/strategy`'s decision (`PAPER_MAP_ALLOCATE=feed|rank`, default `feed` = arrival order), and the desk, the shadow and the walk all run it. `MAP_ACCEPT=0` = no copy. `AGENT_MAP=0` = policy no-op (old copy still runs).
 3. Paper tick proximity-arms accepted cards when last is in-band **and** the last confirmed 15m agrees (`PAPER_PROXIMITY_ARM=0` / `PAPER_CONFIRM_15=0` off). Host `PAPER_OBSERVE=1` blocks POST arm; in-process ARM still runs.
 
 HTTP contract: [http.md](http.md).
@@ -32,10 +33,11 @@ HTTP contract: [http.md](http.md).
 | `src/ta/` | Overlay pack + `GET /ta`. 22 methods. Does not arm. ICT not a signal |
 | `src/zones/` | Zone-card v1, HTF detector (S/D + breakout + reversal), ledger helpers, proximity |
 | `src/agent/` | Paper-only MAP bias + policy gate (no auto-arm) |
+| `src/strategy/` | Slot allocation: which card gets a scarce per-symbol MAP slot |
 | `src/paper/` | Paper ledger, OCO limits, tick, replay, metrics |
 | `src/live/` | Live-shadow observer (own DB, own HTTP). Policy only |
 | `src/terminal/` | `bun run term` — read-only Trading Terminal (T3). GETs `/observe`, renders text. No engine, no store, no command source |
-| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` `test/live/` `test/ta/` `test/terminal/` | Tests |
+| `test/feed/bb/` `test/zones/` `test/paper/` `test/agent/` `test/strategy/` `test/live/` `test/ta/` `test/terminal/` | Tests |
 | `deploy/` | systemd + `pull-restart.sh` + `backup-db.sh` + `scripts/ops-check.sh` |
 | `.github/workflows/` | typecheck + test (no daemon, no keys) |
 
@@ -49,6 +51,7 @@ HTTP contract: [http.md](http.md).
 | TA | `src/ta/` | Overlay pack. Does not arm. Missing ≠ 0. Not a signal. |
 | Zones | `src/zones/` | Schema + setups (S/D, breakout, reversal). `GET /zones` is GET-only. |
 | Agent | `src/agent/` | 4H HH/HL bias + accept policy + P7 setup-aware gates. Does not arm. Does not change `/map`. |
+| Strategy | `src/strategy/` | Allocates scarce per-symbol MAP slots by an explicit order. Pure, no DB, no engine. Does not arm, does not place. |
 | Paper | `src/paper/` | Simulated broker. Own DB, own HTTP. Reads feed prices only. |
 | Live | `src/live/` | Shadow MAP/ARM. Own DB, own HTTP. Never `acceptZone` / `paperArm`. |
 
