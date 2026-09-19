@@ -3,9 +3,12 @@ import { parseZoneCard } from "../../src/zones/card";
 import {
   ZONE_DETECT,
   atrSma,
+  buildGeometryCard,
+  deadMinRrWarning,
   detectZoneCards,
   intervalMsForTf,
   parseZoneInterval,
+  zoneMinRr,
   type DetectBar,
 } from "../../src/zones/detect";
 
@@ -134,5 +137,74 @@ describe("zone detect (suggest-only)", () => {
       maxZones: ZONE_DETECT.maxZonesPerSymbol,
     });
     expect(cards.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("zoneMinRr", () => {
+  const saved = process.env.ZONE_MIN_RR;
+
+  function withFloor(raw: string | undefined, run: () => void) {
+    if (raw === undefined) delete process.env.ZONE_MIN_RR;
+    else process.env.ZONE_MIN_RR = raw;
+    try {
+      run();
+    } finally {
+      if (saved === undefined) delete process.env.ZONE_MIN_RR;
+      else process.env.ZONE_MIN_RR = saved;
+    }
+  }
+
+  test("unset is the drawn floor, garbage falls back rather than becoming 0", () => {
+    withFloor(undefined, () => expect(zoneMinRr()).toBe(ZONE_DETECT.minRr));
+    withFloor("", () => expect(zoneMinRr()).toBe(ZONE_DETECT.minRr));
+    withFloor("abc", () => expect(zoneMinRr()).toBe(ZONE_DETECT.minRr));
+    withFloor("0", () => expect(zoneMinRr()).toBe(ZONE_DETECT.minRr));
+    withFloor("-1", () => expect(zoneMinRr()).toBe(ZONE_DETECT.minRr));
+    withFloor("1.5", () => expect(zoneMinRr()).toBe(1.5));
+  });
+
+  test("the target a card is drawn to follows the floor, entry and stop do not", () => {
+    const geometry = {
+      symbol: "BTCUSDT",
+      tf: TF,
+      intervalMs: INTERVAL_MS,
+      side: "supply" as const,
+      setup: "sd" as const,
+      zoneLow: 100,
+      zoneHigh: 102,
+      baseStartTs: 16 * INTERVAL_MS,
+      baseEndTs: 18 * INTERVAL_MS,
+      atr: 1.2,
+      later: [],
+      impulseBody: 0.2,
+      departureAtr: 0.4,
+      seq: 1,
+    };
+    const rows: string[] = [];
+    for (const raw of [undefined, "1.5", "3"]) {
+      withFloor(raw, () => {
+        const card = buildGeometryCard(geometry);
+        expect(card?.rr).toBe(zoneMinRr());
+        rows.push(card ? `${card.rr}|${card.entry}|${card.sl}|${card.tp}` : "null");
+      });
+    }
+    // This is the whole dead-config mechanism: the card sits exactly on the floor,
+    // so an account min_rr between 1.5 and 2 can never reject anything.
+    expect(rows).toEqual(["2|100.6|102.3|97.2", "1.5|100.6|102.3|98.05", "3|100.6|102.3|95.5"]);
+  });
+
+  test("a min_rr below the drawn floor is named as dead config", () => {
+    withFloor(undefined, () => {
+      expect(deadMinRrWarning("1.5")).toContain("account.min_rr=1.5 can never bind");
+      expect(deadMinRrWarning("2")).toBeNull();
+      expect(deadMinRrWarning("3")).toBeNull();
+      expect(deadMinRrWarning(null)).toBeNull();
+      expect(deadMinRrWarning("")).toBeNull();
+      expect(deadMinRrWarning("abc")).toBeNull();
+    });
+    withFloor("1.5", () => {
+      expect(deadMinRrWarning("1.5")).toBeNull();
+      expect(deadMinRrWarning("1.2")).toContain("below 1.5R");
+    });
   });
 });

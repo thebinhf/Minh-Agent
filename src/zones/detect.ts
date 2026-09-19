@@ -30,6 +30,36 @@ export const ZONE_DETECT = {
   maxZonesPerSymbol: 2,
 } as const;
 
+/**
+ * RR floor for the geometry a card is allowed to have at all — below it no card
+ * is drawn, so this is upstream of the account's `min_rr`, which can only ever
+ * reject a card that this floor already let exist. One value for live detection
+ * and replay alike: two processes drawing different cards is the bug, not the
+ * fix. `ZONE_MIN_RR` lowers or raises it deliberately; garbage is rejected at
+ * boot by `assertValidRuntimeEnv`.
+ */
+export function zoneMinRr(raw: string | undefined = process.env.ZONE_MIN_RR): number {
+  if (raw === undefined || raw.trim() === "") return ZONE_DETECT.minRr;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : ZONE_DETECT.minRr;
+}
+
+/**
+ * An account `min_rr` below the detection floor is dead config — it cannot reject
+ * anything, because no card that loose is ever drawn. Name it at boot instead of
+ * letting an operator believe the knob is set.
+ */
+export function deadMinRrWarning(
+  minRr: string | null | undefined,
+  drawn = zoneMinRr(),
+): string | null {
+  if (minRr == null || minRr === "") return null;
+  const floor = Number(minRr);
+  if (!Number.isFinite(floor) || floor >= drawn) return null;
+  return `account.min_rr=${minRr} can never bind: detection drops every card below ${drawn}R `
+    + `(set ZONE_MIN_RR=${minRr} to draw them, or raise min_rr to ${drawn}+)`;
+}
+
 export type DetectBar = {
   startTs: number;
   open: number;
@@ -245,15 +275,16 @@ export function buildGeometryCard(opts: GeometryCardOpts): ZoneCard | null {
   const sl = opts.side === "supply" ? distal + buf : distal - buf;
   const risk = Math.abs(sl - entry);
   if (!(risk > 0)) return null;
-  const tpRr2 = opts.side === "supply" ? entry - ZONE_DETECT.minRr * risk : entry + ZONE_DETECT.minRr * risk;
+  const minRr = zoneMinRr();
+  const tpRr2 = opts.side === "supply" ? entry - minRr * risk : entry + minRr * risk;
   const measured = opts.side === "supply" ? proximal - opts.impulseBody : proximal + opts.impulseBody;
   const measuredReward = Math.abs(entry - measured);
   const measuredRr = measuredReward / risk;
-  const useMeasured = measuredRr >= ZONE_DETECT.minRr
+  const useMeasured = measuredRr >= minRr
     && (opts.side === "supply" ? measured < entry : measured > entry);
   const tp = useMeasured ? measured : tpRr2;
   const rr = Math.abs(tp - entry) / risk;
-  if (rr < ZONE_DETECT.minRr) return null;
+  if (rr < minRr) return null;
   const raw: ZoneCard = {
     zoneId: zoneIdFor(opts.symbol, opts.tf, opts.side, opts.baseStartTs, opts.seq, opts.setup),
     symbol: opts.symbol.trim().toUpperCase(),

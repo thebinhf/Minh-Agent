@@ -1,5 +1,6 @@
 import { loadConfig as loadFeedConfig } from "../feed/bb/config";
 import { assertValidRuntimeEnv } from "../config/runtime-flags";
+import { deadMinRrWarning } from "../zones/detect";
 import { assertNoApiKeys, assertSeparateDb, loadPaperConfig } from "./config";
 import { openPaperDb } from "./db";
 import { createPaperEngine, type PaperEngine } from "./engine";
@@ -58,6 +59,8 @@ export async function startPaper(opts?: {
   console.log(`[minh:paper] http://${config.httpHost}:${http.port} db=${config.dbPath}`);
   console.log("[minh:paper] paper simulation only — no API keys, no real orders");
   console.log(`[minh:paper] notify ${describeNotify(config.notify)}`);
+  const deadFloor = deadMinRrWarning(config.account.minRr);
+  if (deadFloor) console.error(`[minh:paper] ${deadFloor}`);
   if (observerMode()) {
     console.log("[minh:paper] observer — POST mutations blocked; MAP/ARM/EVENT in-process");
   }

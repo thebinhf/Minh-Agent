@@ -3,6 +3,7 @@ import { assertValidRuntimeEnv } from "../config/runtime-flags";
 import { PaperSafetyError } from "../paper/errors";
 import { httpFeed } from "../paper/feed";
 import { gatesFromFeedHealth } from "../paper/gates";
+import { deadMinRrWarning } from "../zones/detect";
 import type { PaperKlineSnap } from "../paper/types";
 import type { QuantTape } from "../agent/quant";
 import { taArmFlagsOn, taOscMode, taShockMode, type TaArmTape } from "../agent/ta-gate";
@@ -210,6 +211,8 @@ export async function startLive(opts?: {
 
   console.log(`[minh:live] http://${config.httpHost}:${http.port} db=${config.dbPath}`);
   console.log("[minh:live] shadow only — no API keys, no orders, no paper ledger");
+  const deadFloor = deadMinRrWarning(config.minRr);
+  if (deadFloor) console.error(`[minh:live] ${deadFloor}`);
 
   return {
     store,

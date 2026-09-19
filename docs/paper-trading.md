@@ -426,7 +426,7 @@ Success `201`:
 }
 ```
 
-(`rr` is stored even when below 2 — no hardcoded reject unless `minRr` is set on the account.)
+(`rr` is stored even when below 2 — the engine has no hardcoded reject; `minRr` on the account is the only one. But **detected** cards never come in below the detection target (`ZONE_MIN_RR`, default 2R — see [operator.md](operator.md)), so an account `min_rr` under that number rejects nothing and the paper/agent boot says so.)
 
 Reject `400`:
 
