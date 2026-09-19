@@ -97,13 +97,14 @@ const DEMAND: ZoneCard = {
 
 const ARM_DEMAND_LAST = 79_450;
 
-function liveConfig(dir: string) {
+function liveConfig(dir: string, over: { mapPollMs?: number } = {}) {
   return {
     httpHost: "127.0.0.1",
     httpPort: 0,
     dbPath: join(dir, "live-shadow.sqlite"),
     feedUrl: "http://127.0.0.1:43180",
     tickMs: 0,
+    mapPollMs: over.mapPollMs ?? 0,
     minRr: null as string | null,
   };
 }
@@ -377,6 +378,73 @@ describe("live-shadow HTTP", () => {
       expect(cardsFetched).toBe(1);
       expect(planRows()).toHaveLength(1);
     } finally {
+      svc.stop();
+    }
+  });
+
+  test("the MAP dump is fetched on the poll cadence, not on every ARM tick", async () => {
+    const dir = tempRoot();
+    const map = mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) });
+    let fetches = 0;
+    const svc = await startLive({
+      config: liveConfig(dir, { mapPollMs: 30_000 }),
+      tick: false,
+      fetchCards: async () => [DEMAND],
+      feed: {
+        health: async () => ({ ok: true, url: "http://127.0.0.1:43180/health", klineLagOk: true }),
+        tickers: async () => [{ symbol: "BTCUSDT", lastPrice: String(ARM_DEMAND_LAST) }],
+        lastKline: async () => null,
+        mapLatest: async () => {
+          fetches += 1;
+          return map;
+        },
+      },
+    });
+    const t0 = Date.now();
+    try {
+      for (let i = 0; i < 8; i++) await svc.tick();
+      expect(fetches).toBe(1);
+      setSystemTime(t0 + 31_000);
+      await svc.tick();
+      expect(fetches).toBe(2);
+    } finally {
+      setSystemTime(MAP_CARD_ASOF);
+      svc.stop();
+    }
+  });
+
+  test("a bar denied inside the window is retried on the next allowed poll", async () => {
+    const dir = tempRoot();
+    const map = mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) });
+    let feedOk = false;
+    let cards = 0;
+    const svc = await startLive({
+      config: liveConfig(dir, { mapPollMs: 30_000 }),
+      tick: false,
+      fetchCards: async () => {
+        cards += 1;
+        return [DEMAND];
+      },
+      feed: {
+        health: async () => ({ ok: feedOk, url: "http://127.0.0.1:43180/health", klineLagOk: feedOk }),
+        tickers: async () => [{ symbol: "BTCUSDT", lastPrice: String(ARM_DEMAND_LAST) }],
+        lastKline: async () => null,
+        mapLatest: async () => map,
+      },
+    });
+    const t0 = Date.now();
+    try {
+      for (let i = 0; i < 6; i++) await svc.tick();
+      expect(cards).toBe(0);
+      feedOk = true;
+      for (let i = 0; i < 6; i++) await svc.tick();
+      expect(cards).toBe(0);
+      setSystemTime(t0 + 31_000);
+      await svc.tick();
+      expect(cards).toBe(1);
+      expect(svc.store.accepted(Date.now()).map((row) => row.zoneId)).toEqual([DEMAND.zoneId]);
+    } finally {
+      setSystemTime(MAP_CARD_ASOF);
       svc.stop();
     }
   });

@@ -92,6 +92,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_HTTP_HOST` / `PAPER_HTTP_PORT` | `127.0.0.1` / `43181` | Paper bind |
 | `PAPER_DB_PATH` | paper SQLite | Ledger (must not equal the feed DB) |
 | `LIVE_HTTP_HOST` / `LIVE_HTTP_PORT` | `127.0.0.1` / `43182` | Live-shadow bind (`bun run live`) |
+| `LIVE_MAP_POLL_MS` | `30000` | How often the shadow fetches the MAP dump. The ARM tick (`LIVE_TICK_MS`, 400 ms) is separate — a 4H bar cannot arrive faster than the poll, and the watchlist body is ~680 KB |
 | `LIVE_DB_PATH` | live-shadow SQLite | Must not equal paper or feed |
 | `LIVE_FEED_URL` | `http://127.0.0.1:43180` | Public tape. Does not start a second WS |
 | `EXEC_MODE` | (none) | `testnet` or `mainnet`. Exec refuses to start without it; `mainnet` also needs `EXEC_MAINNET_CONFIRM=1` |

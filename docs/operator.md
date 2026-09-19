@@ -53,7 +53,8 @@ wall-clock `ts` of the cycle that wrote it and the panel prints it as
 `plan=... (Nm ago)`, so read that first — a plan older than the newest 4H close
 means the shadow did not evaluate that bar. It does not need a restart to recover:
 a bar is consumed only by a cycle that actually evaluated its cards, so a
-gate-denied one (feed down, a boot race with it) runs again on the next tick.
+gate-denied one (feed down, a boot race with it) runs again on the next map poll
+(`LIVE_MAP_POLL_MS`, default 30s).
 When there is no plan age at all, the cause is upstream: `shadow off` /
 `shadow down` means no shadow is wired or reachable, and `MAP_ACCEPT=0` plans
 nothing.
