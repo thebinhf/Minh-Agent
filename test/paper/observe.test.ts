@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { parsePaperArgs, runPaperCommand } from "../../src/paper/cli";
 import { startPaperHttp } from "../../src/paper/http";
 import { createPaperEngine } from "../../src/paper/engine";
-import { observerMode, paperObserve } from "../../src/paper/observe";
+import { observerAllowsMutation, observerBlocksCommand, observerMode, paperObserve } from "../../src/paper/observe";
 import { OPEN_LONG, mockFeed, paperConfig, tempStore } from "./helpers";
 
 const dirs: string[] = [];
@@ -78,7 +78,7 @@ describe("observer lock", () => {
       };
       expect(body.mode).toBe("observe");
       expect(body.observer).toBe(true);
-      expect(body.mutations).toBe("blocked");
+      expect(body.mutations).toBe("exits-only");
       const post = await fetch(`${url}/paper/positions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -87,6 +87,75 @@ describe("observer lock", () => {
       expect(post.status).toBe(403);
       const err = await post.json() as { error: string };
       expect(err.error).toBe("observer");
+    } finally {
+      server.stop();
+      ctx.store.close();
+    }
+  });
+
+  test("the lock splits exits from entries on both surfaces", async () => {
+    process.env.PAPER_OBSERVE = "1";
+    for (const path of [
+      "/paper/positions/7/close", "/paper/orders/7/cancel", "/paper/alerts/7/cancel", "/paper/mark",
+    ]) {
+      expect(observerAllowsMutation(path)).toBe(true);
+    }
+    for (const path of [
+      "/paper/positions", "/paper/orders", "/paper/alerts", "/paper/arm", "/paper/zones",
+      "/paper/zones/btc-4h-s-1/reject", "/paper/positions/7/not-a-route",
+    ]) {
+      expect(observerAllowsMutation(path)).toBe(false);
+    }
+    expect(["close", "cancel", "alert-cancel", "mark"].map(observerBlocksCommand)).toEqual([false, false, false, false]);
+    expect(["open", "limit", "arm", "zone-accept", "zone-reject", "alert-set"].map(observerBlocksCommand))
+      .toEqual([true, true, true, true, true, true]);
+
+    const ctx = await tempStore();
+    dirs.push(ctx.dir);
+    const config = await paperConfig(ctx.dir);
+    const engine = createPaperEngine({
+      store: ctx.store,
+      feed: mockFeed(),
+      config,
+      universe: { symbols: ["BTCUSDT"], intervals: ["15", "60", "240"] },
+    });
+    // An exit must fail for the boring reason (nothing with that id), never because
+    // the operator is locked out of getting flat.
+    for (const command of [
+      { name: "close", id: 4242 }, { name: "cancel", id: 4242 },
+      { name: "alert-cancel", id: 4242 }, { name: "mark" },
+    ] as const) {
+      const outcome = await runPaperCommand(engine, command as never).catch((error: unknown) => error);
+      expect((outcome as { error?: string })?.error).not.toBe("observer");
+    }
+    ctx.store.close();
+  });
+
+  test("HTTP lets the four exit routes through and still 403s an entry", async () => {
+    process.env.PAPER_OBSERVE = "1";
+    const ctx = await tempStore();
+    dirs.push(ctx.dir);
+    const config = await paperConfig(ctx.dir, { httpPort: 0 });
+    const engine = createPaperEngine({
+      store: ctx.store,
+      feed: mockFeed(),
+      config,
+      universe: { symbols: ["BTCUSDT"], intervals: ["15", "60", "240"] },
+    });
+    const server = startPaperHttp(config, engine, mockFeed());
+    const url = `http://127.0.0.1:${server.port}`;
+    try {
+      const marked = await fetch(`${url}/paper/mark`, { method: "POST" });
+      expect(marked.status).not.toBe(403);
+      const close = await fetch(`${url}/paper/positions/4242/close`, { method: "POST" });
+      expect(close.status).not.toBe(403);
+      const arm = await fetch(`${url}/paper/arm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(OPEN_LONG),
+      });
+      expect(arm.status).toBe(403);
+      expect(((await arm.json()) as { message: string }).message).toContain("exits allowed");
     } finally {
       server.stop();
       ctx.store.close();

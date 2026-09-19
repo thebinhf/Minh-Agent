@@ -39,7 +39,7 @@ P7 TA gates (`PAPER_TA_FIB` / `AGENT_TA_OSC` / vol / shock / rev) stay **off** u
 | **P6 overlay** | `GET /ta` 22 methods. Not a signal. Does not arm. ICT confirm only | Off the MAP path |
 | **P7 TA gates** | Opt-in flags: `PAPER_TA_FIB=arm`, `AGENT_TA_OSC=accept`, `PAPER_TA_VOL=arm`, `PAPER_TA_SHOCK=arm`, `PAPER_TA_REV=arm`. Setup-aware (`src/agent/strategy.ts`): fib/rev = S/D only; shock = S/D+breakout; vol = all; reversal cards skip rev. `--one-book` applies osc. ARM waits count once per card in `skipReasons` (`ta_fib`/`ta_vol`/`ta_shock`/`ta_rev`). Missing tape is not a veto. One flag / one 180d A/B | All **off** — **not MVP** |
 | **P8 setups** | Breakout retest + reversal candle emit zone-cards (same MAP/ARM/EVENT). `PAPER_SETUPS` default `sd,breakout,reversal`. `0` = S/D only. GET `/ta` still `signal: false`. ICT/discretionary do not emit | On. A/B: `sd` vs default |
-| **Observer** | `PAPER_OBSERVE=1` GET-only mutations. `GET /observe` machine snapshot | Host unit |
+| **Observer** | `PAPER_OBSERVE=1` refuses entries, serves exits (close/cancel/mark). `GET /observe` machine snapshot | Host unit |
 
 180d one-book QA after #64 is the baseline: `flow_bars=0` / `liquidations=0` flagged, not zeroed. ARM cap ranks. `skipReasons` counts floor vs skip vs chop. After #65, `PAPER_MAP_SKIP` default is none (HYPE has a venue spec). Combined ARM=2 + skip-HYPE lost −216 vs ARM=2 HYPE-on.
 

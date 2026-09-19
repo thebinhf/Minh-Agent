@@ -4,7 +4,7 @@ import type { PaperEngine } from "./engine";
 import { parseMetricsDays, paperMetrics } from "./metrics";
 import { paperArm, paperDay, paperStatus, paperWeek } from "./ops";
 import { paperEvent } from "./event";
-import { paperObserve, observerMode } from "./observe";
+import { observerAllowsMutation, observerMode, paperObserve } from "./observe";
 import { resolveAcceptPayload } from "./zone-accept";
 import type { AlertStatus, OrderStatus, PaperConfig, PaperFeed, TakeProfitPlan } from "./types";
 
@@ -80,11 +80,11 @@ export function startPaperHttp(config: PaperConfig, engine: PaperEngine, feed: P
       const path = url.pathname;
 
       try {
-        if (observerMode() && req.method !== "GET" && req.method !== "OPTIONS") {
+        if (observerMode() && req.method !== "GET" && req.method !== "OPTIONS" && !observerAllowsMutation(path)) {
           return json({
             mode: "paper",
             error: "observer",
-            message: "PAPER_OBSERVE=1 — GET only; MAP/ARM/EVENT run in-process",
+            message: "PAPER_OBSERVE=1 — entries refused (open/limit/arm/zones/alert-set); exits allowed (close, order/alert cancel, mark); MAP/ARM/EVENT run in-process",
           }, 403);
         }
 

@@ -13,7 +13,7 @@ The host loop does not wait for a click:
 3. Last in proximal + confirmed 15m with the zone → post-only GTC + OCO.
 4. Tick fills at the limit, or invalidates through SL. Open uses SL/TP.
 
-Watch `GET /observe` (feed + tape coverage + live-shadow + paper). Event-once notify (log / Telegram / webhook). `PAPER_OBSERVE=1` on the host unit blocks POST arm/open. Kill switch: `PAPER_OBSERVE=0` via `systemctl edit`.
+Watch `GET /observe` (feed + tape coverage + live-shadow + paper). Event-once notify (log / Telegram / webhook). `PAPER_OBSERVE=1` on the host unit refuses POST arm/open and rejects manual entries; close / cancel / mark still work so an operator can always get flat. Kill switch: `PAPER_OBSERVE=0` via `systemctl edit`.
 
 ```text
 deploy/enable-mesh.sh
@@ -139,7 +139,7 @@ Defaults live in [`src/feed/bb/config.json`](src/feed/bb/config.json) and [`src/
 | `PAPER_ARM_MAX` | `2` | Max symbols with pending/open. Cap ranks ready cards by family score then `rr` then `zoneId` (`PAPER_ZONE_SCORE_RR=1` inserts realized RR first). Occupied slots stay. `0` = unlimited (still one per symbol). 180d: 2 beat 3/5/0 |
 | `PAPER_SLIPPAGE` | on (`0` disables) | Taker market / close / `--cross` immediate walk live L50. Resting limit and SL/TP stay 0 |
 | `PAPER_NOTIFY` | log | `telegram` or `webhook` for event-once pings (`zone.accepted` / `zone.armed` / fill / OCO / close) |
-| `PAPER_OBSERVE` | off (host unit `1`) | `1` = GET-only paper HTTP/CLI. MAP/ARM/EVENT still run. systemd sets this. |
+| `PAPER_OBSERVE` | off (host unit `1`) | `1` = entries refused (open/limit/arm/zone accept+reject/alert-set), exits served (close, order/alert cancel, mark) on HTTP and CLI. MAP/ARM/EVENT still run. systemd sets this. |
 
 Every flag above is validated at boot (`src/config/runtime-flags.ts`). A value that cannot mean anything — `PAPER_ARM_MAX=abc`, `PAPER_TA_FIB=armed`, `MINH_DECISION_LOG=on` — makes the feed, paper, live-shadow and the paper CLI **refuse to start** and lists each offender, instead of quietly falling back to the default. An operator typo can no longer read as a strategy change.
 

@@ -62,7 +62,7 @@ export async function startPaper(opts?: {
   const deadFloor = deadMinRrWarning(config.account.minRr);
   if (deadFloor) console.error(`[minh:paper] ${deadFloor}`);
   if (observerMode()) {
-    console.log("[minh:paper] observer — POST mutations blocked; MAP/ARM/EVENT in-process");
+    console.log("[minh:paper] observer — entries refused, close/cancel/mark allowed; MAP/ARM/EVENT in-process");
   }
   if (tick) {
     console.log(`[minh:paper] tick ${config.tickMs}ms — alerts/limits/SL-TP; events only, no PnL spam`);

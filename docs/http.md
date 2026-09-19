@@ -295,6 +295,8 @@ Rejects: `400` `{ "mode": "paper", "error", "gate", … }` except `not_found` �
 
 New open / limit / arm reject when feed WS is down (`feed_unhealthy`) or `klineLag.ok` is false (`kline_lag`). Open positions are **not** auto-closed.
 
+Under `PAPER_OBSERVE=1` the lock splits by direction, not by method: entries (`POST /paper/positions`, `/paper/orders`, `/paper/arm`, `/paper/alerts`, `/paper/zones` accept and reject) return **403**, exits (`POST /paper/positions/:id/close`, `/paper/orders/:id/cancel`, `/paper/alerts/:id/cancel`, `/paper/mark`) are served — an operator must always be able to get flat.
+
 ### Health and desk
 
 | Route | Notes |
