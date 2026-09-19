@@ -3,6 +3,7 @@ import { loadConfig as loadFeedConfig } from "../feed/bb/config";
 import { openDb } from "../feed/bb/db";
 import { intervalToMs, parseTimeArg } from "../feed/bb/recovery";
 import { agentMapEnabled, bumpSkipReason, decideMapAccept, emptySkipReasons, mergeSkipReasons, type PolicyReason } from "../agent/policy";
+import { emitDecision, formatDecision } from "../agent/decision-log";
 import {
   biasFromBars,
   combineHtfBias,
@@ -164,7 +165,7 @@ function replayDecide(input: {
   family: FamilyStats | null | undefined;
   bars240: ReplayBar[];
 }) {
-  return decideMapAccept({
+  const decision = decideMapAccept({
     card: input.card,
     bias: input.bias,
     last: input.last,
@@ -176,6 +177,18 @@ function replayDecide(input: {
     family: input.family ?? null,
     osc: oscFromReplay(input.bars240),
   });
+  // The walk already evaluates every card with as-of features; labelling it is
+  // what turns 180 days of replay into a corpus instead of a verdict count.
+  emitDecision(formatDecision({
+    card: input.card,
+    bias: input.bias,
+    last: input.last,
+    tape: input.tape,
+    family: input.family ?? null,
+    decision,
+    asof: input.asof,
+  }));
+  return decision;
 }
 
 function noteTaWaits(
