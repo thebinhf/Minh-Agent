@@ -196,6 +196,42 @@ describe("live-shadow plan", () => {
     }
   });
 
+  test("a standing card keeps its seat and its original expiry at the next close", async () => {
+    const dir = tempRoot();
+    const live = openLiveDb(join(dir, "live.sqlite"));
+    const map = mapPayload({ direction: "bull", lastPrice: String(ARM_DEMAND_LAST) });
+    try {
+      const first = await planMapClose(live, { interval: "240", map }, {
+        fetchCards: async () => [DEMAND],
+        health: { ok: true, klineLagOk: true },
+        minRr: null,
+        now: MAP_CARD_ASOF,
+      });
+      expect(first?.accepted).toEqual([DEMAND.zoneId]);
+      const stamped = live.accepted().find((row) => row.zoneId === DEMAND.zoneId);
+
+      // The same card, the next 4H close. It is an incumbent: it holds one of the
+      // two slots, so it must not be charged for one, and re-writing it would
+      // re-stamp accepted_ts and slide expires_ts forward on every close forever.
+      const next = MAP_CARD_ASOF + 4 * 60 * 60 * 1000;
+      const second = await planMapClose(live, { interval: "240", map }, {
+        fetchCards: async () => [DEMAND],
+        health: { ok: true, klineLagOk: true },
+        minRr: null,
+        now: next,
+      });
+      expect(second?.accepted).toEqual([]);
+      expect(second?.skipReasons.ledger_cap).toBe(0);
+      const kept = live.accepted().find((row) => row.zoneId === DEMAND.zoneId);
+      expect(kept?.acceptedTs).toBe(stamped?.acceptedTs);
+      expect(kept?.expiresTs).toBe(stamped?.expiresTs);
+      // The verdict is still recorded — only the write is skipped.
+      expect(live.events(50).some((row) => row.zoneId === DEMAND.zoneId && row.allow && row.ts === next)).toBe(true);
+    } finally {
+      live.close();
+    }
+  });
+
   test("cold family (null) is not a veto; ARM records would-arm once and never paperArm", async () => {
     const dir = tempRoot();
     const live = openLiveDb(join(dir, "live.sqlite"));
