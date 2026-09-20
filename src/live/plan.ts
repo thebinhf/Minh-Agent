@@ -119,11 +119,15 @@ export async function planMapClose(
     }
   }
   const mode = mapAllocateMode();
+  // Read the standing set once: the allocator needs it per symbol and the apply
+  // loop needs it to recognise an incumbent.
+  const standingRows = store.accepted(now);
+  const standingIds = new Set(standingRows.map((row) => row.zoneId));
   const decisions = planMapAccept({
     items,
     standingFor: (symbol) => {
-      const rows = store.accepted(now).filter((row) => row.symbol === symbol);
-      return { count: rows.length, zoneIds: rows.map((row) => row.zoneId) };
+      const zoneIds = standingRows.filter((row) => row.symbol === symbol).map((row) => row.zoneId);
+      return { count: zoneIds.length, zoneIds };
     },
     compare: mode === "rank" ? familyRankCompare() : undefined,
     decide: (item, acceptedForSymbol) => decideMapAccept({
@@ -159,6 +163,11 @@ export async function planMapClose(
       bumpSkipReason(skipReasons, decision.reason);
       return;
     }
+    // An incumbent already holds a slot. Writing it again would re-stamp
+    // accepted_ts and slide its 8-day expiry forward on every close it keeps
+    // passing, so a standing card would never age out — the desk cannot do that
+    // because acceptZone raises duplicate_zone before it writes.
+    if (standingIds.has(item.card.zoneId)) return;
     store.acceptCard(item.card, now);
     accepted.push(item.card.zoneId);
   });
